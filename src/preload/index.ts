@@ -7,6 +7,7 @@ import type {
   NoteTitleMatch,
   SaveNoteRequest,
   SaveNoteResult,
+  SearchResult,
   SessionSummary,
   TreeEntry,
   VaultOpenResult
@@ -15,6 +16,7 @@ import type {
 const vaultApi = {
   openVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:open'),
   getTree: (): Promise<TreeEntry[]> => ipcRenderer.invoke('vault:getTree'),
+  getCurrentVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:getCurrent'),
 
   readNote: (path: string): Promise<NoteData> => ipcRenderer.invoke('notes:read', path),
   saveNote: (req: SaveNoteRequest): Promise<SaveNoteResult> => ipcRenderer.invoke('notes:save', req),
@@ -33,6 +35,8 @@ const vaultApi = {
   getBacklinks: (path: string): Promise<Backlink[]> => ipcRenderer.invoke('links:backlinks', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   listSessions: (): Promise<SessionSummary[]> => ipcRenderer.invoke('sessions:list'),
+  search: (query: string, type?: string): Promise<SearchResult[]> =>
+    ipcRenderer.invoke('search:fullText', query, type),
 
   onExternalChange: (callback: (event: ExternalChangeEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: ExternalChangeEvent): void =>

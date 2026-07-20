@@ -26,6 +26,7 @@ export function openVaultDb(dbPath: string): Database.Database {
   db.exec(`
     DROP TABLE IF EXISTS notes;
     DROP TABLE IF EXISTS links;
+    DROP TABLE IF EXISTS notes_fts;
 
     CREATE TABLE notes (
       path TEXT PRIMARY KEY,
@@ -44,6 +45,20 @@ export function openVaultDb(dbPath: string): Database.Database {
     );
     CREATE INDEX idx_links_source ON links(source_path);
     CREATE INDEX idx_links_target ON links(target_title);
+
+    -- path is UNINDEXED (stored but not tokenized/searched) since it's only
+    -- ever used to identify which row to delete/return, never matched
+    -- against. "metadata" holds every string value found anywhere in the
+    -- note's frontmatter (class, subclass, role, cr, tags, summary, etc.)
+    -- — not just tags — so e.g. a PC's class/subclass fields are searchable
+    -- even though they never appear in the note's body or title.
+    CREATE VIRTUAL TABLE notes_fts USING fts5(
+      path UNINDEXED,
+      title,
+      body,
+      metadata,
+      tokenize = 'porter unicode61'
+    );
   `)
   return db
 }

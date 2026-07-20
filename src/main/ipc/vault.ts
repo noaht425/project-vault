@@ -13,4 +13,5 @@ export function registerVaultIpc(session: VaultSession, window: BrowserWindow): 
   })
 
   ipcMain.handle('vault:getTree', async () => session.getTree())
+  ipcMain.handle('vault:getCurrent', async (): Promise<VaultOpenResult | null> => session.getCurrentVault())
 }

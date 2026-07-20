@@ -6,6 +6,7 @@ import { Editor } from './components/editor/Editor'
 import { ConflictBanner } from './components/conflicts/ConflictBanner'
 import { RightPanel } from './components/layout/RightPanel'
 import { TimelineView } from './components/timeline/TimelineView'
+import { SearchView } from './components/search/SearchView'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -19,11 +20,14 @@ function loadSidebarWidth(): number {
 export default function App(): React.JSX.Element {
   const vaultPath = useVaultStore((s) => s.vaultPath)
   const openVault = useVaultStore((s) => s.openVault)
+  const hydrateFromCurrent = useVaultStore((s) => s.hydrateFromCurrent)
   const setTree = useVaultStore((s) => s.setTree)
   const saveNow = useEditorStore((s) => s.saveNow)
   const markExternalChangePending = useEditorStore((s) => s.markExternalChangePending)
   const openNote = useEditorStore((s) => s.openNote)
   const [mainView, setMainView] = useState<'editor' | 'timeline'>('editor')
+  const [searchQuery, setSearchQuery] = useState('')
+  const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
 
@@ -44,6 +48,10 @@ export default function App(): React.JSX.Element {
       window.removeEventListener('mouseup', onMouseUp)
     }
   }, [sidebarWidth])
+
+  useEffect(() => {
+    void hydrateFromCurrent()
+  }, [hydrateFromCurrent])
 
   useEffect(() => {
     const offTree = window.vaultApi.onTreeUpdated((tree) => setTree(tree))
@@ -72,6 +80,20 @@ export default function App(): React.JSX.Element {
       <div className="title-bar">
         <button onClick={() => void openVault()}>Open Vault…</button>
         <span className="vault-path">{vaultPath ?? 'No vault open'}</span>
+        <input
+          className="search-input"
+          type="search"
+          placeholder="Search notes…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setSearchQuery('')
+              e.currentTarget.blur()
+            }
+          }}
+          disabled={!vaultPath}
+        />
         <span className="title-bar-spacer" />
         <button
           className={mainView === 'timeline' ? 'active' : ''}
@@ -90,7 +112,15 @@ export default function App(): React.JSX.Element {
             resizing.current = true
           }}
         />
-        {mainView === 'timeline' ? (
+        {effectiveView === 'search' ? (
+          <SearchView
+            query={searchQuery}
+            onOpenResult={(path) => {
+              void openNote(path)
+              setSearchQuery('')
+            }}
+          />
+        ) : effectiveView === 'timeline' ? (
           <TimelineView
             onOpenSession={(path) => {
               void openNote(path)

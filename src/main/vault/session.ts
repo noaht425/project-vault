@@ -12,7 +12,8 @@ import { parseNote } from '../../common/frontmatter'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
 import { openVaultDb, vaultDbPath } from '../index-db/db'
-import { getKnownHash, indexNote, rebuildIndex, removeNote, titleFromPath } from '../index-db/indexer'
+import { getKnownHash, indexNote, rebuildIndex, removeNote, titleFromPath, toFtsQuery } from '../index-db/indexer'
+import { SNIPPET_MATCH_START, SNIPPET_MATCH_END } from '../../common/searchSnippet'
 import type {
   Backlink,
   ExternalChangeEvent,
@@ -21,6 +22,7 @@ import type {
   NoteTitleMatch,
   SaveNoteRequest,
   SaveNoteResult,
+  SearchResult,
   SessionSummary,
   TreeEntry,
   VaultOpenResult
@@ -29,6 +31,7 @@ import type {
 export interface VaultSessionHandlers {
   onExternalChange(event: ExternalChangeEvent): void
   onTreeUpdated(tree: TreeEntry[]): void
+  onVaultOpened(vaultPath: string): void
 }
 
 export class VaultSession {
@@ -65,7 +68,13 @@ export class VaultSession {
     })
 
     const tree = await buildTree(vaultRoot)
+    this.handlers.onVaultOpened(vaultRoot)
     return { vaultPath: vaultRoot, tree }
+  }
+
+  async getCurrentVault(): Promise<VaultOpenResult | null> {
+    if (!this.vaultRoot) return null
+    return { vaultPath: this.vaultRoot, tree: await buildTree(this.vaultRoot) }
   }
 
   async closeVault(): Promise<void> {
@@ -219,6 +228,33 @@ export class VaultSession {
           .prepare('SELECT path, title FROM notes WHERE title LIKE ? ORDER BY title LIMIT 20')
           .all(`%${query}%`) as { path: string; title: string }[])
     return rows
+  }
+
+  async searchFullText(query: string, type?: string): Promise<SearchResult[]> {
+    const db = this.requireDb()
+    const ftsQuery = toFtsQuery(query)
+    if (!ftsQuery) return []
+
+    // snippet()'s column arg of -1 lets SQLite pick whichever indexed
+    // column (title/body/metadata) best matched, rather than assuming body.
+    // notes_fts can't be aliased on the side that appears in MATCH — FTS5
+    // only recognizes the real virtual table name there ("f MATCH ?"
+    // fails with "no such column: f" even though f.path works everywhere
+    // else in the query).
+    const sql = `
+      SELECT notes_fts.path AS path, n.title AS title, n.type AS type,
+             snippet(notes_fts, -1, ?, ?, '…', 10) AS snippet
+      FROM notes_fts
+      JOIN notes n ON n.path = notes_fts.path
+      WHERE notes_fts MATCH ?
+      ${type ? 'AND n.type = ?' : ''}
+      ORDER BY rank
+      LIMIT 30
+    `
+    const params: unknown[] = [SNIPPET_MATCH_START, SNIPPET_MATCH_END, ftsQuery]
+    if (type) params.push(type)
+
+    return db.prepare(sql).all(...params) as SearchResult[]
   }
 
   async listSessions(): Promise<SessionSummary[]> {

@@ -58,3 +58,10 @@ export interface SessionSummary {
   date: string
   summary: string
 }
+
+export interface SearchResult {
+  path: string
+  title: string
+  type: string
+  snippet: string // titled/bodied text with SNIPPET_MATCH_START/END markers around matches (see common/searchSnippet.ts)
+}

@@ -6,13 +6,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "test": "vitest run",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "dev": "npm run rebuild:electron && electron-vite dev",
+    "build": "npm run rebuild:electron && electron-vite build",
+    "test": "npm run rebuild:node && vitest run",
+    "rebuild:electron": "node scripts/native-rebuild.mjs electron",
+    "rebuild:node": "node scripts/native-rebuild.mjs node"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.2.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
