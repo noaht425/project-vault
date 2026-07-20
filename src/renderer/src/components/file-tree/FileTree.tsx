@@ -11,11 +11,14 @@ function reportError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err))
 }
 
-const CREATE_PLACEHOLDERS: Record<'note' | 'pc' | 'npc' | 'class-reference' | 'folder', string> = {
+type CreateKind = 'note' | 'pc' | 'npc' | 'class-reference' | 'session' | 'folder'
+
+const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
   note: 'Note name…',
   pc: 'Character name…',
   npc: 'NPC name…',
   'class-reference': 'e.g. Fighter — Champion',
+  session: 'e.g. Session 12 — The Sunken Temple',
   folder: 'Folder name…'
 }
 
@@ -189,7 +192,7 @@ export function FileTree(): React.JSX.Element {
   const vaultPath = useVaultStore((s) => s.vaultPath)
   const refreshTree = useVaultStore((s) => s.refreshTree)
   const openNote = useEditorStore((s) => s.openNote)
-  const [creating, setCreating] = useState<'note' | 'pc' | 'npc' | 'class-reference' | 'folder' | null>(null)
+  const [creating, setCreating] = useState<CreateKind | null>(null)
 
   const submitCreate = async (name: string): Promise<void> => {
     const kind = creating
@@ -223,6 +226,9 @@ export function FileTree(): React.JSX.Element {
         </button>
         <button onClick={() => setCreating('class-reference')} disabled={!vaultPath}>
           + Class Ref
+        </button>
+        <button onClick={() => setCreating('session')} disabled={!vaultPath}>
+          + Session
         </button>
         <button onClick={() => setCreating('folder')} disabled={!vaultPath}>
           + Folder

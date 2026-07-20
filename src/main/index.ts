@@ -5,6 +5,7 @@ import { registerVaultIpc } from './ipc/vault'
 import { registerNotesIpc } from './ipc/notes'
 import { registerLinksIpc } from './ipc/links'
 import { registerShellIpc } from './ipc/shell'
+import { registerSessionsIpc } from './ipc/sessions'
 import type { ExternalChangeEvent, TreeEntry } from '../common/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -52,6 +53,7 @@ app.whenReady().then(() => {
   registerNotesIpc(session)
   registerLinksIpc(session)
   registerShellIpc()
+  registerSessionsIpc(session)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

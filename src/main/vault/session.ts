@@ -7,6 +7,8 @@ import { stringifyNote } from '../../common/frontmatter'
 import { defaultPcFrontmatter } from '../../common/noteTypes/pc'
 import { defaultNpcFrontmatter } from '../../common/noteTypes/npc'
 import { defaultClassReferenceFrontmatter } from '../../common/noteTypes/classReference'
+import { defaultSessionFrontmatter, sessionFrontmatterSchema } from '../../common/noteTypes/session'
+import { parseNote } from '../../common/frontmatter'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
 import { openVaultDb, vaultDbPath } from '../index-db/db'
@@ -19,6 +21,7 @@ import type {
   NoteTitleMatch,
   SaveNoteRequest,
   SaveNoteResult,
+  SessionSummary,
   TreeEntry,
   VaultOpenResult
 } from '../../common/types'
@@ -140,7 +143,9 @@ export class VaultSession {
           ? defaultNpcFrontmatter()
           : template === 'class-reference'
             ? defaultClassReferenceFrontmatter()
-            : { type: 'note', tags: [] }
+            : template === 'session'
+              ? defaultSessionFrontmatter()
+              : { type: 'note', tags: [] }
     const body =
       template === 'class-reference'
         ? '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n'
@@ -214,6 +219,28 @@ export class VaultSession {
           .prepare('SELECT path, title FROM notes WHERE title LIKE ? ORDER BY title LIMIT 20')
           .all(`%${query}%`) as { path: string; title: string }[])
     return rows
+  }
+
+  async listSessions(): Promise<SessionSummary[]> {
+    const db = this.requireDb()
+    const rows = db.prepare('SELECT path FROM notes WHERE type = ?').all('session') as { path: string }[]
+
+    const summaries: SessionSummary[] = []
+    for (const row of rows) {
+      const note = await readNoteFromDisk(row.path).catch(() => null)
+      if (!note) continue
+      const parsed = sessionFrontmatterSchema.safeParse(parseNote(note.content).frontmatter)
+      summaries.push({
+        path: row.path,
+        title: titleFromPath(row.path),
+        date: parsed.success ? parsed.data.date : '',
+        summary: parsed.success ? parsed.data.summary : ''
+      })
+    }
+
+    // Sorts fine as plain string comparison as long as dates are ISO
+    // (yyyy-mm-dd) — undated sessions sort first since '' < any digit.
+    return summaries.sort((a, b) => a.date.localeCompare(b.date))
   }
 
   async getBacklinks(path: string): Promise<Backlink[]> {

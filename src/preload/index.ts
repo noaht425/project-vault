@@ -7,6 +7,7 @@ import type {
   NoteTitleMatch,
   SaveNoteRequest,
   SaveNoteResult,
+  SessionSummary,
   TreeEntry,
   VaultOpenResult
 } from '../common/types'
@@ -31,6 +32,7 @@ const vaultApi = {
     ipcRenderer.invoke('links:search', query, type),
   getBacklinks: (path: string): Promise<Backlink[]> => ipcRenderer.invoke('links:backlinks', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  listSessions: (): Promise<SessionSummary[]> => ipcRenderer.invoke('sessions:list'),
 
   onExternalChange: (callback: (event: ExternalChangeEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: ExternalChangeEvent): void =>

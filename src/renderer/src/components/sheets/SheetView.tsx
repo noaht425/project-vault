@@ -2,6 +2,7 @@ import { parseNote } from '../../../../common/frontmatter'
 import { PcSheet } from './PcSheet'
 import { NpcSheet } from './NpcSheet'
 import { ClassReferenceSheet } from './ClassReferenceSheet'
+import { SessionSheet } from './SessionSheet'
 
 export function SheetView({
   content,
@@ -20,6 +21,8 @@ export function SheetView({
       return <NpcSheet content={content} onContentChange={onContentChange} />
     case 'class-reference':
       return <ClassReferenceSheet content={content} onContentChange={onContentChange} />
+    case 'session':
+      return <SessionSheet content={content} onContentChange={onContentChange} />
     default:
       return null
   }
