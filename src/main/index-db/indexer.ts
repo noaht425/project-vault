@@ -3,30 +3,39 @@ import { promises as fs } from 'node:fs'
 import { join, basename } from 'node:path'
 import { readNote } from '../vault/fileWriteQueue'
 import { extractWikiLinkTitles } from '../../common/wikiLinks'
+import { parseNote } from '../../common/frontmatter'
 import type { FileVersion } from '../../common/types'
 
 export function titleFromPath(path: string): string {
   return basename(path, '.md')
 }
 
+function typeFromFrontmatter(content: string): string {
+  const { frontmatter } = parseNote(content)
+  return typeof frontmatter.type === 'string' && frontmatter.type ? frontmatter.type : 'note'
+}
+
 /**
  * Upserts a note's row and fully replaces its outgoing links. Needs the
  * note's content (not just its path/version) so it can re-extract
- * [[wiki-links]] — every caller that changes what's on disk should have
- * that content on hand already (it just wrote or just read it).
+ * [[wiki-links]] and its frontmatter `type` — every caller that changes
+ * what's on disk should have that content on hand already (it just wrote
+ * or just read it).
  */
 export function indexNote(db: Database.Database, path: string, version: FileVersion, content: string): void {
   db.prepare(
-    `INSERT INTO notes (path, title, mtime_ms, content_hash, updated_at)
-     VALUES (@path, @title, @mtimeMs, @contentHash, @updatedAt)
+    `INSERT INTO notes (path, title, type, mtime_ms, content_hash, updated_at)
+     VALUES (@path, @title, @type, @mtimeMs, @contentHash, @updatedAt)
      ON CONFLICT(path) DO UPDATE SET
        title = excluded.title,
+       type = excluded.type,
        mtime_ms = excluded.mtime_ms,
        content_hash = excluded.content_hash,
        updated_at = excluded.updated_at`
   ).run({
     path,
     title: titleFromPath(path),
+    type: typeFromFrontmatter(content),
     mtimeMs: version.mtimeMs,
     contentHash: version.contentHash,
     updatedAt: new Date().toISOString()

@@ -30,11 +30,13 @@ export function openVaultDb(dbPath: string): Database.Database {
     CREATE TABLE notes (
       path TEXT PRIMARY KEY,
       title TEXT NOT NULL COLLATE NOCASE,
+      type TEXT NOT NULL,
       mtime_ms REAL NOT NULL,
       content_hash TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
     CREATE INDEX idx_notes_title ON notes(title);
+    CREATE INDEX idx_notes_type ON notes(type);
 
     CREATE TABLE links (
       source_path TEXT NOT NULL,

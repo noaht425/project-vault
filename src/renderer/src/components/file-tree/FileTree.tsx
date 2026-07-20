@@ -11,6 +11,14 @@ function reportError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err))
 }
 
+const CREATE_PLACEHOLDERS: Record<'note' | 'pc' | 'npc' | 'class-reference' | 'folder', string> = {
+  note: 'Note name…',
+  pc: 'Character name…',
+  npc: 'NPC name…',
+  'class-reference': 'e.g. Fighter — Champion',
+  folder: 'Folder name…'
+}
+
 // Electron does not implement window.prompt() (only alert/confirm are
 // backed by native dialogs), so name entry has to be an inline text input
 // rather than a prompt() call.
@@ -181,7 +189,7 @@ export function FileTree(): React.JSX.Element {
   const vaultPath = useVaultStore((s) => s.vaultPath)
   const refreshTree = useVaultStore((s) => s.refreshTree)
   const openNote = useEditorStore((s) => s.openNote)
-  const [creating, setCreating] = useState<'note' | 'pc' | 'npc' | 'folder' | null>(null)
+  const [creating, setCreating] = useState<'note' | 'pc' | 'npc' | 'class-reference' | 'folder' | null>(null)
 
   const submitCreate = async (name: string): Promise<void> => {
     const kind = creating
@@ -213,6 +221,9 @@ export function FileTree(): React.JSX.Element {
         <button onClick={() => setCreating('npc')} disabled={!vaultPath}>
           + NPC
         </button>
+        <button onClick={() => setCreating('class-reference')} disabled={!vaultPath}>
+          + Class Ref
+        </button>
         <button onClick={() => setCreating('folder')} disabled={!vaultPath}>
           + Folder
         </button>
@@ -221,15 +232,7 @@ export function FileTree(): React.JSX.Element {
         <div className="tree-row tree-row-creating">
           <InlineNameInput
             initialValue=""
-            placeholder={
-              creating === 'folder'
-                ? 'Folder name…'
-                : creating === 'pc'
-                  ? 'Character name…'
-                  : creating === 'npc'
-                    ? 'NPC name…'
-                    : 'Note name…'
-            }
+            placeholder={CREATE_PLACEHOLDERS[creating]}
             onSubmit={(v) => void submitCreate(v)}
             onCancel={() => setCreating(null)}
           />

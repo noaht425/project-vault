@@ -27,7 +27,8 @@ const vaultApi = {
   createFolder: (parentDir: string, name: string): Promise<void> =>
     ipcRenderer.invoke('folders:create', { parentDir, name }),
 
-  searchTitles: (query: string): Promise<NoteTitleMatch[]> => ipcRenderer.invoke('links:search', query),
+  searchTitles: (query: string, type?: string): Promise<NoteTitleMatch[]> =>
+    ipcRenderer.invoke('links:search', query, type),
   getBacklinks: (path: string): Promise<Backlink[]> => ipcRenderer.invoke('links:backlinks', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
 

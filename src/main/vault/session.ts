@@ -6,6 +6,7 @@ import { fileWriteQueue, readNote as readNoteFromDisk, readVersion } from './fil
 import { stringifyNote } from '../../common/frontmatter'
 import { defaultPcFrontmatter } from '../../common/noteTypes/pc'
 import { defaultNpcFrontmatter } from '../../common/noteTypes/npc'
+import { defaultClassReferenceFrontmatter } from '../../common/noteTypes/classReference'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
 import { openVaultDb, vaultDbPath } from '../index-db/db'
@@ -137,8 +138,14 @@ export class VaultSession {
         ? defaultPcFrontmatter()
         : template === 'npc'
           ? defaultNpcFrontmatter()
-          : { type: 'note', tags: [] }
-    const content = stringifyNote({ frontmatter, body: '\n' })
+          : template === 'class-reference'
+            ? defaultClassReferenceFrontmatter()
+            : { type: 'note', tags: [] }
+    const body =
+      template === 'class-reference'
+        ? '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n'
+        : '\n'
+    const content = stringifyNote({ frontmatter, body })
 
     const result = await fileWriteQueue.saveFile(path, content, null)
     if (result.status !== 'saved') {
@@ -197,11 +204,15 @@ export class VaultSession {
     return { newPath }
   }
 
-  async searchTitles(query: string): Promise<NoteTitleMatch[]> {
+  async searchTitles(query: string, type?: string): Promise<NoteTitleMatch[]> {
     const db = this.requireDb()
-    const rows = db
-      .prepare('SELECT path, title FROM notes WHERE title LIKE ? ORDER BY title LIMIT 20')
-      .all(`%${query}%`) as { path: string; title: string }[]
+    const rows = type
+      ? (db
+          .prepare('SELECT path, title FROM notes WHERE title LIKE ? AND type = ? ORDER BY title LIMIT 20')
+          .all(`%${query}%`, type) as { path: string; title: string }[])
+      : (db
+          .prepare('SELECT path, title FROM notes WHERE title LIKE ? ORDER BY title LIMIT 20')
+          .all(`%${query}%`) as { path: string; title: string }[])
     return rows
   }
 

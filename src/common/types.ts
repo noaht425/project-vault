@@ -40,7 +40,7 @@ export interface VaultOpenResult {
   tree: TreeEntry[]
 }
 
-export type NoteTemplate = 'note' | 'pc' | 'npc'
+export type NoteTemplate = 'note' | 'pc' | 'npc' | 'class-reference'
 
 export interface NoteTitleMatch {
   path: string
