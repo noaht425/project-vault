@@ -644,6 +644,58 @@ button.active {
   font-size: 13px;
 }
 
+.family-tree-empty {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.family-tree-diagram {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.family-tree-node rect {
+  fill: var(--bg-panel);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.family-tree-node {
+  cursor: pointer;
+}
+
+.family-tree-node:hover rect {
+  stroke: var(--accent);
+}
+
+.family-tree-node text {
+  fill: var(--text-normal);
+  font-size: 12px;
+}
+
+.family-tree-line {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+}
+
+.family-tree-line-parent {
+  stroke: var(--border);
+}
+
+.family-tree-line-spouse {
+  stroke: var(--accent);
+}
+
+.family-tree-line-sibling {
+  stroke-dasharray: 4 3;
+}
+
 .editor-toolbar {
   display: flex;
   gap: 6px;

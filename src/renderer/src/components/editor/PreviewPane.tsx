@@ -1,10 +1,10 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useEditorStore } from '../../state/editorStore'
 import { rollDice } from '../../../../common/dice'
 import { InlineDiceRoll } from '../dice/InlineDiceRoll'
 import { parseNote } from '../../../../common/frontmatter'
 import { stripWordEntries } from '../../../../common/noteTypes/language'
+import { useWikiLinkNavigation } from '../../hooks/useWikiLinkNavigation'
 
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g
 
@@ -20,21 +20,7 @@ function convertWikiLinksToMarkdown(content: string): string {
 }
 
 export function PreviewPane({ content }: { content: string }): React.JSX.Element {
-  const openNote = useEditorStore((s) => s.openNote)
-
-  const handleWikiLinkClick = async (title: string): Promise<void> => {
-    try {
-      const matches = await window.vaultApi.searchTitles(title)
-      const exact = matches.find((m) => m.title.toLowerCase() === title.toLowerCase())
-      if (exact) {
-        await openNote(exact.path)
-      } else {
-        window.alert(`No note titled "${title}" yet.`)
-      }
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err))
-    }
-  }
+  const handleWikiLinkClick = useWikiLinkNavigation()
 
   const { frontmatter, body } = parseNote(content)
   // Language notes show their "## Word: ..." sections in the structured

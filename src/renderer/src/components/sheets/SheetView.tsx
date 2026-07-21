@@ -8,6 +8,7 @@ import { FactionSheet } from './FactionSheet'
 import { ItemSheet } from './ItemSheet'
 import { LocationSheet } from './LocationSheet'
 import { LanguageSheet } from './LanguageSheet'
+import { FamilyTreeSheet } from './FamilyTreeSheet'
 
 export function SheetView({
   content,
@@ -38,6 +39,8 @@ export function SheetView({
       return <LocationSheet content={content} onContentChange={onContentChange} />
     case 'language':
       return <LanguageSheet content={content} onContentChange={onContentChange} />
+    case 'family-tree':
+      return <FamilyTreeSheet content={content} onContentChange={onContentChange} />
     default:
       return null
   }

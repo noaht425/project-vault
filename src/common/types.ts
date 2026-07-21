@@ -51,6 +51,7 @@ export type NoteTemplate =
   | 'item'
   | 'location'
   | 'language'
+  | 'family-tree'
 
 export interface NoteTitleMatch {
   path: string

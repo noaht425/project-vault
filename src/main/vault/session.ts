@@ -13,6 +13,7 @@ import { defaultFactionFrontmatter } from '../../common/noteTypes/faction'
 import { defaultItemFrontmatter } from '../../common/noteTypes/item'
 import { defaultLocationFrontmatter } from '../../common/noteTypes/location'
 import { defaultLanguageFrontmatter } from '../../common/noteTypes/language'
+import { defaultFamilyTreeFrontmatter } from '../../common/noteTypes/familyTree'
 import { parseNote } from '../../common/frontmatter'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
@@ -44,13 +45,16 @@ const TEMPLATE_DEFAULTS: Partial<Record<NoteTemplate, () => Record<string, unkno
   faction: defaultFactionFrontmatter,
   item: defaultItemFrontmatter,
   location: defaultLocationFrontmatter,
-  language: defaultLanguageFrontmatter
+  language: defaultLanguageFrontmatter,
+  'family-tree': defaultFamilyTreeFrontmatter
 }
 
 const TEMPLATE_STARTER_BODY: Partial<Record<NoteTemplate, string>> = {
   'class-reference':
     '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n',
-  language: '\n*Add a "## Word: word" heading for each dictionary entry as you build up vocabulary.*\n\n'
+  language: '\n*Add a "## Word: word" heading for each dictionary entry as you build up vocabulary.*\n\n',
+  'family-tree':
+    '\n*Add a "## Relationships" heading, then list people with [[wiki-links]] — e.g. "- [[Parent]] parent of [[Child]]", "- [[A]] spouse of [[B]]", "- [[A]] sibling of [[B]]".*\n\n'
 }
 
 export interface VaultSessionHandlers {
