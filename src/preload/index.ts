@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   Backlink,
+  EventSummary,
   ExternalChangeEvent,
   NoteData,
   NoteTemplate,
@@ -35,6 +36,7 @@ const vaultApi = {
   getBacklinks: (path: string): Promise<Backlink[]> => ipcRenderer.invoke('links:backlinks', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   listSessions: (): Promise<SessionSummary[]> => ipcRenderer.invoke('sessions:list'),
+  listEvents: (): Promise<EventSummary[]> => ipcRenderer.invoke('events:list'),
   search: (query: string, type?: string): Promise<SearchResult[]> =>
     ipcRenderer.invoke('search:fullText', query, type),
 

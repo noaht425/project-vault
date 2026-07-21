@@ -40,7 +40,16 @@ export interface VaultOpenResult {
   tree: TreeEntry[]
 }
 
-export type NoteTemplate = 'note' | 'pc' | 'npc' | 'class-reference' | 'session'
+export type NoteTemplate =
+  | 'note'
+  | 'pc'
+  | 'npc'
+  | 'class-reference'
+  | 'session'
+  | 'event'
+  | 'faction'
+  | 'item'
+  | 'location'
 
 export interface NoteTitleMatch {
   path: string
@@ -53,6 +62,13 @@ export interface Backlink {
 }
 
 export interface SessionSummary {
+  path: string
+  title: string
+  date: string
+  summary: string
+}
+
+export interface EventSummary {
   path: string
   title: string
   date: string

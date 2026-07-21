@@ -11,7 +11,17 @@ function reportError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err))
 }
 
-type CreateKind = 'note' | 'pc' | 'npc' | 'class-reference' | 'session' | 'folder'
+type CreateKind =
+  | 'note'
+  | 'pc'
+  | 'npc'
+  | 'class-reference'
+  | 'session'
+  | 'event'
+  | 'faction'
+  | 'item'
+  | 'location'
+  | 'folder'
 
 const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
   note: 'Note name…',
@@ -19,6 +29,10 @@ const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
   npc: 'NPC name…',
   'class-reference': 'e.g. Fighter — Champion',
   session: 'e.g. Session 12 — The Sunken Temple',
+  event: 'e.g. The Sundering',
+  faction: 'Faction name…',
+  item: 'Item name…',
+  location: 'Location name…',
   folder: 'Folder name…'
 }
 
@@ -229,6 +243,18 @@ export function FileTree(): React.JSX.Element {
         </button>
         <button onClick={() => setCreating('session')} disabled={!vaultPath}>
           + Session
+        </button>
+        <button onClick={() => setCreating('event')} disabled={!vaultPath}>
+          + Event
+        </button>
+        <button onClick={() => setCreating('faction')} disabled={!vaultPath}>
+          + Faction
+        </button>
+        <button onClick={() => setCreating('item')} disabled={!vaultPath}>
+          + Item
+        </button>
+        <button onClick={() => setCreating('location')} disabled={!vaultPath}>
+          + Location
         </button>
         <button onClick={() => setCreating('folder')} disabled={!vaultPath}>
           + Folder

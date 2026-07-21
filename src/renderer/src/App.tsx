@@ -6,6 +6,7 @@ import { Editor } from './components/editor/Editor'
 import { ConflictBanner } from './components/conflicts/ConflictBanner'
 import { RightPanel } from './components/layout/RightPanel'
 import { TimelineView } from './components/timeline/TimelineView'
+import { EventsTimelineView } from './components/timeline/EventsTimelineView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
 
@@ -26,7 +27,7 @@ export default function App(): React.JSX.Element {
   const saveNow = useEditorStore((s) => s.saveNow)
   const markExternalChangePending = useEditorStore((s) => s.markExternalChangePending)
   const openNote = useEditorStore((s) => s.openNote)
-  const [mainView, setMainView] = useState<'editor' | 'timeline'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -98,11 +99,18 @@ export default function App(): React.JSX.Element {
         <span className="title-bar-spacer" />
         <DiceRoller />
         <button
-          className={mainView === 'timeline' ? 'active' : ''}
-          onClick={() => setMainView((v) => (v === 'timeline' ? 'editor' : 'timeline'))}
+          className={mainView === 'sessions' ? 'active' : ''}
+          onClick={() => setMainView((v) => (v === 'sessions' ? 'editor' : 'sessions'))}
           disabled={!vaultPath}
         >
-          Timeline
+          Sessions
+        </button>
+        <button
+          className={mainView === 'events' ? 'active' : ''}
+          onClick={() => setMainView((v) => (v === 'events' ? 'editor' : 'events'))}
+          disabled={!vaultPath}
+        >
+          Events
         </button>
       </div>
       <div className="app-body" style={{ gridTemplateColumns: `${sidebarWidth}px 5px 1fr 280px` }}>
@@ -122,9 +130,16 @@ export default function App(): React.JSX.Element {
               setSearchQuery('')
             }}
           />
-        ) : effectiveView === 'timeline' ? (
+        ) : effectiveView === 'sessions' ? (
           <TimelineView
             onOpenSession={(path) => {
+              void openNote(path)
+              setMainView('editor')
+            }}
+          />
+        ) : effectiveView === 'events' ? (
+          <EventsTimelineView
+            onOpenEvent={(path) => {
               void openNote(path)
               setMainView('editor')
             }}

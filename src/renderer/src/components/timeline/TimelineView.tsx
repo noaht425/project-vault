@@ -25,7 +25,7 @@ export function TimelineView({ onOpenSession }: { onOpenSession: (path: string) 
 
   return (
     <div className="timeline-view">
-      <h2>Timeline</h2>
+      <h2>Sessions</h2>
       <div className="timeline-list">
         {sessions.map((s) => (
           <button key={s.path} className="timeline-entry" onClick={() => onOpenSession(s.path)}>

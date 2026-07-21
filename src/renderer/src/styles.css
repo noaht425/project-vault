@@ -529,7 +529,8 @@ button.active {
   min-width: 0;
 }
 
-.sheet-field input {
+.sheet-field input,
+.sheet-field select {
   background: var(--bg-panel);
   color: var(--text-normal);
   border: 1px solid var(--border);

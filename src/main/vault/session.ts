@@ -8,14 +8,20 @@ import { defaultPcFrontmatter } from '../../common/noteTypes/pc'
 import { defaultNpcFrontmatter } from '../../common/noteTypes/npc'
 import { defaultClassReferenceFrontmatter } from '../../common/noteTypes/classReference'
 import { defaultSessionFrontmatter, sessionFrontmatterSchema } from '../../common/noteTypes/session'
+import { defaultEventFrontmatter, eventFrontmatterSchema } from '../../common/noteTypes/event'
+import { defaultFactionFrontmatter } from '../../common/noteTypes/faction'
+import { defaultItemFrontmatter } from '../../common/noteTypes/item'
+import { defaultLocationFrontmatter } from '../../common/noteTypes/location'
 import { parseNote } from '../../common/frontmatter'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
 import { openVaultDb, vaultDbPath } from '../index-db/db'
 import { getKnownHash, indexNote, rebuildIndex, removeNote, titleFromPath, toFtsQuery } from '../index-db/indexer'
 import { SNIPPET_MATCH_START, SNIPPET_MATCH_END } from '../../common/searchSnippet'
+import type { z } from 'zod'
 import type {
   Backlink,
+  EventSummary,
   ExternalChangeEvent,
   NoteData,
   NoteTemplate,
@@ -154,7 +160,15 @@ export class VaultSession {
             ? defaultClassReferenceFrontmatter()
             : template === 'session'
               ? defaultSessionFrontmatter()
-              : { type: 'note', tags: [] }
+              : template === 'event'
+                ? defaultEventFrontmatter()
+                : template === 'faction'
+                  ? defaultFactionFrontmatter()
+                  : template === 'item'
+                    ? defaultItemFrontmatter()
+                    : template === 'location'
+                      ? defaultLocationFrontmatter()
+                      : { type: 'note', tags: [] }
     const body =
       template === 'class-reference'
         ? '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n'
@@ -257,15 +271,24 @@ export class VaultSession {
     return db.prepare(sql).all(...params) as SearchResult[]
   }
 
-  async listSessions(): Promise<SessionSummary[]> {
+  /**
+   * Shared by listSessions/listEvents — both are just "every note of this
+   * type, sorted by its date field." Sorts fine as plain string comparison
+   * as long as dates are consistently formatted; undated entries sort
+   * first since '' < any digit/letter.
+   */
+  private async listByDateType(
+    type: string,
+    schema: z.ZodType<{ date: string; summary: string }>
+  ): Promise<{ path: string; title: string; date: string; summary: string }[]> {
     const db = this.requireDb()
-    const rows = db.prepare('SELECT path FROM notes WHERE type = ?').all('session') as { path: string }[]
+    const rows = db.prepare('SELECT path FROM notes WHERE type = ?').all(type) as { path: string }[]
 
-    const summaries: SessionSummary[] = []
+    const summaries: { path: string; title: string; date: string; summary: string }[] = []
     for (const row of rows) {
       const note = await readNoteFromDisk(row.path).catch(() => null)
       if (!note) continue
-      const parsed = sessionFrontmatterSchema.safeParse(parseNote(note.content).frontmatter)
+      const parsed = schema.safeParse(parseNote(note.content).frontmatter)
       summaries.push({
         path: row.path,
         title: titleFromPath(row.path),
@@ -274,9 +297,15 @@ export class VaultSession {
       })
     }
 
-    // Sorts fine as plain string comparison as long as dates are ISO
-    // (yyyy-mm-dd) — undated sessions sort first since '' < any digit.
     return summaries.sort((a, b) => a.date.localeCompare(b.date))
+  }
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return this.listByDateType('session', sessionFrontmatterSchema)
+  }
+
+  async listEvents(): Promise<EventSummary[]> {
+    return this.listByDateType('event', eventFrontmatterSchema)
   }
 
   async getBacklinks(path: string): Promise<Backlink[]> {

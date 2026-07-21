@@ -8,6 +8,7 @@ import { registerNotesIpc } from './ipc/notes'
 import { registerLinksIpc } from './ipc/links'
 import { registerShellIpc } from './ipc/shell'
 import { registerSessionsIpc } from './ipc/sessions'
+import { registerEventsIpc } from './ipc/events'
 import { registerSearchIpc } from './ipc/search'
 import type { ExternalChangeEvent, TreeEntry } from '../common/types'
 
@@ -76,6 +77,7 @@ app.whenReady().then(async () => {
   registerLinksIpc(session)
   registerShellIpc()
   registerSessionsIpc(session)
+  registerEventsIpc(session)
   registerSearchIpc(session)
 
   app.on('activate', () => {
