@@ -468,6 +468,17 @@ button.active {
   font-size: 11px;
 }
 
+.tree-row-drop-target {
+  background: var(--bg-active);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.tree-drop-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
 .editor-column {
   display: flex;
   flex-direction: column;

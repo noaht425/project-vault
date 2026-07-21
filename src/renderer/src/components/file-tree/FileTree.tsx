@@ -91,13 +91,52 @@ function InlineNameInput({
   )
 }
 
+// Dragged paths are passed through dataTransfer under this custom type so a
+// drop handler can tell "a row from this tree" apart from an OS-level file
+// drag (which we don't support) without needing any component-level state.
+const DRAG_MIME = 'application/x-vault-path'
+
 function TreeNode({ entry, depth }: { entry: TreeEntry; depth: number }): React.JSX.Element {
   const [expanded, setExpanded] = useState(true)
   const [renaming, setRenaming] = useState(false)
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [isDropTarget, setIsDropTarget] = useState(false)
   const activeNotePath = useEditorStore((s) => s.activeNotePath)
   const openNote = useEditorStore((s) => s.openNote)
   const closeNote = useEditorStore((s) => s.closeNote)
   const refreshTree = useVaultStore((s) => s.refreshTree)
+
+  const handleDragStart = (e: React.DragEvent): void => {
+    e.dataTransfer.setData(DRAG_MIME, entry.path)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  // A folder can't be dropped into itself or into one of its own
+  // descendants — fs.rename would fail anyway, but this avoids a confusing
+  // error surfacing from a plainly invalid drop.
+  const handleDrop = async (e: React.DragEvent): Promise<void> => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDropTarget(false)
+    const draggedPath = e.dataTransfer.getData(DRAG_MIME)
+    if (!draggedPath || draggedPath === entry.path || entry.path.startsWith(`${draggedPath}/`)) return
+    try {
+      await window.vaultApi.moveNote(draggedPath, entry.path)
+      await refreshTree()
+    } catch (err) {
+      reportError(err)
+    }
+  }
+
+  const submitCreateFolder = async (name: string): Promise<void> => {
+    setCreatingFolder(false)
+    try {
+      await window.vaultApi.createFolder(entry.path, name)
+      await refreshTree()
+    } catch (err) {
+      reportError(err)
+    }
+  }
 
   const submitRename = async (next: string): Promise<void> => {
     setRenaming(false)
@@ -153,13 +192,32 @@ function TreeNode({ entry, depth }: { entry: TreeEntry; depth: number }): React.
     return (
       <div>
         <div
-          className="tree-row tree-row-folder"
+          className={`tree-row tree-row-folder ${isDropTarget ? 'tree-row-drop-target' : ''}`}
           style={{ paddingLeft: depth * 14 }}
           onClick={() => setExpanded((v) => !v)}
+          draggable
+          onDragStart={handleDragStart}
+          onDragOver={(e) => e.preventDefault()}
+          onDragEnter={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setIsDropTarget(true)
+          }}
+          onDragLeave={() => setIsDropTarget(false)}
+          onDrop={(e) => void handleDrop(e)}
         >
           <span className="tree-caret">{expanded ? '▾' : '▸'}</span>
           {label}
           <span className="tree-actions">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setCreatingFolder(true)
+              }}
+              title="New folder inside"
+            >
+              📁+
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -174,6 +232,16 @@ function TreeNode({ entry, depth }: { entry: TreeEntry; depth: number }): React.
             </button>
           </span>
         </div>
+        {creatingFolder && (
+          <div className="tree-row tree-row-creating" style={{ paddingLeft: (depth + 1) * 14 }}>
+            <InlineNameInput
+              initialValue=""
+              placeholder="Folder name…"
+              onSubmit={(v) => void submitCreateFolder(v)}
+              onCancel={() => setCreatingFolder(false)}
+            />
+          </div>
+        )}
         {expanded &&
           entry.children?.map((child) => <TreeNode key={child.path} entry={child} depth={depth + 1} />)}
       </div>
@@ -185,6 +253,8 @@ function TreeNode({ entry, depth }: { entry: TreeEntry; depth: number }): React.
       className={`tree-row tree-row-file ${activeNotePath === entry.path ? 'active' : ''}`}
       style={{ paddingLeft: depth * 14 + 14 }}
       onClick={() => void openNote(entry.path)}
+      draggable
+      onDragStart={handleDragStart}
     >
       {label}
       <span className="tree-actions">
@@ -211,6 +281,7 @@ export function FileTree(): React.JSX.Element {
   const refreshTree = useVaultStore((s) => s.refreshTree)
   const openNote = useEditorStore((s) => s.openNote)
   const [creating, setCreating] = useState<CreateKind | null>(null)
+  const [isRootDropTarget, setIsRootDropTarget] = useState(false)
 
   const submitCreate = async (name: string): Promise<void> => {
     const kind = creating
@@ -225,6 +296,22 @@ export function FileTree(): React.JSX.Element {
         await refreshTree()
         await openNote(note.path)
       }
+    } catch (err) {
+      reportError(err)
+    }
+  }
+
+  // Lets a note or folder be dragged back out to the top level — folder
+  // rows call stopPropagation() in their own onDrop, so this only fires
+  // when the drop lands on empty tree space, not on a nested folder.
+  const handleRootDrop = async (e: React.DragEvent): Promise<void> => {
+    e.preventDefault()
+    setIsRootDropTarget(false)
+    const draggedPath = e.dataTransfer.getData(DRAG_MIME)
+    if (!draggedPath || !vaultPath) return
+    try {
+      await window.vaultApi.moveNote(draggedPath, vaultPath)
+      await refreshTree()
     } catch (err) {
       reportError(err)
     }
@@ -280,7 +367,16 @@ export function FileTree(): React.JSX.Element {
           />
         </div>
       )}
-      <div className="tree">
+      <div
+        className={`tree ${isRootDropTarget ? 'tree-drop-target' : ''}`}
+        onDragOver={(e) => e.preventDefault()}
+        onDragEnter={(e) => {
+          e.preventDefault()
+          setIsRootDropTarget(true)
+        }}
+        onDragLeave={() => setIsRootDropTarget(false)}
+        onDrop={(e) => void handleRootDrop(e)}
+      >
         {tree.map((entry) => (
           <TreeNode key={entry.path} entry={entry} depth={0} />
         ))}
