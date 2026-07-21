@@ -248,6 +248,143 @@ button.active {
   padding: 0 2px;
 }
 
+.dice-roller {
+  position: relative;
+}
+
+.dice-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 280px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.dice-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dice-quick-row button {
+  flex: 1;
+  min-width: 40px;
+}
+
+.dice-custom-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.dice-custom-row input {
+  flex: 1;
+  background: var(--bg-app);
+  color: var(--text-normal);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.dice-input-error {
+  border-color: var(--danger) !important;
+}
+
+.dice-error {
+  font-size: 11px;
+  color: var(--danger);
+  margin-bottom: 6px;
+}
+
+.dice-history {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.dice-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.dice-clear-button {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.dice-history-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.dice-history-entry:last-child {
+  border-bottom: none;
+}
+
+.dice-history-notation {
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.dice-history-breakdown {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dice-history-total {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.inline-dice-roll {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.inline-dice-roll code {
+  background: var(--bg-hover);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.inline-dice-roll code:hover {
+  background: var(--bg-active);
+}
+
+.inline-dice-result {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 0.9em;
+}
+
 .sidebar {
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);

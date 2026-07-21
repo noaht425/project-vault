@@ -1,6 +1,8 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useEditorStore } from '../../state/editorStore'
+import { rollDice } from '../../../../common/dice'
+import { InlineDiceRoll } from '../dice/InlineDiceRoll'
 
 const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g
@@ -88,6 +90,19 @@ export function PreviewPane({ content }: { content: string }): React.JSX.Element
                 {children}
               </span>
             )
+          },
+          // Inline code that happens to parse as valid dice notation (e.g.
+          // a monster stat block written as "+10 to hit, `3d6+7` damage")
+          // becomes clickable-to-roll. Fenced code blocks are unaffected —
+          // react-markdown only gives inline code an undefined className,
+          // and this also requires the text to be a single line that
+          // actually parses, so ordinary code samples never trigger it.
+          code: ({ className, children }) => {
+            const text = String(children)
+            if (!className && !text.includes('\n') && rollDice(text) !== null) {
+              return <InlineDiceRoll notation={text} />
+            }
+            return <code className={className}>{children}</code>
           }
         }}
       >

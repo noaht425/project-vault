@@ -7,6 +7,7 @@ import { ConflictBanner } from './components/conflicts/ConflictBanner'
 import { RightPanel } from './components/layout/RightPanel'
 import { TimelineView } from './components/timeline/TimelineView'
 import { SearchView } from './components/search/SearchView'
+import { DiceRoller } from './components/dice/DiceRoller'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -95,6 +96,7 @@ export default function App(): React.JSX.Element {
           disabled={!vaultPath}
         />
         <span className="title-bar-spacer" />
+        <DiceRoller />
         <button
           className={mainView === 'timeline' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'timeline' ? 'editor' : 'timeline'))}
