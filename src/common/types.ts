@@ -50,6 +50,7 @@ export type NoteTemplate =
   | 'faction'
   | 'item'
   | 'location'
+  | 'language'
 
 export interface NoteTitleMatch {
   path: string

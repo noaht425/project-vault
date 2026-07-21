@@ -21,6 +21,7 @@ type CreateKind =
   | 'faction'
   | 'item'
   | 'location'
+  | 'language'
   | 'folder'
 
 const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
@@ -33,6 +34,7 @@ const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
   faction: 'Faction name…',
   item: 'Item name…',
   location: 'Location name…',
+  language: 'Language name…',
   folder: 'Folder name…'
 }
 
@@ -255,6 +257,9 @@ export function FileTree(): React.JSX.Element {
         </button>
         <button onClick={() => setCreating('location')} disabled={!vaultPath}>
           + Location
+        </button>
+        <button onClick={() => setCreating('language')} disabled={!vaultPath}>
+          + Language
         </button>
         <button onClick={() => setCreating('folder')} disabled={!vaultPath}>
           + Folder

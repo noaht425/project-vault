@@ -3,13 +3,10 @@ import remarkGfm from 'remark-gfm'
 import { useEditorStore } from '../../state/editorStore'
 import { rollDice } from '../../../../common/dice'
 import { InlineDiceRoll } from '../dice/InlineDiceRoll'
+import { parseNote } from '../../../../common/frontmatter'
+import { stripWordEntries } from '../../../../common/noteTypes/language'
 
-const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g
-
-function stripFrontmatter(content: string): string {
-  return content.replace(FRONTMATTER_BLOCK, '')
-}
 
 // Rewrites [[Title]] / [[Title|Alias]] into ordinary markdown links pointing
 // at a "wikilink:" pseudo-URL, which the custom `a` renderer below
@@ -39,7 +36,12 @@ export function PreviewPane({ content }: { content: string }): React.JSX.Element
     }
   }
 
-  const markdown = convertWikiLinksToMarkdown(stripFrontmatter(content))
+  const { frontmatter, body } = parseNote(content)
+  // Language notes show their "## Word: ..." sections in the structured
+  // Dictionary panel above the editor — rendering them again here as raw
+  // headings would just be the same content twice.
+  const previewBody = frontmatter.type === 'language' ? stripWordEntries(body) : body
+  const markdown = convertWikiLinksToMarkdown(previewBody)
 
   return (
     <div className="preview-pane">

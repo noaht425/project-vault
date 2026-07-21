@@ -7,6 +7,7 @@ import { EventSheet } from './EventSheet'
 import { FactionSheet } from './FactionSheet'
 import { ItemSheet } from './ItemSheet'
 import { LocationSheet } from './LocationSheet'
+import { LanguageSheet } from './LanguageSheet'
 
 export function SheetView({
   content,
@@ -35,6 +36,8 @@ export function SheetView({
       return <ItemSheet content={content} onContentChange={onContentChange} />
     case 'location':
       return <LocationSheet content={content} onContentChange={onContentChange} />
+    case 'language':
+      return <LanguageSheet content={content} onContentChange={onContentChange} />
     default:
       return null
   }

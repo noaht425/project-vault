@@ -12,6 +12,7 @@ import { defaultEventFrontmatter, eventFrontmatterSchema } from '../../common/no
 import { defaultFactionFrontmatter } from '../../common/noteTypes/faction'
 import { defaultItemFrontmatter } from '../../common/noteTypes/item'
 import { defaultLocationFrontmatter } from '../../common/noteTypes/location'
+import { defaultLanguageFrontmatter } from '../../common/noteTypes/language'
 import { parseNote } from '../../common/frontmatter'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
@@ -33,6 +34,24 @@ import type {
   TreeEntry,
   VaultOpenResult
 } from '../../common/types'
+
+const TEMPLATE_DEFAULTS: Partial<Record<NoteTemplate, () => Record<string, unknown>>> = {
+  pc: defaultPcFrontmatter,
+  npc: defaultNpcFrontmatter,
+  'class-reference': defaultClassReferenceFrontmatter,
+  session: defaultSessionFrontmatter,
+  event: defaultEventFrontmatter,
+  faction: defaultFactionFrontmatter,
+  item: defaultItemFrontmatter,
+  location: defaultLocationFrontmatter,
+  language: defaultLanguageFrontmatter
+}
+
+const TEMPLATE_STARTER_BODY: Partial<Record<NoteTemplate, string>> = {
+  'class-reference':
+    '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n',
+  language: '\n*Add a "## Word: word" heading for each dictionary entry as you build up vocabulary.*\n\n'
+}
 
 export interface VaultSessionHandlers {
   onExternalChange(event: ExternalChangeEvent): void
@@ -151,28 +170,8 @@ export class VaultSession {
     // (derived from the filename) already shows the name, and a heading in
     // the body would only drift out of sync on rename since renaming never
     // touches file content.
-    const frontmatter =
-      template === 'pc'
-        ? defaultPcFrontmatter()
-        : template === 'npc'
-          ? defaultNpcFrontmatter()
-          : template === 'class-reference'
-            ? defaultClassReferenceFrontmatter()
-            : template === 'session'
-              ? defaultSessionFrontmatter()
-              : template === 'event'
-                ? defaultEventFrontmatter()
-                : template === 'faction'
-                  ? defaultFactionFrontmatter()
-                  : template === 'item'
-                    ? defaultItemFrontmatter()
-                    : template === 'location'
-                      ? defaultLocationFrontmatter()
-                      : { type: 'note', tags: [] }
-    const body =
-      template === 'class-reference'
-        ? '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n'
-        : '\n'
+    const frontmatter = TEMPLATE_DEFAULTS[template]?.() ?? { type: 'note', tags: [] }
+    const body = TEMPLATE_STARTER_BODY[template] ?? '\n'
     const content = stringifyNote({ frontmatter, body })
 
     const result = await fileWriteQueue.saveFile(path, content, null)

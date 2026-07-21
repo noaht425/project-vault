@@ -617,6 +617,33 @@ button.active {
   font-size: 13px;
 }
 
+.word-dictionary {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.word-dictionary h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.word-entry {
+  margin-bottom: 10px;
+}
+
+.word-entry-word {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.word-entry-content :is(p, ul, ol) {
+  margin: 2px 0;
+  font-size: 13px;
+}
+
 .editor-toolbar {
   display: flex;
   gap: 6px;
