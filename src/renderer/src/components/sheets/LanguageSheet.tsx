@@ -37,7 +37,12 @@ export function LanguageSheet({
         Add a "## Grammar: name" heading (e.g. "## Grammar: Word Order") for each named rule —
         sentence structure, tense/case marking, pluralization, whatever governs how words combine.
         Plain "## Grammar Notes" style headings (no colon) still work as ordinary prose sections.
+        Markdown tables work anywhere in the body (e.g. a verb's endings by person/number, or a
+        noun's forms by case) — a line of dashes under the header row is what makes it a table:
       </p>
+      <pre className="right-panel-note right-panel-example">
+        {'| Person | Singular | Plural |\n| --- | --- | --- |\n| 1st | -o | -mos |\n| 2nd | -as | -is |'}
+      </pre>
       <WordDictionaryPanel body={body} />
       <GrammarRulesPanel body={body} />
     </div>

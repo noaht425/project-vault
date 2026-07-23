@@ -740,6 +740,30 @@ button.active {
   font-size: 13px;
 }
 
+/* Verb/noun paradigm tables (person x number, case, etc.) in Word/Grammar
+   entries and the main Preview — remark-gfm already parses markdown table
+   syntax, this just gives the result actual borders/spacing instead of
+   the browser's bare default table styling. */
+.word-entry-content table,
+.preview-pane table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.word-entry-content :is(th, td),
+.preview-pane :is(th, td) {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.word-entry-content th,
+.preview-pane th {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
 .family-tree-empty {
   margin-top: 14px;
   padding-top: 12px;
@@ -849,6 +873,18 @@ button.active {
 .right-panel-note {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.right-panel-example {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin: 4px 0 12px;
+  white-space: pre;
+  overflow-x: auto;
 }
 
 .backlink-list {
