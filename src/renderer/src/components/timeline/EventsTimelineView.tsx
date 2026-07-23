@@ -22,7 +22,8 @@ export function EventsTimelineView({
   if (events.length === 0) {
     return (
       <div className="timeline-view timeline-empty">
-        No world-history events yet — create one with "+ Event" in the sidebar.
+        No world-history events yet — create one with "+ Event" in the sidebar, or add a "##
+        History" section (or Born:/Died: lines) to any note.
       </div>
     )
   }
@@ -31,11 +32,14 @@ export function EventsTimelineView({
     <div className="timeline-view">
       <h2>Events</h2>
       <div className="timeline-list">
-        {events.map((e) => (
-          <button key={e.path} className="timeline-entry" onClick={() => onOpenEvent(e.path)}>
+        {events.map((e, i) => (
+          <button key={`${e.path}#${i}`} className="timeline-entry" onClick={() => onOpenEvent(e.path)}>
             <div className="timeline-entry-date">{e.date || 'Undated'}</div>
             <div className="timeline-entry-body">
-              <div className="timeline-entry-title">{e.title}</div>
+              <div className="timeline-entry-title">
+                {e.title}
+                {e.noteType !== 'event' && <span className="timeline-entry-source"> · {e.noteType}</span>}
+              </div>
               {e.summary && <div className="timeline-entry-summary">{e.summary}</div>}
             </div>
           </button>

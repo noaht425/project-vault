@@ -9,6 +9,8 @@ import { defaultNpcFrontmatter } from '../../common/noteTypes/npc'
 import { defaultClassReferenceFrontmatter } from '../../common/noteTypes/classReference'
 import { defaultSessionFrontmatter, sessionFrontmatterSchema } from '../../common/noteTypes/session'
 import { defaultEventFrontmatter, eventFrontmatterSchema } from '../../common/noteTypes/event'
+import { extractHistoryFacts, extractBornDiedFacts } from '../../common/worldTimeline'
+import { compareWorldDates } from '../../common/worldDate'
 import { defaultFactionFrontmatter } from '../../common/noteTypes/faction'
 import { defaultItemFrontmatter } from '../../common/noteTypes/item'
 import { defaultLocationFrontmatter } from '../../common/noteTypes/location'
@@ -275,10 +277,12 @@ export class VaultSession {
   }
 
   /**
-   * Shared by listSessions/listEvents — both are just "every note of this
-   * type, sorted by its date field." Sorts fine as plain string comparison
-   * as long as dates are consistently formatted; undated entries sort
-   * first since '' < any digit/letter.
+   * Used by listSessions — "every note of this type, sorted by its date
+   * field." Sorts fine as plain string comparison since session dates are
+   * real-world ISO dates (see noteTypes/session.ts); undated entries sort
+   * first since '' < any digit. listEvents has its own logic below, since
+   * it scans every note (not just type "event") and its dates are in-world
+   * fictional dates that need calendar-aware sorting instead.
    */
   private async listByDateType(
     type: string,
@@ -307,8 +311,49 @@ export class VaultSession {
     return this.listByDateType('session', sessionFrontmatterSchema)
   }
 
+  /**
+   * The Events timeline shows the whole world's history, not just notes of
+   * type "event" — every note gets scanned for a "## History" section and
+   * bare "Born:"/"Died:" lines (see common/worldTimeline.ts) so a kingdom's
+   * founding or a king's death shows up alongside dedicated Event notes.
+   * Sorted with compareWorldDates, which understands the in-world AF/AM
+   * calendar (session dates are real-world ISO dates, so listSessions
+   * keeps the plain string sort above).
+   */
   async listEvents(): Promise<EventSummary[]> {
-    return this.listByDateType('event', eventFrontmatterSchema)
+    const db = this.requireDb()
+    const rows = db.prepare('SELECT path, type FROM notes').all() as { path: string; type: string }[]
+
+    const entries: EventSummary[] = []
+    for (const row of rows) {
+      const note = await readNoteFromDisk(row.path).catch(() => null)
+      if (!note) continue
+      const { frontmatter, body } = parseNote(note.content)
+      const title = titleFromPath(row.path)
+
+      if (row.type === 'event') {
+        const parsed = eventFrontmatterSchema.safeParse(frontmatter)
+        entries.push({
+          path: row.path,
+          title,
+          date: parsed.success ? parsed.data.date : '',
+          summary: parsed.success ? parsed.data.summary : '',
+          noteType: 'event'
+        })
+      }
+
+      for (const fact of [...extractHistoryFacts(body), ...extractBornDiedFacts(body)]) {
+        entries.push({
+          path: row.path,
+          title,
+          date: fact.date,
+          summary: fact.description,
+          noteType: row.type
+        })
+      }
+    }
+
+    return entries.sort((a, b) => compareWorldDates(a.date, b.date))
   }
 
   async getBacklinks(path: string): Promise<Backlink[]> {

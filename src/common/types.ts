@@ -75,6 +75,10 @@ export interface EventSummary {
   title: string
   date: string
   summary: string
+  // The source note's own type ('event', 'npc', 'location', ...) — lets the
+  // Events timeline show entries pulled from other notes' History sections
+  // distinctly from dedicated Event notes.
+  noteType: string
 }
 
 export interface SearchResult {

@@ -8,9 +8,25 @@
   "scripts": {
     "dev": "npm run rebuild:electron && electron-vite dev",
     "build": "npm run rebuild:electron && electron-vite build",
+    "dist": "npm run build && electron-builder --mac --dir",
+    "update-app": "bash scripts/update-app.sh",
     "test": "npm run rebuild:node && vitest run",
     "rebuild:electron": "node scripts/native-rebuild.mjs electron",
     "rebuild:node": "node scripts/native-rebuild.mjs node"
+  },
+  "build": {
+    "appId": "com.projectvault.app",
+    "productName": "Project Vault",
+    "directories": {
+      "output": "dist"
+    },
+    "files": ["out/**/*"],
+    "asarUnpack": ["**/node_modules/better-sqlite3/**/*"],
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -19,6 +35,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^42.7.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^6.4.3",
