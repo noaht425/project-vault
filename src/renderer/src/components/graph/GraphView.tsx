@@ -5,6 +5,8 @@ import {
   forceManyBody,
   forceCenter,
   forceCollide,
+  forceX,
+  forceY,
   type SimulationNodeDatum
 } from 'd3-force'
 import type { GraphData, GraphNode } from '../../../../common/graph'
@@ -89,8 +91,20 @@ export function GraphView({ onOpenNode }: { onOpenNode: (path: string) => void }
           .distance(70)
           .strength(0.35)
       )
-      .force('charge', forceManyBody().strength(-160))
+      // distanceMax caps how far apart two nodes still repel each other —
+      // without it, an isolated or weakly-linked note (nothing but charge
+      // pushing it, nothing pulling it back) drifts further every tick from
+      // countless tiny long-range repulsions that never fully cancel out,
+      // ending up flung far off from the rest of the graph.
+      .force('charge', forceManyBody().strength(-160).distanceMax(300))
       .force('center', forceCenter(WORLD_WIDTH / 2, WORLD_HEIGHT / 2))
+      // forceCenter only recenters the graph's average position — it does
+      // nothing to keep any individual node bounded. A weak pull toward the
+      // canvas center on every node is what actually stops outliers from
+      // escaping, while staying gentle enough not to fight the link/charge
+      // forces that do the real layout work.
+      .force('x', forceX(WORLD_WIDTH / 2).strength(0.03))
+      .force('y', forceY(WORLD_HEIGHT / 2).strength(0.03))
       .force(
         'collide',
         forceCollide<SimNode>().radius((d) => radiusFor(degreeById.get(d.id) ?? 0) + 6)
@@ -179,7 +193,8 @@ export function GraphView({ onOpenNode }: { onOpenNode: (path: string) => void }
                 y1={source.y}
                 x2={target.x}
                 y2={target.y}
-                stroke="var(--border)"
+                stroke="var(--text-muted)"
+                strokeOpacity={0.5}
                 strokeWidth={1}
               />
             )
