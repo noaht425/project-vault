@@ -13,7 +13,11 @@ export function WordDictionaryPanel({ body }: { body: string }): React.JSX.Eleme
       </h3>
       {entries.map((entry) => (
         <div key={entry.word} className="word-entry">
-          <div className="word-entry-word">{entry.word}</div>
+          <div className="word-entry-word">
+            {entry.word}
+            {entry.partOfSpeech && <span className="word-entry-pos">{entry.partOfSpeech}</span>}
+          </div>
+          {entry.meaning && <div className="word-entry-meaning">{entry.meaning}</div>}
           {entry.content && (
             <div className="word-entry-content">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content}</ReactMarkdown>

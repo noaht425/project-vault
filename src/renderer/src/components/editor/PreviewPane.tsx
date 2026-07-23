@@ -1,9 +1,9 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { rollDice } from '../../../../common/dice'
+import { rollDice, wrapBareDiceInBackticks } from '../../../../common/dice'
 import { InlineDiceRoll } from '../dice/InlineDiceRoll'
 import { parseNote } from '../../../../common/frontmatter'
-import { stripWordEntries } from '../../../../common/noteTypes/language'
+import { stripStructuredSections } from '../../../../common/noteTypes/language'
 import { useWikiLinkNavigation } from '../../hooks/useWikiLinkNavigation'
 
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g
@@ -23,11 +23,12 @@ export function PreviewPane({ content }: { content: string }): React.JSX.Element
   const handleWikiLinkClick = useWikiLinkNavigation()
 
   const { frontmatter, body } = parseNote(content)
-  // Language notes show their "## Word: ..." sections in the structured
-  // Dictionary panel above the editor — rendering them again here as raw
-  // headings would just be the same content twice.
-  const previewBody = frontmatter.type === 'language' ? stripWordEntries(body) : body
-  const markdown = convertWikiLinksToMarkdown(previewBody)
+  // Language notes show their "## Word: ..." and "## Grammar: ..." sections
+  // in the structured Dictionary/Grammar panels above the editor —
+  // rendering them again here as raw headings would just be the same
+  // content twice.
+  const previewBody = frontmatter.type === 'language' ? stripStructuredSections(body) : body
+  const markdown = convertWikiLinksToMarkdown(wrapBareDiceInBackticks(previewBody))
 
   return (
     <div className="preview-pane">
