@@ -123,3 +123,37 @@ export function rollDice(input: string, rng: () => number = Math.random): DiceRo
     rolledAt: Date.now()
   }
 }
+
+// Fenced code blocks or inline code spans, captured so bare-dice wrapping
+// below can skip over them — imported/scraped notes have no code spans at
+// all, but hand-written ones may already wrap dice in backticks, and we
+// must never double-wrap those or reach inside a code block.
+const CODE_SPAN_RE = /(```[\s\S]*?```|`[^`\n]*`)/g
+
+// A dice-shaped token sitting in plain prose, e.g. "10d12" in a stat block
+// pasted/scraped without backticks. The leading \b keeps this from matching
+// mid-token (won't fire inside "and20"). The trailing side uses a
+// not-followed-by-a-digit lookahead rather than \b, since scraped text
+// routinely pluralizes dice ("3d6s of poison damage") — a trailing \b would
+// never match there because "6" and "s" are both word characters. The real
+// gate against false positives is handing every candidate to rollDice below
+// — anything that doesn't round-trip through the same parser used for real
+// rolls is left as plain text.
+const BARE_DICE_RE = /\b\d{0,3}d\d{1,4}(?:kh\d{1,2}|kl\d{1,2})?(?:\s*[+-]\s*\d{1,4})*(?!\d)/gi
+
+/**
+ * Finds dice notation written as plain text (no backticks) and wraps it in
+ * backticks so the preview's inline-code renderer picks it up as a
+ * clickable roll — without touching text that's already inside a code span.
+ */
+export function wrapBareDiceInBackticks(text: string): string {
+  return text
+    .split(CODE_SPAN_RE)
+    .map((chunk, i) => {
+      // Odd indices are the code spans captured by CODE_SPAN_RE's group —
+      // leave those exactly as written.
+      if (i % 2 === 1) return chunk
+      return chunk.replace(BARE_DICE_RE, (match) => (rollDice(match) ? `\`${match}\`` : match))
+    })
+    .join('')
+}
