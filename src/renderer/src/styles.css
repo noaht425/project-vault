@@ -176,6 +176,72 @@ button.active {
   color: var(--text-muted);
 }
 
+.graph-view {
+  grid-column: 3 / span 2;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-svg {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.graph-svg:active {
+  cursor: grabbing;
+}
+
+.graph-svg text {
+  fill: var(--text-normal);
+  font-size: 11px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node-phantom {
+  cursor: default;
+}
+
+.graph-node-phantom text {
+  fill: var(--text-muted);
+}
+
+.graph-legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .timeline-entry-summary {
   font-size: 12px;
   color: var(--text-muted);

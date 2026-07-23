@@ -7,6 +7,7 @@ import { ConflictBanner } from './components/conflicts/ConflictBanner'
 import { RightPanel } from './components/layout/RightPanel'
 import { TimelineView } from './components/timeline/TimelineView'
 import { EventsTimelineView } from './components/timeline/EventsTimelineView'
+import { GraphView } from './components/graph/GraphView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
 
@@ -27,7 +28,7 @@ export default function App(): React.JSX.Element {
   const saveNow = useEditorStore((s) => s.saveNow)
   const markExternalChangePending = useEditorStore((s) => s.markExternalChangePending)
   const openNote = useEditorStore((s) => s.openNote)
-  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -112,6 +113,13 @@ export default function App(): React.JSX.Element {
         >
           Events
         </button>
+        <button
+          className={mainView === 'graph' ? 'active' : ''}
+          onClick={() => setMainView((v) => (v === 'graph' ? 'editor' : 'graph'))}
+          disabled={!vaultPath}
+        >
+          Graph
+        </button>
       </div>
       <div className="app-body" style={{ gridTemplateColumns: `${sidebarWidth}px 5px 1fr 280px` }}>
         <FileTree />
@@ -140,6 +148,13 @@ export default function App(): React.JSX.Element {
         ) : effectiveView === 'events' ? (
           <EventsTimelineView
             onOpenEvent={(path) => {
+              void openNote(path)
+              setMainView('editor')
+            }}
+          />
+        ) : effectiveView === 'graph' ? (
+          <GraphView
+            onOpenNode={(path) => {
               void openNote(path)
               setMainView('editor')
             }}

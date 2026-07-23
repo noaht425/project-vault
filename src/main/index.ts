@@ -10,6 +10,7 @@ import { registerShellIpc } from './ipc/shell'
 import { registerSessionsIpc } from './ipc/sessions'
 import { registerEventsIpc } from './ipc/events'
 import { registerSearchIpc } from './ipc/search'
+import { registerGraphIpc } from './ipc/graph'
 import type { ExternalChangeEvent, TreeEntry } from '../common/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -79,6 +80,7 @@ app.whenReady().then(async () => {
   registerSessionsIpc(session)
   registerEventsIpc(session)
   registerSearchIpc(session)
+  registerGraphIpc(session)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

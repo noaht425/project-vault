@@ -13,6 +13,7 @@ import type {
   TreeEntry,
   VaultOpenResult
 } from '../common/types'
+import type { GraphData } from '../common/graph'
 
 const vaultApi = {
   openVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:open'),
@@ -39,6 +40,7 @@ const vaultApi = {
   listEvents: (): Promise<EventSummary[]> => ipcRenderer.invoke('events:list'),
   search: (query: string, type?: string): Promise<SearchResult[]> =>
     ipcRenderer.invoke('search:fullText', query, type),
+  getGraph: (): Promise<GraphData> => ipcRenderer.invoke('graph:get'),
 
   onExternalChange: (callback: (event: ExternalChangeEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: ExternalChangeEvent): void =>

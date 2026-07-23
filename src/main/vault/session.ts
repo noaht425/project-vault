@@ -11,6 +11,7 @@ import { defaultSessionFrontmatter, sessionFrontmatterSchema } from '../../commo
 import { defaultEventFrontmatter, eventFrontmatterSchema } from '../../common/noteTypes/event'
 import { extractHistoryFacts, extractBornDiedFacts } from '../../common/worldTimeline'
 import { compareWorldDates } from '../../common/worldDate'
+import { buildGraph, type GraphData } from '../../common/graph'
 import { defaultFactionFrontmatter } from '../../common/noteTypes/faction'
 import { defaultItemFrontmatter } from '../../common/noteTypes/item'
 import { defaultLocationFrontmatter } from '../../common/noteTypes/location'
@@ -354,6 +355,21 @@ export class VaultSession {
     }
 
     return entries.sort((a, b) => compareWorldDates(a.date, b.date))
+  }
+
+  /** Every note as a node and every [[wiki-link]] as an edge — see common/graph.ts for the actual graph-building logic. */
+  async getGraph(): Promise<GraphData> {
+    const db = this.requireDb()
+    const notes = db.prepare('SELECT path, title, type FROM notes').all() as {
+      path: string
+      title: string
+      type: string
+    }[]
+    const links = db.prepare('SELECT source_path AS sourcePath, target_title AS targetTitle FROM links').all() as {
+      sourcePath: string
+      targetTitle: string
+    }[]
+    return buildGraph(notes, links)
   }
 
   async getBacklinks(path: string): Promise<Backlink[]> {
