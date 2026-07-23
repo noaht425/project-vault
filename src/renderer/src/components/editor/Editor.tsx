@@ -9,6 +9,26 @@ import { PreviewPane } from './PreviewPane'
 import { wikiLinkCompletionSource } from './wikiLinkCompletion'
 import { SheetView } from '../sheets/SheetView'
 
+// CodeMirror's base theme hardcodes the cursor to a solid black border and
+// the selection to a light-blue highlight — both assume a light background,
+// so both are invisible/wrong against this app's dark one. This is the
+// minimal fix (cursor + selection only), not a full syntax-highlighting
+// theme.
+const darkCursorTheme = EditorView.theme(
+  {
+    '.cm-content': { caretColor: 'var(--text-normal)' },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text-normal)' },
+    // rgba of --accent (#7c8cff) at low opacity, since CodeMirror needs a
+    // real color here (var() inside rgba()'s color-mix isn't worth the
+    // complexity for one rule) and this keeps it visually tied to --accent
+    // rather than an unrelated invented blue.
+    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
+      backgroundColor: 'rgba(124, 140, 255, 0.35) !important'
+    }
+  },
+  { dark: true }
+)
+
 export function Editor(): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -32,6 +52,7 @@ export function Editor(): React.JSX.Element {
         keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         markdown(),
         EditorView.lineWrapping,
+        darkCursorTheme,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             setContent(update.state.doc.toString())
