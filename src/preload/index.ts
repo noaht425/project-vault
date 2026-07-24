@@ -59,3 +59,17 @@ const vaultApi = {
 export type VaultApi = typeof vaultApi
 
 contextBridge.exposeInMainWorld('vaultApi', vaultApi)
+
+// Proof-of-concept bridge to project-vault-cloud, kept entirely separate
+// from vaultApi — the local vault's file-backed read/write path is
+// untouched by this.
+const cloudApi = {
+  signIn: (email: string, password: string): Promise<{ userId: string }> =>
+    ipcRenderer.invoke('cloud:signIn', { email, password }),
+  createNote: (args: { name: string; frontmatter?: Record<string, unknown>; body?: string }): Promise<unknown> =>
+    ipcRenderer.invoke('cloud:createNote', args)
+}
+
+export type CloudApi = typeof cloudApi
+
+contextBridge.exposeInMainWorld('cloudApi', cloudApi)

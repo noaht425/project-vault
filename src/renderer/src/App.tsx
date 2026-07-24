@@ -10,6 +10,7 @@ import { EventsTimelineView } from './components/timeline/EventsTimelineView'
 import { GraphView } from './components/graph/GraphView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
+import { CloudTestView } from './components/cloud/CloudTestView'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -28,7 +29,7 @@ export default function App(): React.JSX.Element {
   const saveNow = useEditorStore((s) => s.saveNow)
   const markExternalChangePending = useEditorStore((s) => s.markExternalChangePending)
   const openNote = useEditorStore((s) => s.openNote)
-  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'cloud'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -120,6 +121,12 @@ export default function App(): React.JSX.Element {
         >
           Graph
         </button>
+        <button
+          className={mainView === 'cloud' ? 'active' : ''}
+          onClick={() => setMainView((v) => (v === 'cloud' ? 'editor' : 'cloud'))}
+        >
+          Cloud test
+        </button>
       </div>
       <div className="app-body" style={{ gridTemplateColumns: `${sidebarWidth}px 5px 1fr 280px` }}>
         <FileTree />
@@ -159,6 +166,8 @@ export default function App(): React.JSX.Element {
               setMainView('editor')
             }}
           />
+        ) : effectiveView === 'cloud' ? (
+          <CloudTestView />
         ) : (
           <>
             <div className="editor-column">

@@ -11,6 +11,8 @@ import { registerSessionsIpc } from './ipc/sessions'
 import { registerEventsIpc } from './ipc/events'
 import { registerSearchIpc } from './ipc/search'
 import { registerGraphIpc } from './ipc/graph'
+import { registerCloudIpc } from './ipc/cloud'
+import { CloudSession } from './cloud/cloudSession'
 import type { ExternalChangeEvent, TreeEntry } from '../common/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -81,6 +83,7 @@ app.whenReady().then(async () => {
   registerEventsIpc(session)
   registerSearchIpc(session)
   registerGraphIpc(session)
+  registerCloudIpc(new CloudSession())
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
