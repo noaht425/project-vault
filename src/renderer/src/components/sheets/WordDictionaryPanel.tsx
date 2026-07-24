@@ -16,6 +16,7 @@ export function WordDictionaryPanel({ body }: { body: string }): React.JSX.Eleme
           <div className="word-entry-word">
             {entry.word}
             {entry.partOfSpeech && <span className="word-entry-pos">{entry.partOfSpeech}</span>}
+            {entry.gender && <span className="word-entry-gender">{entry.gender}</span>}
           </div>
           {entry.meaning && <div className="word-entry-meaning">{entry.meaning}</div>}
           {entry.content && (

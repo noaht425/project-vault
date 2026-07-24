@@ -13,8 +13,8 @@ water. Noun.
 fire. Noun.
 `
     expect(parseWordEntries(body)).toEqual([
-      { word: 'aro', meaning: null, partOfSpeech: null, content: 'fire. Noun.' },
-      { word: 'keth', meaning: null, partOfSpeech: null, content: 'water. Noun.' }
+      { word: 'aro', meaning: null, partOfSpeech: null, gender: null, content: 'fire. Noun.' },
+      { word: 'keth', meaning: null, partOfSpeech: null, gender: null, content: 'water. Noun.' }
     ])
   })
 
@@ -27,7 +27,7 @@ fire. Noun.
   it('does not treat ordinary headings as dictionary entries', () => {
     const body = '## Phonology\n\nSome notes about sounds.\n\n## Word: keth\n\nwater\n'
     const entries = parseWordEntries(body)
-    expect(entries).toEqual([{ word: 'keth', meaning: null, partOfSpeech: null, content: 'water' }])
+    expect(entries).toEqual([{ word: 'keth', meaning: null, partOfSpeech: null, gender: null, content: 'water' }])
   })
 
   it('returns nothing for content with no word headings', () => {
@@ -38,8 +38,8 @@ fire. Noun.
     const body = '## Word: keth\n## Word: aro\n\nfire\n'
     const entries = parseWordEntries(body)
     expect(entries).toEqual([
-      { word: 'aro', meaning: null, partOfSpeech: null, content: 'fire' },
-      { word: 'keth', meaning: null, partOfSpeech: null, content: '' }
+      { word: 'aro', meaning: null, partOfSpeech: null, gender: null, content: 'fire' },
+      { word: 'keth', meaning: null, partOfSpeech: null, gender: null, content: '' }
     ])
   })
 
@@ -59,8 +59,8 @@ Soft consonants, first syllable is rarely stressed.
 `
     const entries = parseWordEntries(body)
     expect(entries).toEqual([
-      { word: 'aro', meaning: null, partOfSpeech: null, content: 'fire' },
-      { word: 'keth', meaning: null, partOfSpeech: null, content: 'water' }
+      { word: 'aro', meaning: null, partOfSpeech: null, gender: null, content: 'fire' },
+      { word: 'keth', meaning: null, partOfSpeech: null, gender: null, content: 'water' }
     ])
   })
 
@@ -68,8 +68,8 @@ Soft consonants, first syllable is rarely stressed.
     const body = '## Word: keth\n\nwater\n\n## Grammar Notes\n\nverbs conjugate by tense\n\n## Word: aro\n\nfire\n'
     const entries = parseWordEntries(body)
     expect(entries).toEqual([
-      { word: 'aro', meaning: null, partOfSpeech: null, content: 'fire' },
-      { word: 'keth', meaning: null, partOfSpeech: null, content: 'water' }
+      { word: 'aro', meaning: null, partOfSpeech: null, gender: null, content: 'fire' },
+      { word: 'keth', meaning: null, partOfSpeech: null, gender: null, content: 'water' }
     ])
   })
 
@@ -77,20 +77,44 @@ Soft consonants, first syllable is rarely stressed.
     const body = '## Word: keth\n\nMeaning: water\nPOS: noun\n\nSacred to the river clans.\n'
     const entries = parseWordEntries(body)
     expect(entries).toEqual([
-      { word: 'keth', meaning: 'water', partOfSpeech: 'noun', content: 'Sacred to the river clans.' }
+      {
+        word: 'keth',
+        meaning: 'water',
+        partOfSpeech: 'noun',
+        gender: null,
+        content: 'Sacred to the river clans.'
+      }
     ])
   })
 
   it('accepts "Part of Speech:" as well as "POS:"', () => {
     const body = '## Word: keth\n\nMeaning: water\nPart of Speech: noun\n'
     const entries = parseWordEntries(body)
-    expect(entries).toEqual([{ word: 'keth', meaning: 'water', partOfSpeech: 'noun', content: '' }])
+    expect(entries).toEqual([
+      { word: 'keth', meaning: 'water', partOfSpeech: 'noun', gender: null, content: '' }
+    ])
   })
 
   it('works with only Meaning or only POS present', () => {
     const body = '## Word: keth\n\nMeaning: water\n'
     const entries = parseWordEntries(body)
-    expect(entries).toEqual([{ word: 'keth', meaning: 'water', partOfSpeech: null, content: '' }])
+    expect(entries).toEqual([{ word: 'keth', meaning: 'water', partOfSpeech: null, gender: null, content: '' }])
+  })
+
+  it('pulls out an optional Gender line into its own field', () => {
+    const body = '## Word: keth\n\nMeaning: water\nPOS: noun\nGender: feminine\n'
+    const entries = parseWordEntries(body)
+    expect(entries).toEqual([
+      { word: 'keth', meaning: 'water', partOfSpeech: 'noun', gender: 'feminine', content: '' }
+    ])
+  })
+
+  it('works with Gender present but Meaning/POS absent', () => {
+    const body = '## Word: keth\n\nGender: feminine\n\nSacred to the river clans.\n'
+    const entries = parseWordEntries(body)
+    expect(entries).toEqual([
+      { word: 'keth', meaning: null, partOfSpeech: null, gender: 'feminine', content: 'Sacred to the river clans.' }
+    ])
   })
 })
 

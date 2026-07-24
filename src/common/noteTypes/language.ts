@@ -18,6 +18,7 @@ export interface WordEntry {
   word: string
   meaning: string | null
   partOfSpeech: string | null
+  gender: string | null
   content: string
 }
 
@@ -42,11 +43,12 @@ const GRAMMAR_HEADING_TEXT_RE = /^Grammar:\s*(.+)$/i
 
 // Optional sub-lines inside a "## Word:" entry's content that give a
 // translator (human or Claude, reading the note directly) a structured
-// English gloss and part of speech to key off, instead of having to parse
-// free-text prose. Both stay optional — entries without them behave exactly
-// as before.
+// English gloss, part of speech, and grammatical gender to key off, instead
+// of having to parse free-text prose. All stay optional — entries without
+// them behave exactly as before.
 const MEANING_LINE_RE = /^Meaning:\s*(.+)$/im
 const POS_LINE_RE = /^(?:POS|Part of Speech):\s*(.+)$/im
+const GENDER_LINE_RE = /^Gender:\s*(.+)$/im
 
 interface Heading {
   index: number
@@ -90,9 +92,11 @@ export function parseWordEntries(body: string): WordEntry[] {
 
     const meaningMatch = raw.match(MEANING_LINE_RE)
     const posMatch = raw.match(POS_LINE_RE)
+    const genderMatch = raw.match(GENDER_LINE_RE)
     const content = raw
       .replace(MEANING_LINE_RE, '')
       .replace(POS_LINE_RE, '')
+      .replace(GENDER_LINE_RE, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim()
 
@@ -100,6 +104,7 @@ export function parseWordEntries(body: string): WordEntry[] {
       word: heading.word,
       meaning: meaningMatch ? meaningMatch[1].trim() : null,
       partOfSpeech: posMatch ? posMatch[1].trim() : null,
+      gender: genderMatch ? genderMatch[1].trim() : null,
       content
     })
   }
