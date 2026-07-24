@@ -97,7 +97,7 @@ function InlineNameInput({
 const DRAG_MIME = 'application/x-vault-path'
 
 function TreeNode({ entry, depth }: { entry: TreeEntry; depth: number }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [isDropTarget, setIsDropTarget] = useState(false)
