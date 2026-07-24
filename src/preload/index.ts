@@ -64,10 +64,31 @@ contextBridge.exposeInMainWorld('vaultApi', vaultApi)
 // from vaultApi — the local vault's file-backed read/write path is
 // untouched by this.
 const cloudApi = {
+  getSession: (): Promise<{ userId: string } | null> => ipcRenderer.invoke('cloud:getSession'),
   signIn: (email: string, password: string): Promise<{ userId: string }> =>
     ipcRenderer.invoke('cloud:signIn', { email, password }),
   createNote: (args: { name: string; frontmatter?: Record<string, unknown>; body?: string }): Promise<unknown> =>
-    ipcRenderer.invoke('cloud:createNote', args)
+    ipcRenderer.invoke('cloud:createNote', args),
+  getNote: (id: string): Promise<unknown> => ipcRenderer.invoke('cloud:getNote', id),
+
+  // getCachedTree resolves instantly with whatever's already known (may be
+  // null); refreshTree always hits the network. onTreeUpdated fires
+  // whenever a refresh (from this call or a future one) completes.
+  getCachedTree: (): Promise<unknown> => ipcRenderer.invoke('cloud:getCachedTree'),
+  refreshTree: (): Promise<unknown> => ipcRenderer.invoke('cloud:refreshTree'),
+
+  onTreeUpdated: (callback: (tree: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => callback(payload)
+    ipcRenderer.on('cloud:treeUpdated', listener)
+    return () => ipcRenderer.removeListener('cloud:treeUpdated', listener)
+  },
+
+  onSessionRestored: (callback: (session: { userId: string } | null) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { userId: string } | null): void =>
+      callback(payload)
+    ipcRenderer.on('cloud:sessionRestored', listener)
+    return () => ipcRenderer.removeListener('cloud:sessionRestored', listener)
+  }
 }
 
 export type CloudApi = typeof cloudApi

@@ -83,7 +83,20 @@ app.whenReady().then(async () => {
   registerEventsIpc(session)
   registerSearchIpc(session)
   registerGraphIpc(session)
-  registerCloudIpc(new CloudSession())
+
+  const cloud = new CloudSession(userDataDir, {
+    onTreeUpdated: (tree: unknown) => {
+      mainWindow?.webContents.send('cloud:treeUpdated', tree)
+    },
+    onSessionRestored: (restoredSession: { userId: string } | null) => {
+      mainWindow?.webContents.send('cloud:sessionRestored', restoredSession)
+    }
+  })
+  registerCloudIpc(cloud)
+  // Fire-and-forget, deliberately not awaited — unlike the vault reopen
+  // above, a slow or failing network request here must never delay
+  // showing the window (the window is already created and shown by now).
+  void cloud.restore()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
