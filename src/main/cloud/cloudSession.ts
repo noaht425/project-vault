@@ -19,9 +19,9 @@ import type {
 const SUPABASE_URL = 'https://qrkixhzglpillaqtzfxu.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_uQP5hIZcHJdQyFnx7wk4Cg_SDXZvP0z'
 
-// Prototype-stage: points at project-vault-cloud's local dev server.
-// Needs to become a real deployed URL once that project ships.
-const API_BASE_URL = 'http://localhost:3000'
+// Deployed at https://vercel.com/noaht425-project-vault/project-vault-cloud
+// (its own dedicated Vercel team, separate from the abentfork one).
+const API_BASE_URL = 'https://project-vault-cloud.vercel.app'
 
 interface SupabaseTokenResponse {
   access_token?: string
