@@ -64,3 +64,18 @@ export interface CloudGraphData {
   nodes: CloudGraphNode[]
   edges: CloudGraphEdge[]
 }
+
+export interface CloudSessionSummary {
+  id: string
+  name: string
+  date: string
+  summary: string
+}
+
+export interface CloudEventSummary {
+  id: string
+  name: string
+  date: string
+  summary: string
+  noteType: string
+}

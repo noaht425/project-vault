@@ -2,11 +2,13 @@ import { ipcMain } from 'electron'
 import type { CloudSession } from '../cloud/cloudSession'
 import type {
   CloudBacklink,
+  CloudEventSummary,
   CloudFolder,
   CloudGraphData,
   CloudNoteData,
   CloudSaveResult,
   CloudSearchResult,
+  CloudSessionSummary,
   CloudTitleMatch,
   CloudTreeNode
 } from '../../common/cloudTypes'
@@ -98,6 +100,9 @@ export function registerCloudIpc(cloud: CloudSession): void {
   )
 
   ipcMain.handle('cloud:getGraph', async (): Promise<CloudGraphData> => cloud.getGraph())
+
+  ipcMain.handle('cloud:listSessions', async (): Promise<CloudSessionSummary[]> => cloud.listSessions())
+  ipcMain.handle('cloud:listEvents', async (): Promise<CloudEventSummary[]> => cloud.listEvents())
 
   ipcMain.handle('cloud:getCachedTree', (): CloudTreeNode[] | null => cloud.getCachedTree())
   ipcMain.handle('cloud:refreshTree', async (): Promise<CloudTreeNode[]> => cloud.refreshTree())

@@ -4,7 +4,7 @@ import { rollDice, wrapBareDiceInBackticks } from '../../../../common/dice'
 import { InlineDiceRoll } from '../dice/InlineDiceRoll'
 import { parseNote } from '../../../../common/frontmatter'
 import { stripStructuredSections } from '../../../../common/noteTypes/language'
-import { useWikiLinkNavigation } from '../../hooks/useWikiLinkNavigation'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g
 
@@ -19,8 +19,8 @@ function convertWikiLinksToMarkdown(content: string): string {
   })
 }
 
-export function PreviewPane({ content }: { content: string }): React.JSX.Element {
-  const handleWikiLinkClick = useWikiLinkNavigation()
+export function PreviewPane({ content, noteRefApi }: { content: string; noteRefApi: NoteRefApi }): React.JSX.Element {
+  const handleWikiLinkClick = noteRefApi.openByTitle
 
   const { frontmatter, body } = parseNote(content)
   // Language notes show their "## Word: ..." and "## Grammar: ..." sections

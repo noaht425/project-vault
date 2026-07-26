@@ -2,11 +2,13 @@ import { readRefreshToken, writeRefreshToken, clearRefreshToken } from './cloudS
 import { readCachedTree, writeCachedTree } from './cloudTreeCache'
 import type {
   CloudBacklink,
+  CloudEventSummary,
   CloudFolder,
   CloudGraphData,
   CloudNoteData,
   CloudSaveResult,
   CloudSearchResult,
+  CloudSessionSummary,
   CloudTitleMatch,
   CloudTreeNode
 } from '../../common/cloudTypes'
@@ -255,6 +257,16 @@ export class CloudSession {
   async getGraph(): Promise<CloudGraphData> {
     const res = await fetch(`${API_BASE_URL}/api/graph`, { headers: this.authHeaders() })
     return this.parseOrThrow<CloudGraphData>(res)
+  }
+
+  async listSessions(): Promise<CloudSessionSummary[]> {
+    const res = await fetch(`${API_BASE_URL}/api/sessions`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudSessionSummary[]>(res)
+  }
+
+  async listEvents(): Promise<CloudEventSummary[]> {
+    const res = await fetch(`${API_BASE_URL}/api/events`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudEventSummary[]>(res)
   }
 
   // Instant, never-blocks-on-network read of whatever was cached — from

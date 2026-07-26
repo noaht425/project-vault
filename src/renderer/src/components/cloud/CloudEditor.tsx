@@ -10,12 +10,13 @@ import { useCloudNoteRefApi } from '../../lib/noteRefApi'
 import { cloudWikiLinkCompletionSource } from './cloudWikiLinkCompletion'
 import { darkCursorTheme } from '../editor/Editor'
 import { SheetView } from '../sheets/SheetView'
+import { PreviewPane } from '../editor/PreviewPane'
 
-// Cloud counterpart of Editor.tsx. No Edit/Preview toggle or PreviewPane
-// yet (not asked for) — but SheetView's 10 per-note-type forms are reused
-// as-is via a small shim: cloud notes already store frontmatter/body
+// Cloud counterpart of Editor.tsx. SheetView's 10 per-note-type forms are
+// reused as-is via a small shim: cloud notes already store frontmatter/body
 // separately, so a "content" string is synthesized just to hand SheetView
 // the shape it expects, then unpacked back into the two fields on change.
+// PreviewPane is reused the same way, given the same synthesized content.
 export function CloudEditor(): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const activeNote = useCloudEditorStore((s) => s.activeNote)
@@ -29,6 +30,7 @@ export function CloudEditor(): React.JSX.Element {
   const discardAndReloadFromConflict = useCloudEditorStore((s) => s.discardAndReloadFromConflict)
   const noteRefApi = useCloudNoteRefApi()
   const [saving, setSaving] = useState(false)
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit')
 
   const sheetContent = stringifyNote({ frontmatter, body })
   const handleSheetContentChange = (newContent: string): void => {
@@ -44,7 +46,7 @@ export function CloudEditor(): React.JSX.Element {
   // Re-sync the CodeMirror buffer whenever the note or its body was
   // replaced from outside user typing (open, discard-after-conflict).
   useEffect(() => {
-    if (!containerRef.current) return
+    if (mode !== 'edit' || !containerRef.current) return
 
     const state = EditorState.create({
       doc: body,
@@ -64,7 +66,7 @@ export function CloudEditor(): React.JSX.Element {
     const view = new EditorView({ state, parent: containerRef.current })
     return () => view.destroy()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision])
+  }, [revision, mode])
 
   if (!activeNote) {
     return <div className="editor-empty">Select or create a cloud note to start writing.</div>
@@ -92,7 +94,19 @@ export function CloudEditor(): React.JSX.Element {
           </div>
         </div>
       )}
-      <div className="cm-container" ref={containerRef} />
+      <div className="editor-toolbar">
+        <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>
+          Edit
+        </button>
+        <button className={mode === 'preview' ? 'active' : ''} onClick={() => setMode('preview')}>
+          Preview
+        </button>
+      </div>
+      {mode === 'edit' ? (
+        <div className="cm-container" ref={containerRef} />
+      ) : (
+        <PreviewPane content={sheetContent} noteRefApi={noteRefApi} />
+      )}
     </div>
   )
 }

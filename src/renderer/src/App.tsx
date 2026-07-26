@@ -12,12 +12,13 @@ import { EventsTimelineView } from './components/timeline/EventsTimelineView'
 import { GraphView } from './components/graph/GraphView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
-import { CloudTestView } from './components/cloud/CloudTestView'
 import { CloudFileTree } from './components/cloud/CloudFileTree'
 import { CloudEditor } from './components/cloud/CloudEditor'
 import { CloudRightPanel } from './components/cloud/CloudRightPanel'
 import { CloudSearchView } from './components/cloud/CloudSearchView'
 import { CloudGraphView } from './components/cloud/CloudGraphView'
+import { CloudTimelineView } from './components/cloud/CloudTimelineView'
+import { CloudEventsTimelineView } from './components/cloud/CloudEventsTimelineView'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -44,7 +45,7 @@ export default function App(): React.JSX.Element {
   const signedIn = useCloudStore((s) => s.signedIn)
   const cloudOpenNote = useCloudEditorStore((s) => s.openNote)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
-  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'cloud'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -156,14 +157,14 @@ export default function App(): React.JSX.Element {
         <button
           className={mainView === 'sessions' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'sessions' ? 'editor' : 'sessions'))}
-          disabled={!vaultPath || workspaceSource === 'cloud'}
+          disabled={workspaceSource === 'local' && !vaultPath}
         >
           Sessions
         </button>
         <button
           className={mainView === 'events' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'events' ? 'editor' : 'events'))}
-          disabled={!vaultPath || workspaceSource === 'cloud'}
+          disabled={workspaceSource === 'local' && !vaultPath}
         >
           Events
         </button>
@@ -173,12 +174,6 @@ export default function App(): React.JSX.Element {
           disabled={workspaceSource === 'local' && !vaultPath}
         >
           Graph
-        </button>
-        <button
-          className={mainView === 'cloud' ? 'active' : ''}
-          onClick={() => setMainView((v) => (v === 'cloud' ? 'editor' : 'cloud'))}
-        >
-          Cloud test
         </button>
       </div>
       <div className="app-body" style={{ gridTemplateColumns: `${sidebarWidth}px 5px 1fr 280px` }}>
@@ -202,6 +197,20 @@ export default function App(): React.JSX.Element {
           ) : mainView === 'graph' ? (
             <CloudGraphView
               onOpenNode={(id) => {
+                void cloudOpenNote(id)
+                setMainView('editor')
+              }}
+            />
+          ) : mainView === 'sessions' ? (
+            <CloudTimelineView
+              onOpenSession={(id) => {
+                void cloudOpenNote(id)
+                setMainView('editor')
+              }}
+            />
+          ) : mainView === 'events' ? (
+            <CloudEventsTimelineView
+              onOpenEvent={(id) => {
                 void cloudOpenNote(id)
                 setMainView('editor')
               }}
@@ -243,8 +252,6 @@ export default function App(): React.JSX.Element {
               setMainView('editor')
             }}
           />
-        ) : effectiveView === 'cloud' ? (
-          <CloudTestView />
         ) : (
           <>
             <div className="editor-column">

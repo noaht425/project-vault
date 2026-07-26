@@ -16,11 +16,13 @@ import type {
 import type { GraphData } from '../common/graph'
 import type {
   CloudBacklink,
+  CloudEventSummary,
   CloudFolder,
   CloudGraphData,
   CloudNoteData,
   CloudSaveResult,
   CloudSearchResult,
+  CloudSessionSummary,
   CloudTitleMatch,
   CloudTreeNode
 } from '../common/cloudTypes'
@@ -112,6 +114,9 @@ const cloudApi = {
   search: (query: string, type?: string): Promise<CloudSearchResult[]> =>
     ipcRenderer.invoke('cloud:search', query, type),
   getGraph: (): Promise<CloudGraphData> => ipcRenderer.invoke('cloud:getGraph'),
+
+  listSessions: (): Promise<CloudSessionSummary[]> => ipcRenderer.invoke('cloud:listSessions'),
+  listEvents: (): Promise<CloudEventSummary[]> => ipcRenderer.invoke('cloud:listEvents'),
 
   // getCachedTree resolves instantly with whatever's already known (may be
   // null); refreshTree always hits the network. onTreeUpdated fires

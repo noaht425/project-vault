@@ -97,7 +97,7 @@ export function Editor(): React.JSX.Element {
       {mode === 'edit' ? (
         <div className="cm-container" ref={containerRef} />
       ) : (
-        <PreviewPane content={content} />
+        <PreviewPane content={content} noteRefApi={noteRefApi} />
       )}
     </div>
   )
