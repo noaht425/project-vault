@@ -14,6 +14,16 @@ import type {
   VaultOpenResult
 } from '../common/types'
 import type { GraphData } from '../common/graph'
+import type {
+  CloudBacklink,
+  CloudFolder,
+  CloudGraphData,
+  CloudNoteData,
+  CloudSaveResult,
+  CloudSearchResult,
+  CloudTitleMatch,
+  CloudTreeNode
+} from '../common/cloudTypes'
 
 const vaultApi = {
   openVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:open'),
@@ -67,18 +77,45 @@ const cloudApi = {
   getSession: (): Promise<{ userId: string } | null> => ipcRenderer.invoke('cloud:getSession'),
   signIn: (email: string, password: string): Promise<{ userId: string }> =>
     ipcRenderer.invoke('cloud:signIn', { email, password }),
-  createNote: (args: { name: string; frontmatter?: Record<string, unknown>; body?: string }): Promise<unknown> =>
-    ipcRenderer.invoke('cloud:createNote', args),
-  getNote: (id: string): Promise<unknown> => ipcRenderer.invoke('cloud:getNote', id),
+  createNote: (args: {
+    name: string
+    folderId?: string | null
+    frontmatter?: Record<string, unknown>
+    body?: string
+  }): Promise<CloudNoteData> => ipcRenderer.invoke('cloud:createNote', args),
+  getNote: (id: string): Promise<CloudNoteData> => ipcRenderer.invoke('cloud:getNote', id),
+
+  saveNote: (args: {
+    id: string
+    version: number
+    name?: string
+    folderId?: string | null
+    frontmatter?: Record<string, unknown>
+    body?: string
+  }): Promise<CloudSaveResult> => ipcRenderer.invoke('cloud:saveNote', args),
+  renameNote: (id: string, newName: string, version: number): Promise<CloudSaveResult> =>
+    ipcRenderer.invoke('cloud:renameNote', { id, newName, version }),
+  moveNote: (id: string, newFolderId: string | null, version: number): Promise<CloudSaveResult> =>
+    ipcRenderer.invoke('cloud:moveNote', { id, newFolderId, version }),
+  deleteNote: (id: string): Promise<void> => ipcRenderer.invoke('cloud:deleteNote', id),
+  createFolder: (name: string, parentId?: string | null): Promise<CloudFolder> =>
+    ipcRenderer.invoke('cloud:createFolder', { name, parentId }),
+
+  searchTitles: (query: string, type?: string): Promise<CloudTitleMatch[]> =>
+    ipcRenderer.invoke('cloud:searchTitles', query, type),
+  getBacklinks: (id: string): Promise<CloudBacklink[]> => ipcRenderer.invoke('cloud:getBacklinks', id),
+  search: (query: string, type?: string): Promise<CloudSearchResult[]> =>
+    ipcRenderer.invoke('cloud:search', query, type),
+  getGraph: (): Promise<CloudGraphData> => ipcRenderer.invoke('cloud:getGraph'),
 
   // getCachedTree resolves instantly with whatever's already known (may be
   // null); refreshTree always hits the network. onTreeUpdated fires
   // whenever a refresh (from this call or a future one) completes.
-  getCachedTree: (): Promise<unknown> => ipcRenderer.invoke('cloud:getCachedTree'),
-  refreshTree: (): Promise<unknown> => ipcRenderer.invoke('cloud:refreshTree'),
+  getCachedTree: (): Promise<CloudTreeNode[] | null> => ipcRenderer.invoke('cloud:getCachedTree'),
+  refreshTree: (): Promise<CloudTreeNode[]> => ipcRenderer.invoke('cloud:refreshTree'),
 
-  onTreeUpdated: (callback: (tree: unknown) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => callback(payload)
+  onTreeUpdated: (callback: (tree: CloudTreeNode[]) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: CloudTreeNode[]): void => callback(payload)
     ipcRenderer.on('cloud:treeUpdated', listener)
     return () => ipcRenderer.removeListener('cloud:treeUpdated', listener)
   },

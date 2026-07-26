@@ -9,15 +9,15 @@ function cloudTreeCacheFilePath(userDataDir: string): string {
   return join(userDataDir, 'cloud-tree-cache.json')
 }
 
-export async function readCachedTree(userDataDir: string): Promise<unknown | null> {
+export async function readCachedTree<T>(userDataDir: string): Promise<T | null> {
   try {
     const raw = await fs.readFile(cloudTreeCacheFilePath(userDataDir), 'utf8')
-    return JSON.parse(raw)
+    return JSON.parse(raw) as T
   } catch {
     return null
   }
 }
 
-export async function writeCachedTree(userDataDir: string, tree: unknown): Promise<void> {
+export async function writeCachedTree<T>(userDataDir: string, tree: T): Promise<void> {
   await fs.writeFile(cloudTreeCacheFilePath(userDataDir), JSON.stringify(tree), 'utf8').catch(() => {})
 }

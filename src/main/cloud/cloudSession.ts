@@ -1,5 +1,15 @@
 import { readRefreshToken, writeRefreshToken, clearRefreshToken } from './cloudSessionStore'
 import { readCachedTree, writeCachedTree } from './cloudTreeCache'
+import type {
+  CloudBacklink,
+  CloudFolder,
+  CloudGraphData,
+  CloudNoteData,
+  CloudSaveResult,
+  CloudSearchResult,
+  CloudTitleMatch,
+  CloudTreeNode
+} from '../../common/cloudTypes'
 
 // URL and anon key for project-vault-cloud's Supabase project. Both are the
 // "publishable" pair meant to ship inside a client (same values the web
@@ -20,8 +30,43 @@ interface SupabaseTokenResponse {
 }
 
 export interface CloudSessionHandlers {
-  onTreeUpdated(tree: unknown): void
+  onTreeUpdated(tree: CloudTreeNode[]): void
   onSessionRestored(session: { userId: string } | null): void
+}
+
+// Raw shapes as project-vault-cloud's API returns them (snake_case,
+// straight off the Postgres rows per supabase/migrations/0001_init_schema.sql)
+// — mapped to the camelCase types the rest of the app sees.
+interface RawNote {
+  id: string
+  name: string
+  folder_id: string | null
+  frontmatter: Record<string, unknown>
+  body: string
+  note_type: string | null
+  version: number
+}
+
+interface RawFolder {
+  id: string
+  name: string
+  parent_id: string | null
+}
+
+function mapNote(raw: RawNote): CloudNoteData {
+  return {
+    id: raw.id,
+    name: raw.name,
+    folderId: raw.folder_id,
+    frontmatter: raw.frontmatter,
+    body: raw.body,
+    noteType: raw.note_type,
+    version: raw.version
+  }
+}
+
+function mapFolder(raw: RawFolder): CloudFolder {
+  return { id: raw.id, name: raw.name, parentId: raw.parent_id }
 }
 
 // Runs in the main process so the renderer never makes a direct
@@ -31,7 +76,7 @@ export interface CloudSessionHandlers {
 export class CloudSession {
   private accessToken: string | null = null
   private userId: string | null = null
-  private cachedTree: unknown = null
+  private cachedTree: CloudTreeNode[] | null = null
 
   constructor(
     private readonly userDataDir: string,
@@ -96,45 +141,123 @@ export class CloudSession {
     return { Authorization: `Bearer ${this.accessToken}` }
   }
 
-  async createNote(args: { name: string; frontmatter?: Record<string, unknown>; body?: string }): Promise<unknown> {
+  async createNote(args: {
+    name: string
+    folderId?: string | null
+    frontmatter?: Record<string, unknown>
+    body?: string
+  }): Promise<CloudNoteData> {
     const res = await fetch(`${API_BASE_URL}/api/notes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify(args)
     })
-    return this.parseOrThrow(res)
+    return mapNote(await this.parseOrThrow<RawNote>(res))
   }
 
-  async getNote(id: string): Promise<unknown> {
+  async getNote(id: string): Promise<CloudNoteData> {
     const res = await fetch(`${API_BASE_URL}/api/notes/${id}`, { headers: this.authHeaders() })
-    return this.parseOrThrow(res)
+    return mapNote(await this.parseOrThrow<RawNote>(res))
+  }
+
+  // Optimistic-concurrency update — mirrors project-vault-cloud's PATCH
+  // /api/notes/[id]: caller sends the version it last read, and a 409 with
+  // the current row (rather than a thrown error) means someone else's
+  // write landed first. renameNote/moveNote are just this with one field
+  // set, matching what the API actually does under the hood.
+  async saveNote(
+    id: string,
+    req: {
+      version: number
+      name?: string
+      folderId?: string | null
+      frontmatter?: Record<string, unknown>
+      body?: string
+    }
+  ): Promise<CloudSaveResult> {
+    const res = await fetch(`${API_BASE_URL}/api/notes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify(req)
+    })
+    if (res.status === 409) {
+      const data = (await res.json()) as { current: RawNote }
+      return { status: 'conflict', current: mapNote(data.current) }
+    }
+    return { status: 'saved', note: mapNote(await this.parseOrThrow<RawNote>(res)) }
+  }
+
+  async renameNote(id: string, newName: string, version: number): Promise<CloudSaveResult> {
+    return this.saveNote(id, { version, name: newName })
+  }
+
+  async moveNote(id: string, newFolderId: string | null, version: number): Promise<CloudSaveResult> {
+    return this.saveNote(id, { version, folderId: newFolderId })
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}/api/notes/${id}`, { method: 'DELETE', headers: this.authHeaders() })
+    await this.parseOrThrow(res)
+  }
+
+  async createFolder(name: string, parentId: string | null = null): Promise<CloudFolder> {
+    const res = await fetch(`${API_BASE_URL}/api/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ name, parentId })
+    })
+    return mapFolder(await this.parseOrThrow<RawFolder>(res))
+  }
+
+  async searchTitles(query: string, type?: string): Promise<CloudTitleMatch[]> {
+    const params = new URLSearchParams({ q: query })
+    if (type) params.set('type', type)
+    const res = await fetch(`${API_BASE_URL}/api/notes?${params}`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudTitleMatch[]>(res)
+  }
+
+  async getBacklinks(id: string): Promise<CloudBacklink[]> {
+    const res = await fetch(`${API_BASE_URL}/api/notes/${id}/backlinks`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudBacklink[]>(res)
+  }
+
+  async search(query: string, type?: string): Promise<CloudSearchResult[]> {
+    const params = new URLSearchParams({ q: query })
+    if (type) params.set('type', type)
+    const res = await fetch(`${API_BASE_URL}/api/search?${params}`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudSearchResult[]>(res)
+  }
+
+  async getGraph(): Promise<CloudGraphData> {
+    const res = await fetch(`${API_BASE_URL}/api/graph`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudGraphData>(res)
   }
 
   // Instant, never-blocks-on-network read of whatever was cached — from
   // this session's last refresh, or loaded from disk on a cold start. Can
   // be null the very first time, before any refresh has ever completed.
-  getCachedTree(): unknown {
+  getCachedTree(): CloudTreeNode[] | null {
     return this.cachedTree
   }
 
   // Always hits the network, updates the cache (memory + disk), and
   // notifies the renderer via the same push-event pattern the local vault
   // already uses for vault:treeUpdated.
-  async refreshTree(): Promise<unknown> {
+  async refreshTree(): Promise<CloudTreeNode[]> {
     const res = await fetch(`${API_BASE_URL}/api/tree`, { headers: this.authHeaders() })
-    const tree = await this.parseOrThrow(res)
+    const tree = await this.parseOrThrow<CloudTreeNode[]>(res)
     this.cachedTree = tree
     await writeCachedTree(this.userDataDir, tree)
     this.handlers.onTreeUpdated(tree)
     return tree
   }
 
-  private async parseOrThrow(res: Response): Promise<unknown> {
+  private async parseOrThrow<T>(res: Response): Promise<T> {
     const data: unknown = await res.json()
     if (!res.ok) {
       const message = (data as { error?: string })?.error ?? `Request failed (${res.status})`
       throw new Error(message)
     }
-    return data
+    return data as T
   }
 }
