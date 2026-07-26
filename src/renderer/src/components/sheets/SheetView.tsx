@@ -1,4 +1,5 @@
 import { parseNote } from '../../../../common/frontmatter'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 import { PcSheet } from './PcSheet'
 import { NpcSheet } from './NpcSheet'
 import { ClassReferenceSheet } from './ClassReferenceSheet'
@@ -12,17 +13,22 @@ import { FamilyTreeSheet } from './FamilyTreeSheet'
 
 export function SheetView({
   content,
-  onContentChange
+  onContentChange,
+  noteRefApi
 }: {
   content: string
   onContentChange: (content: string) => void
+  /** Only PcSheet (class-reference lookup) and FamilyTreeSheet
+   *  (click-to-open diagram nodes) need this — everything else is a plain
+   *  form with no note-to-note resolution. */
+  noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
   const { frontmatter } = parseNote(content)
   const type = typeof frontmatter.type === 'string' ? frontmatter.type : undefined
 
   switch (type) {
     case 'pc':
-      return <PcSheet content={content} onContentChange={onContentChange} />
+      return <PcSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'npc':
       return <NpcSheet content={content} onContentChange={onContentChange} />
     case 'class-reference':
@@ -40,7 +46,7 @@ export function SheetView({
     case 'language':
       return <LanguageSheet content={content} onContentChange={onContentChange} />
     case 'family-tree':
-      return <FamilyTreeSheet content={content} onContentChange={onContentChange} />
+      return <FamilyTreeSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     default:
       return null
   }

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { parseNote } from '../../../../common/frontmatter'
 import { parseClassReferenceLevels, type ClassReferenceLevel } from '../../../../common/noteTypes/classReference'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 
 type Status = 'idle' | 'loading' | 'not-found'
 
@@ -10,10 +10,12 @@ type Status = 'idle' | 'loading' | 'not-found'
  *  level sections at or below the character's current `level`. */
 export function ClassFeaturesPanel({
   classRef,
-  level
+  level,
+  noteRefApi
 }: {
   classRef: string
   level: number
+  noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
   const [status, setStatus] = useState<Status>('idle')
   const [levels, setLevels] = useState<ClassReferenceLevel[]>([])
@@ -30,17 +32,14 @@ export function ClassFeaturesPanel({
     setStatus('loading')
 
     const load = async (): Promise<void> => {
-      const matches = await window.vaultApi.searchTitles(trimmed, 'class-reference')
-      const exact = matches.find((m) => m.title.toLowerCase() === trimmed.toLowerCase())
-      if (!exact) {
+      const body = await noteRefApi.readBodyByTitle(trimmed, 'class-reference')
+      if (body === null) {
         if (!cancelled) {
           setStatus('not-found')
           setLevels([])
         }
         return
       }
-      const note = await window.vaultApi.readNote(exact.path)
-      const { body } = parseNote(note.content)
       if (!cancelled) {
         setLevels(parseClassReferenceLevels(body))
         setStatus('idle')
@@ -51,6 +50,7 @@ export function ClassFeaturesPanel({
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classRef])
 
   if (!classRef.trim()) return null

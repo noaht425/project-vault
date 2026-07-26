@@ -3,21 +3,13 @@ import { join, dirname, extname } from 'node:path'
 import { shell } from 'electron'
 import type Database from 'better-sqlite3'
 import { fileWriteQueue, readNote as readNoteFromDisk, readVersion } from './fileWriteQueue'
-import { stringifyNote } from '../../common/frontmatter'
-import { defaultPcFrontmatter } from '../../common/noteTypes/pc'
-import { defaultNpcFrontmatter } from '../../common/noteTypes/npc'
-import { defaultClassReferenceFrontmatter } from '../../common/noteTypes/classReference'
-import { defaultSessionFrontmatter, sessionFrontmatterSchema } from '../../common/noteTypes/session'
-import { defaultEventFrontmatter, eventFrontmatterSchema } from '../../common/noteTypes/event'
+import { stringifyNote, parseNote } from '../../common/frontmatter'
+import { sessionFrontmatterSchema } from '../../common/noteTypes/session'
+import { eventFrontmatterSchema } from '../../common/noteTypes/event'
 import { extractHistoryFacts, extractBornDiedFacts } from '../../common/worldTimeline'
 import { compareWorldDates } from '../../common/worldDate'
 import { buildGraph, type GraphData } from '../../common/graph'
-import { defaultFactionFrontmatter } from '../../common/noteTypes/faction'
-import { defaultItemFrontmatter } from '../../common/noteTypes/item'
-import { defaultLocationFrontmatter } from '../../common/noteTypes/location'
-import { defaultLanguageFrontmatter } from '../../common/noteTypes/language'
-import { defaultFamilyTreeFrontmatter } from '../../common/noteTypes/familyTree'
-import { parseNote } from '../../common/frontmatter'
+import { TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY } from '../../common/noteTemplateDefaults'
 import { buildTree } from './tree'
 import { createVaultWatcher, type VaultWatcher } from './watcher'
 import { openVaultDb, vaultDbPath } from '../index-db/db'
@@ -38,27 +30,6 @@ import type {
   TreeEntry,
   VaultOpenResult
 } from '../../common/types'
-
-const TEMPLATE_DEFAULTS: Partial<Record<NoteTemplate, () => Record<string, unknown>>> = {
-  pc: defaultPcFrontmatter,
-  npc: defaultNpcFrontmatter,
-  'class-reference': defaultClassReferenceFrontmatter,
-  session: defaultSessionFrontmatter,
-  event: defaultEventFrontmatter,
-  faction: defaultFactionFrontmatter,
-  item: defaultItemFrontmatter,
-  location: defaultLocationFrontmatter,
-  language: defaultLanguageFrontmatter,
-  'family-tree': defaultFamilyTreeFrontmatter
-}
-
-const TEMPLATE_STARTER_BODY: Partial<Record<NoteTemplate, string>> = {
-  'class-reference':
-    '\n*Add a "## Level N" heading for each level this subclass actually gets a feature at — skip any that don\'t apply.*\n\n',
-  language: '\n*Add a "## Word: word" heading for each dictionary entry as you build up vocabulary.*\n\n',
-  'family-tree':
-    '\n*Add a "## Relationships" heading, then list people with [[wiki-links]] — e.g. "- [[Parent]] parent of [[Child]]", "- [[A]] spouse of [[B]]", "- [[A]] sibling of [[B]]".*\n\n'
-}
 
 export interface VaultSessionHandlers {
   onExternalChange(event: ExternalChangeEvent): void

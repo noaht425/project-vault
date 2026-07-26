@@ -5,6 +5,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { useEditorStore } from '../../state/editorStore'
+import { useLocalNoteRefApi } from '../../lib/noteRefApi'
 import { PreviewPane } from './PreviewPane'
 import { wikiLinkCompletionSource } from './wikiLinkCompletion'
 import { SheetView } from '../sheets/SheetView'
@@ -37,6 +38,7 @@ export function Editor(): React.JSX.Element {
   const content = useEditorStore((s) => s.content)
   const setContent = useEditorStore((s) => s.setContent)
   const setContentExternal = useEditorStore((s) => s.setContentExternal)
+  const noteRefApi = useLocalNoteRefApi()
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
 
   // Re-sync the CodeMirror buffer whenever the note or its content was
@@ -83,7 +85,7 @@ export function Editor(): React.JSX.Element {
   return (
     <div className="editor-pane">
       <div className="editor-title">{title}</div>
-      <SheetView content={content} onContentChange={setContentExternal} />
+      <SheetView content={content} onContentChange={setContentExternal} noteRefApi={noteRefApi} />
       <div className="editor-toolbar">
         <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>
           Edit

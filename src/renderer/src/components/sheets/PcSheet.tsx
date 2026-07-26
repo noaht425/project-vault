@@ -2,39 +2,33 @@ import { useEffect, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { pcFrontmatterSchema } from '../../../../common/noteTypes/pc'
 import type { AbilityKey } from '../../../../common/noteTypes/creatureStats'
-import { useEditorStore } from '../../state/editorStore'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 import { AbilityScoreGrid } from './AbilityScoreGrid'
 import { CommonCombatFields } from './CommonCombatFields'
 import { ClassFeaturesPanel } from './ClassFeaturesPanel'
 
 export function PcSheet({
   content,
-  onContentChange
+  onContentChange,
+  noteRefApi
 }: {
   content: string
   onContentChange: (content: string) => void
+  noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const { frontmatter, body } = parseNote(content)
   const data = pcFrontmatterSchema.parse(frontmatter)
   const [classRefOptions, setClassRefOptions] = useState<string[]>([])
-  const openNote = useEditorStore((s) => s.openNote)
 
   useEffect(() => {
-    void window.vaultApi
-      .searchTitles('', 'class-reference')
-      .then((matches) => setClassRefOptions(matches.map((m) => m.title)))
+    void noteRefApi.searchTitles('', 'class-reference').then((matches) => setClassRefOptions(matches.map((m) => m.title)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const openClassReference = async (): Promise<void> => {
     const trimmed = data.classRef.trim()
     if (!trimmed) return
-    const matches = await window.vaultApi.searchTitles(trimmed, 'class-reference')
-    const exact = matches.find((m) => m.title.toLowerCase() === trimmed.toLowerCase())
-    if (exact) {
-      await openNote(exact.path)
-    } else {
-      window.alert(`No class reference note titled "${trimmed}" found.`)
-    }
+    await noteRefApi.openByTitle(trimmed, 'class-reference')
   }
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
@@ -95,7 +89,7 @@ export function PcSheet({
         </button>
       </div>
       <AbilityScoreGrid stats={data.stats} onChange={updateStat} />
-      <ClassFeaturesPanel classRef={data.classRef} level={data.level} />
+      <ClassFeaturesPanel classRef={data.classRef} level={data.level} noteRefApi={noteRefApi} />
     </div>
   )
 }

@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { computeFamilyTreeLayout, parseRelationships } from '../../../../common/noteTypes/familyTree'
-import { useWikiLinkNavigation } from '../../hooks/useWikiLinkNavigation'
 
 const COL_WIDTH = 170
 const ROW_HEIGHT = 120
@@ -8,8 +7,13 @@ const NODE_WIDTH = 150
 const NODE_HEIGHT = 46
 const PADDING = 30
 
-export function FamilyTreeDiagram({ body }: { body: string }): React.JSX.Element {
-  const openWikiLink = useWikiLinkNavigation()
+export function FamilyTreeDiagram({
+  body,
+  onOpenWikiLink
+}: {
+  body: string
+  onOpenWikiLink: (title: string) => Promise<void>
+}): React.JSX.Element {
   const layout = useMemo(() => computeFamilyTreeLayout(parseRelationships(body)), [body])
 
   if (layout.nodes.length === 0) {
@@ -106,9 +110,9 @@ export function FamilyTreeDiagram({ body }: { body: string }): React.JSX.Element
               className="family-tree-node"
               role="link"
               tabIndex={0}
-              onClick={() => void openWikiLink(node.name)}
+              onClick={() => void onOpenWikiLink(node.name)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') void openWikiLink(node.name)
+                if (e.key === 'Enter') void onOpenWikiLink(node.name)
               }}
             >
               <rect

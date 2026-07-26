@@ -6,9 +6,12 @@ const AUTOSAVE_DELAY_MS = 1500
 interface CloudEditorState {
   activeNote: CloudNoteData | null
   body: string
-  /** Bumped whenever `body` is replaced by something other than the user
-   *  typing (opening a note, discarding a conflict) — CloudEditor uses this
-   *  to know when it must re-sync its own CodeMirror buffer. */
+  frontmatter: Record<string, unknown>
+  /** Bumped whenever `body`/`frontmatter` are replaced by something other
+   *  than the user typing/the SheetView form (opening a note, discarding a
+   *  conflict) — CloudEditor uses this to know when it must re-sync its own
+   *  CodeMirror buffer. SheetView doesn't need this: it's a plain React
+   *  component that re-renders from `frontmatter` props on its own. */
   revision: number
   dirty: boolean
   /** The server's current row, only set right after a 409 — nothing has
@@ -17,6 +20,7 @@ interface CloudEditorState {
   conflict: CloudNoteData | null
   openNote: (id: string) => Promise<void>
   setBody: (body: string) => void
+  setFrontmatter: (frontmatter: Record<string, unknown>) => void
   saveNow: () => Promise<void>
   retrySaveWithLatestVersion: () => Promise<void>
   discardAndReloadFromConflict: () => void
@@ -25,9 +29,15 @@ interface CloudEditorState {
 
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 
+function scheduleAutosave(saveNow: () => Promise<void>): void {
+  if (autosaveTimer) clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(() => void saveNow(), AUTOSAVE_DELAY_MS)
+}
+
 export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   activeNote: null,
   body: '',
+  frontmatter: {},
   revision: 0,
   dirty: false,
   conflict: null,
@@ -35,34 +45,43 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   openNote: async (id) => {
     if (autosaveTimer) clearTimeout(autosaveTimer)
     const note = await window.cloudApi.getNote(id)
-    set((s) => ({ activeNote: note, body: note.body, revision: s.revision + 1, dirty: false, conflict: null }))
+    set((s) => ({
+      activeNote: note,
+      body: note.body,
+      frontmatter: note.frontmatter,
+      revision: s.revision + 1,
+      dirty: false,
+      conflict: null
+    }))
   },
 
   setBody: (body) => {
     set({ body, dirty: true })
-    if (autosaveTimer) clearTimeout(autosaveTimer)
-    autosaveTimer = setTimeout(() => {
-      void get().saveNow()
-    }, AUTOSAVE_DELAY_MS)
+    scheduleAutosave(get().saveNow)
+  },
+
+  setFrontmatter: (frontmatter) => {
+    set({ frontmatter, dirty: true })
+    scheduleAutosave(get().saveNow)
   },
 
   saveNow: async () => {
-    const { activeNote, body, dirty } = get()
+    const { activeNote, body, frontmatter, dirty } = get()
     if (!activeNote || !dirty) return
-    const result = await window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body })
+    const result = await window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter })
     if (result.status === 'saved') {
-      set({ activeNote: result.note, dirty: false, conflict: null })
+      set({ activeNote: result.note, body: result.note.body, frontmatter: result.note.frontmatter, dirty: false, conflict: null })
     } else {
-      // Deliberately doesn't touch `body` — the local edit stays exactly as
-      // typed, just unsaved, until the user picks retry or discard below.
+      // Deliberately doesn't touch `body`/`frontmatter` — the local edit
+      // stays exactly as made, just unsaved, until retry/discard below.
       set({ conflict: result.current })
     }
   },
 
   // "Last write wins, on purpose": adopt the server's version so the next
-  // save lands, but keep this session's body — the whole point of asking
-  // rather than silently overwriting is that a person is here to make that
-  // call, not an automated merge.
+  // save lands, but keep this session's body/frontmatter — the whole point
+  // of asking rather than silently overwriting is that a person is here to
+  // make that call, not an automated merge.
   retrySaveWithLatestVersion: async () => {
     const { conflict, activeNote } = get()
     if (!conflict || !activeNote) return
@@ -73,11 +92,18 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   discardAndReloadFromConflict: () => {
     const { conflict } = get()
     if (!conflict) return
-    set((s) => ({ activeNote: conflict, body: conflict.body, revision: s.revision + 1, dirty: false, conflict: null }))
+    set((s) => ({
+      activeNote: conflict,
+      body: conflict.body,
+      frontmatter: conflict.frontmatter,
+      revision: s.revision + 1,
+      dirty: false,
+      conflict: null
+    }))
   },
 
   closeNote: () => {
     if (autosaveTimer) clearTimeout(autosaveTimer)
-    set((s) => ({ activeNote: null, body: '', revision: s.revision + 1, dirty: false, conflict: null }))
+    set((s) => ({ activeNote: null, body: '', frontmatter: {}, revision: s.revision + 1, dirty: false, conflict: null }))
   }
 }))

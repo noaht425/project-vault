@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { TreeEntry } from '../../../../common/types'
+import { CREATE_PLACEHOLDERS, type CreateKind } from '../../../../common/noteTemplateDefaults'
 import { useVaultStore } from '../../state/vaultStore'
 import { useEditorStore } from '../../state/editorStore'
 
@@ -9,35 +10,6 @@ import { useEditorStore } from '../../state/editorStore'
 // invisible promise rejection.
 function reportError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err))
-}
-
-type CreateKind =
-  | 'note'
-  | 'pc'
-  | 'npc'
-  | 'class-reference'
-  | 'session'
-  | 'event'
-  | 'faction'
-  | 'item'
-  | 'location'
-  | 'language'
-  | 'family-tree'
-  | 'folder'
-
-const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
-  note: 'Note name…',
-  pc: 'Character name…',
-  npc: 'NPC name…',
-  'class-reference': 'e.g. Fighter — Champion',
-  session: 'e.g. Session 12 — The Sunken Temple',
-  event: 'e.g. The Sundering',
-  faction: 'Faction name…',
-  item: 'Item name…',
-  location: 'Location name…',
-  language: 'Language name…',
-  'family-tree': 'e.g. The Stormwind Family',
-  folder: 'Folder name…'
 }
 
 // Electron does not implement window.prompt() (only alert/confirm are

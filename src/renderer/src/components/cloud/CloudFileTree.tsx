@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { CloudTreeNode } from '../../../../common/cloudTypes'
+import { CREATE_PLACEHOLDERS, TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY, type CreateKind } from '../../../../common/noteTemplateDefaults'
 import { useCloudStore } from '../../state/cloudStore'
 import { useCloudEditorStore } from '../../state/cloudEditorStore'
 
@@ -284,7 +285,7 @@ export function CloudFileTree(): React.JSX.Element {
   const tree = useCloudStore((s) => s.tree)
   const refreshTree = useCloudStore((s) => s.refreshTree)
   const openNote = useCloudEditorStore((s) => s.openNote)
-  const [creating, setCreating] = useState<'note' | 'folder' | null>(null)
+  const [creating, setCreating] = useState<CreateKind | null>(null)
   const [isRootDropTarget, setIsRootDropTarget] = useState(false)
 
   if (checkingSession) return <div className="sidebar" style={{ padding: 16 }}>Checking session…</div>
@@ -299,7 +300,12 @@ export function CloudFileTree(): React.JSX.Element {
         await window.cloudApi.createFolder(name, null)
         await refreshTree()
       } else {
-        const note = await window.cloudApi.createNote({ name, frontmatter: { type: 'note' } })
+        // Same defaulting as the local vault's createNote (see
+        // main/vault/session.ts) — both now pull from the shared
+        // noteTemplateDefaults module instead of duplicating it.
+        const frontmatter = TEMPLATE_DEFAULTS[kind]?.() ?? { type: 'note', tags: [] }
+        const body = TEMPLATE_STARTER_BODY[kind] ?? '\n'
+        const note = await window.cloudApi.createNote({ name, frontmatter, body })
         await refreshTree()
         await openNote(note.id)
       }
@@ -334,13 +340,23 @@ export function CloudFileTree(): React.JSX.Element {
     <div className="sidebar">
       <div className="sidebar-toolbar">
         <button onClick={() => setCreating('note')}>+ Note</button>
+        <button onClick={() => setCreating('pc')}>+ PC</button>
+        <button onClick={() => setCreating('npc')}>+ NPC</button>
+        <button onClick={() => setCreating('class-reference')}>+ Class Ref</button>
+        <button onClick={() => setCreating('session')}>+ Session</button>
+        <button onClick={() => setCreating('event')}>+ Event</button>
+        <button onClick={() => setCreating('faction')}>+ Faction</button>
+        <button onClick={() => setCreating('item')}>+ Item</button>
+        <button onClick={() => setCreating('location')}>+ Location</button>
+        <button onClick={() => setCreating('language')}>+ Language</button>
+        <button onClick={() => setCreating('family-tree')}>+ Family Tree</button>
         <button onClick={() => setCreating('folder')}>+ Folder</button>
       </div>
       {creating && (
         <div className="tree-row tree-row-creating">
           <InlineNameInput
             initialValue=""
-            placeholder={creating === 'folder' ? 'Folder name…' : 'Note name…'}
+            placeholder={CREATE_PLACEHOLDERS[creating]}
             onSubmit={(v) => void submitCreate(v)}
             onCancel={() => setCreating(null)}
           />

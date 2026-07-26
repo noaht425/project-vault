@@ -1,13 +1,16 @@
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { familyTreeFrontmatterSchema } from '../../../../common/noteTypes/familyTree'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 import { FamilyTreeDiagram } from './FamilyTreeDiagram'
 
 export function FamilyTreeSheet({
   content,
-  onContentChange
+  onContentChange,
+  noteRefApi
 }: {
   content: string
   onContentChange: (content: string) => void
+  noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const { frontmatter, body } = parseNote(content)
   const data = familyTreeFrontmatterSchema.parse(frontmatter)
@@ -29,7 +32,7 @@ export function FamilyTreeSheet({
         one per line: "- [[A]] parent of [[B]]", "- [[A]] child of [[B]]", "- [[A]] spouse of [[B]]",
         or "- [[A]] sibling of [[B]]".
       </p>
-      <FamilyTreeDiagram body={body} />
+      <FamilyTreeDiagram body={body} onOpenWikiLink={(title) => noteRefApi.openByTitle(title)} />
     </div>
   )
 }
