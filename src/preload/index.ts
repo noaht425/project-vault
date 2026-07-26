@@ -100,6 +100,11 @@ const cloudApi = {
   deleteNote: (id: string): Promise<void> => ipcRenderer.invoke('cloud:deleteNote', id),
   createFolder: (name: string, parentId?: string | null): Promise<CloudFolder> =>
     ipcRenderer.invoke('cloud:createFolder', { name, parentId }),
+  renameFolder: (id: string, newName: string): Promise<CloudFolder> =>
+    ipcRenderer.invoke('cloud:renameFolder', { id, newName }),
+  moveFolder: (id: string, newParentId: string | null): Promise<CloudFolder> =>
+    ipcRenderer.invoke('cloud:moveFolder', { id, newParentId }),
+  deleteFolder: (id: string): Promise<void> => ipcRenderer.invoke('cloud:deleteFolder', id),
 
   searchTitles: (query: string, type?: string): Promise<CloudTitleMatch[]> =>
     ipcRenderer.invoke('cloud:searchTitles', query, type),

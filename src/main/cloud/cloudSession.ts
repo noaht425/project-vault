@@ -209,6 +209,30 @@ export class CloudSession {
     return mapFolder(await this.parseOrThrow<RawFolder>(res))
   }
 
+  // Folders have no version column (see 0001_init_schema.sql) — unlike
+  // notes, there's no optimistic-concurrency conflict to handle here.
+  async renameFolder(id: string, newName: string): Promise<CloudFolder> {
+    return this.patchFolder(id, { name: newName })
+  }
+
+  async moveFolder(id: string, newParentId: string | null): Promise<CloudFolder> {
+    return this.patchFolder(id, { parentId: newParentId })
+  }
+
+  private async patchFolder(id: string, patch: { name?: string; parentId?: string | null }): Promise<CloudFolder> {
+    const res = await fetch(`${API_BASE_URL}/api/folders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify(patch)
+    })
+    return mapFolder(await this.parseOrThrow<RawFolder>(res))
+  }
+
+  async deleteFolder(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}/api/folders/${id}`, { method: 'DELETE', headers: this.authHeaders() })
+    await this.parseOrThrow(res)
+  }
+
   async searchTitles(query: string, type?: string): Promise<CloudTitleMatch[]> {
     const params = new URLSearchParams({ q: query })
     if (type) params.set('type', type)

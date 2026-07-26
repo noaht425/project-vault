@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useVaultStore } from './state/vaultStore'
 import { useEditorStore } from './state/editorStore'
+import { useCloudStore } from './state/cloudStore'
 import { FileTree } from './components/file-tree/FileTree'
 import { Editor } from './components/editor/Editor'
 import { ConflictBanner } from './components/conflicts/ConflictBanner'
@@ -11,6 +12,8 @@ import { GraphView } from './components/graph/GraphView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
 import { CloudTestView } from './components/cloud/CloudTestView'
+import { CloudFileTree } from './components/cloud/CloudFileTree'
+import { CloudEditor } from './components/cloud/CloudEditor'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -29,6 +32,13 @@ export default function App(): React.JSX.Element {
   const saveNow = useEditorStore((s) => s.saveNow)
   const markExternalChangePending = useEditorStore((s) => s.markExternalChangePending)
   const openNote = useEditorStore((s) => s.openNote)
+  const checkCloudSession = useCloudStore((s) => s.checkSession)
+  const onCloudSessionRestored = useCloudStore((s) => s.onSessionRestored)
+  const setCloudTree = useCloudStore((s) => s.setTree)
+  const loadCachedCloudTree = useCloudStore((s) => s.loadCachedTree)
+  const refreshCloudTree = useCloudStore((s) => s.refreshTree)
+  const signedIn = useCloudStore((s) => s.signedIn)
+  const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
   const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'cloud'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
@@ -68,6 +78,30 @@ export default function App(): React.JSX.Element {
     }
   }, [setTree, markExternalChangePending])
 
+  // Cloud session/tree wiring runs unconditionally at mount, same as the
+  // local vault above — it shouldn't matter whether the cloud workspace is
+  // the visible one right now, only that it's ready the moment it becomes so.
+  useEffect(() => {
+    void checkCloudSession()
+    void loadCachedCloudTree()
+    const offSession = window.cloudApi.onSessionRestored(onCloudSessionRestored)
+    const offTree = window.cloudApi.onTreeUpdated((tree) => setCloudTree(tree))
+    return () => {
+      offSession()
+      offTree()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Fires once signed-in becomes true, from whichever path got there first
+  // (an already-resumed session found by checkSession, or a slightly later
+  // cloud:sessionRestored push) — pulls a fresh tree over the network since
+  // the cached one loaded above may be stale or from a previous session.
+  useEffect(() => {
+    if (signedIn) void refreshCloudTree()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -96,28 +130,42 @@ export default function App(): React.JSX.Element {
               e.currentTarget.blur()
             }
           }}
-          disabled={!vaultPath}
+          disabled={!vaultPath || workspaceSource === 'cloud'}
         />
         <span className="title-bar-spacer" />
         <DiceRoller />
         <button
+          className={workspaceSource === 'local' ? 'active' : ''}
+          onClick={() => setWorkspaceSource('local')}
+          title="Notes stored in this vault's local files"
+        >
+          Local Vault
+        </button>
+        <button
+          className={workspaceSource === 'cloud' ? 'active' : ''}
+          onClick={() => setWorkspaceSource('cloud')}
+          title="Notes stored in project-vault-cloud"
+        >
+          Cloud Workspace
+        </button>
+        <button
           className={mainView === 'sessions' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'sessions' ? 'editor' : 'sessions'))}
-          disabled={!vaultPath}
+          disabled={!vaultPath || workspaceSource === 'cloud'}
         >
           Sessions
         </button>
         <button
           className={mainView === 'events' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'events' ? 'editor' : 'events'))}
-          disabled={!vaultPath}
+          disabled={!vaultPath || workspaceSource === 'cloud'}
         >
           Events
         </button>
         <button
           className={mainView === 'graph' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'graph' ? 'editor' : 'graph'))}
-          disabled={!vaultPath}
+          disabled={!vaultPath || workspaceSource === 'cloud'}
         >
           Graph
         </button>
@@ -129,7 +177,7 @@ export default function App(): React.JSX.Element {
         </button>
       </div>
       <div className="app-body" style={{ gridTemplateColumns: `${sidebarWidth}px 5px 1fr 280px` }}>
-        <FileTree />
+        {workspaceSource === 'cloud' ? <CloudFileTree /> : <FileTree />}
         <div
           className="sidebar-resize-handle"
           onMouseDown={(e) => {
@@ -137,7 +185,9 @@ export default function App(): React.JSX.Element {
             resizing.current = true
           }}
         />
-        {effectiveView === 'search' ? (
+        {workspaceSource === 'cloud' ? (
+          <CloudEditor />
+        ) : effectiveView === 'search' ? (
           <SearchView
             query={searchQuery}
             onOpenResult={(path) => {

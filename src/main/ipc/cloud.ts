@@ -69,6 +69,20 @@ export function registerCloudIpc(cloud: CloudSession): void {
   )
 
   ipcMain.handle(
+    'cloud:renameFolder',
+    async (_event, args: { id: string; newName: string }): Promise<CloudFolder> =>
+      cloud.renameFolder(args.id, args.newName)
+  )
+
+  ipcMain.handle(
+    'cloud:moveFolder',
+    async (_event, args: { id: string; newParentId: string | null }): Promise<CloudFolder> =>
+      cloud.moveFolder(args.id, args.newParentId)
+  )
+
+  ipcMain.handle('cloud:deleteFolder', async (_event, id: string): Promise<void> => cloud.deleteFolder(id))
+
+  ipcMain.handle(
     'cloud:searchTitles',
     async (_event, query: string, type?: string): Promise<CloudTitleMatch[]> => cloud.searchTitles(query, type)
   )

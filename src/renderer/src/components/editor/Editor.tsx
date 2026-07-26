@@ -14,7 +14,7 @@ import { SheetView } from '../sheets/SheetView'
 // so both are invisible/wrong against this app's dark one. This is the
 // minimal fix (cursor + selection only), not a full syntax-highlighting
 // theme.
-const darkCursorTheme = EditorView.theme(
+export const darkCursorTheme = EditorView.theme(
   {
     '.cm-content': { caretColor: 'var(--text-normal)' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text-normal)' },
