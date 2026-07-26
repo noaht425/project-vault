@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useVaultStore } from './state/vaultStore'
 import { useEditorStore } from './state/editorStore'
 import { useCloudStore } from './state/cloudStore'
+import { useCloudEditorStore } from './state/cloudEditorStore'
 import { FileTree } from './components/file-tree/FileTree'
 import { Editor } from './components/editor/Editor'
 import { ConflictBanner } from './components/conflicts/ConflictBanner'
@@ -14,6 +15,9 @@ import { DiceRoller } from './components/dice/DiceRoller'
 import { CloudTestView } from './components/cloud/CloudTestView'
 import { CloudFileTree } from './components/cloud/CloudFileTree'
 import { CloudEditor } from './components/cloud/CloudEditor'
+import { CloudRightPanel } from './components/cloud/CloudRightPanel'
+import { CloudSearchView } from './components/cloud/CloudSearchView'
+import { CloudGraphView } from './components/cloud/CloudGraphView'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -38,6 +42,7 @@ export default function App(): React.JSX.Element {
   const loadCachedCloudTree = useCloudStore((s) => s.loadCachedTree)
   const refreshCloudTree = useCloudStore((s) => s.refreshTree)
   const signedIn = useCloudStore((s) => s.signedIn)
+  const cloudOpenNote = useCloudEditorStore((s) => s.openNote)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
   const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'cloud'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
@@ -130,7 +135,7 @@ export default function App(): React.JSX.Element {
               e.currentTarget.blur()
             }
           }}
-          disabled={!vaultPath || workspaceSource === 'cloud'}
+          disabled={workspaceSource === 'local' && !vaultPath}
         />
         <span className="title-bar-spacer" />
         <DiceRoller />
@@ -165,7 +170,7 @@ export default function App(): React.JSX.Element {
         <button
           className={mainView === 'graph' ? 'active' : ''}
           onClick={() => setMainView((v) => (v === 'graph' ? 'editor' : 'graph'))}
-          disabled={!vaultPath || workspaceSource === 'cloud'}
+          disabled={workspaceSource === 'local' && !vaultPath}
         >
           Graph
         </button>
@@ -186,7 +191,29 @@ export default function App(): React.JSX.Element {
           }}
         />
         {workspaceSource === 'cloud' ? (
-          <CloudEditor />
+          effectiveView === 'search' ? (
+            <CloudSearchView
+              query={searchQuery}
+              onOpenResult={(id) => {
+                void cloudOpenNote(id)
+                setSearchQuery('')
+              }}
+            />
+          ) : mainView === 'graph' ? (
+            <CloudGraphView
+              onOpenNode={(id) => {
+                void cloudOpenNote(id)
+                setMainView('editor')
+              }}
+            />
+          ) : (
+            <>
+              <div className="editor-column">
+                <CloudEditor />
+              </div>
+              <CloudRightPanel />
+            </>
+          )
         ) : effectiveView === 'search' ? (
           <SearchView
             query={searchQuery}
