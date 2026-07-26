@@ -17,5 +17,5 @@
     },
     "outDir": "./.ts-out/web"
   },
-  "include": ["src/renderer/src/**/*", "src/common/**/*"]
+  "include": ["src/renderer/src/**/*", "src/common/**/*", "tests/renderer/**/*"]
 }

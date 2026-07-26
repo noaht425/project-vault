@@ -15,7 +15,11 @@ export interface NoteRefApi {
   readBodyByTitle(title: string, type?: string): Promise<string | null>
 }
 
-function createNoteRefApi(
+// Exported for direct testing (tests/noteRefApi.test.ts) — the two hooks
+// below are thin, barely-testable wiring around window.vaultApi/cloudApi
+// and a React hook context; this factory is where the actual
+// find-exact-or-alert logic (and its risk of regressing) lives.
+export function createNoteRefApi(
   searchTitles: (query: string, type?: string) => Promise<{ title: string; ref: string }[]>,
   openByRef: (ref: string) => Promise<void>,
   readBodyByRef: (ref: string) => Promise<string>

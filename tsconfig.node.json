@@ -21,5 +21,6 @@
     "src/common/**/*",
     "electron.vite.config.ts",
     "tests/**/*"
-  ]
+  ],
+  "exclude": ["tests/renderer/**"]
 }
