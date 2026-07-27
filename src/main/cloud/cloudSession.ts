@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { extname } from 'node:path'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { readRefreshToken, writeRefreshToken, clearRefreshToken } from './cloudSessionStore'
 import { readCachedTree, writeCachedTree } from './cloudTreeCache'
 import type {
@@ -22,6 +26,16 @@ const SUPABASE_ANON_KEY = 'sb_publishable_uQP5hIZcHJdQyFnx7wk4Cg_SDXZvP0z'
 // Deployed at https://vercel.com/noaht425-project-vault/project-vault-cloud
 // (its own dedicated Vercel team, separate from the abentfork one).
 const API_BASE_URL = 'https://project-vault-cloud.vercel.app'
+
+const MAP_IMAGES_BUCKET = 'map-images'
+const SIGNED_URL_TTL_SECONDS = 60 * 60
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp'
+}
 
 interface SupabaseTokenResponse {
   access_token?: string
@@ -286,6 +300,47 @@ export class CloudSession {
     await writeCachedTree(this.userDataDir, tree)
     this.handlers.onTreeUpdated(tree)
     return tree
+  }
+
+  // Storage.uploadMapImage/getMapImageUrl talk to Supabase Storage directly
+  // rather than through project-vault-cloud's API — this session already
+  // holds a bearer token straight from Supabase Auth (see requestToken
+  // above), so routing image bytes through Vercel too would just be a
+  // redundant hop. A fresh bearer-scoped client per call mirrors how
+  // project-vault-cloud's own apiAuth.ts authenticates non-cookie callers.
+  private storageClient(): ReturnType<typeof createSupabaseClient> {
+    if (!this.accessToken) throw new Error('Not signed in')
+    return createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${this.accessToken}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+  }
+
+  // Object paths are namespaced under the caller's own user id — the
+  // "map_images_owner_all" RLS policy (0002_map_images_storage.sql) checks
+  // exactly that first path segment, mirroring the owner_id-scoping every
+  // Postgres table already uses.
+  async uploadMapImage(localFilePath: string): Promise<{ path: string }> {
+    if (!this.userId) throw new Error('Not signed in')
+    const bytes = await readFile(localFilePath)
+    const ext = extname(localFilePath).toLowerCase()
+    const objectPath = `${this.userId}/${randomUUID()}${ext}`
+
+    const { error } = await this.storageClient()
+      .storage.from(MAP_IMAGES_BUCKET)
+      .upload(objectPath, bytes, { contentType: CONTENT_TYPES[ext] ?? 'application/octet-stream' })
+    if (error) throw new Error(error.message)
+
+    return { path: objectPath }
+  }
+
+  async getMapImageUrl(path: string): Promise<string> {
+    const { data, error } = await this.storageClient()
+      .storage.from(MAP_IMAGES_BUCKET)
+      .createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
+    if (error || !data) throw new Error(error?.message ?? 'Failed to create signed URL')
+
+    return data.signedUrl
   }
 
   private async parseOrThrow<T>(res: Response): Promise<T> {

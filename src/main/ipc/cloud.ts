@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog, type BrowserWindow } from 'electron'
 import type { CloudSession } from '../cloud/cloudSession'
 import type {
   CloudBacklink,
@@ -13,7 +13,7 @@ import type {
   CloudTreeNode
 } from '../../common/cloudTypes'
 
-export function registerCloudIpc(cloud: CloudSession): void {
+export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow): void {
   ipcMain.handle('cloud:getSession', (): { userId: string } | null => cloud.getSession())
 
   ipcMain.handle(
@@ -106,4 +106,16 @@ export function registerCloudIpc(cloud: CloudSession): void {
 
   ipcMain.handle('cloud:getCachedTree', (): CloudTreeNode[] | null => cloud.getCachedTree())
   ipcMain.handle('cloud:refreshTree', async (): Promise<CloudTreeNode[]> => cloud.refreshTree())
+
+  ipcMain.handle('cloud:pickAndUploadMapImage', async (): Promise<{ path: string } | null> => {
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Choose a map image',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return cloud.uploadMapImage(result.filePaths[0])
+  })
+
+  ipcMain.handle('cloud:getMapImageUrl', async (_event, path: string): Promise<string> => cloud.getMapImageUrl(path))
 }

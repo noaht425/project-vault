@@ -124,6 +124,12 @@ const cloudApi = {
   getCachedTree: (): Promise<CloudTreeNode[] | null> => ipcRenderer.invoke('cloud:getCachedTree'),
   refreshTree: (): Promise<CloudTreeNode[]> => ipcRenderer.invoke('cloud:refreshTree'),
 
+  // Opens a native file picker and uploads the chosen image to Supabase
+  // Storage; null means the user cancelled the picker, matching vault:open's
+  // existing cancel convention.
+  pickAndUploadMapImage: (): Promise<{ path: string } | null> => ipcRenderer.invoke('cloud:pickAndUploadMapImage'),
+  getMapImageUrl: (path: string): Promise<string> => ipcRenderer.invoke('cloud:getMapImageUrl', path),
+
   onTreeUpdated: (callback: (tree: CloudTreeNode[]) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: CloudTreeNode[]): void => callback(payload)
     ipcRenderer.on('cloud:treeUpdated', listener)

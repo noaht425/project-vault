@@ -10,6 +10,7 @@ import { ItemSheet } from './ItemSheet'
 import { LocationSheet } from './LocationSheet'
 import { LanguageSheet } from './LanguageSheet'
 import { FamilyTreeSheet } from './FamilyTreeSheet'
+import { MapSheet } from './MapSheet'
 
 export function SheetView({
   content,
@@ -47,6 +48,8 @@ export function SheetView({
       return <LanguageSheet content={content} onContentChange={onContentChange} />
     case 'family-tree':
       return <FamilyTreeSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+    case 'map':
+      return <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     default:
       return null
   }

@@ -1,0 +1,312 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { segmentDistance, type Point } from '../../../../common/mapGeometry'
+import { pinDisplayLabel, type LineType, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
+
+export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'place-pin'
+
+interface ViewBox {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+// Below this many screen pixels of movement, a mousedown+mouseup is treated
+// as a click (place a point / open a pin) rather than a pan drag — lets
+// panning and click-to-place share the same background without a separate
+// "pan mode" toggle.
+const CLICK_MOVEMENT_THRESHOLD = 4
+
+// The SVG's default preserveAspectRatio ("xMidYMid meet") scales the
+// viewBox uniformly to fit inside the element's rendered box and centers
+// it — whenever that box's aspect ratio doesn't match the viewBox's (near
+// -guaranteed here, since the container is a fixed-height panel but the
+// viewBox tracks the uploaded image's own dimensions), that leaves a
+// letterboxed margin on two sides. A naive clientX/rect.width * viewBox.w
+// conversion ignores that margin entirely, so every click lands offset
+// from the cursor by however wide the margin is. This computes the actual
+// on-screen scale and margin so click/pan/zoom math can subtract it out —
+// deliberately not "fixed" by setting preserveAspectRatio="none" instead,
+// since that would stretch the map image itself to fill the box.
+function getViewportTransform(rect: DOMRect, viewBox: ViewBox): { scale: number; offsetX: number; offsetY: number } {
+  const scale = Math.min(rect.width / viewBox.w, rect.height / viewBox.h)
+  return {
+    scale,
+    offsetX: (rect.width - viewBox.w * scale) / 2,
+    offsetY: (rect.height - viewBox.h * scale) / 2
+  }
+}
+
+export interface MapCanvasProps {
+  imageUrl: string
+  imageWidth: number
+  imageHeight: number
+  zones: MapZone[]
+  lines: MapLine[]
+  pins: MapPin[]
+  terrainTypes: TerrainType[]
+  lineTypes: LineType[]
+  mode: MapCanvasMode
+  onCalibrate: (pixelDistance: number) => void
+  onZoneDrawn: (points: Point[]) => void
+  onLineDrawn: (points: Point[]) => void
+  onPinPlaced: (point: Point) => void
+  onPinClick: (pin: MapPin) => void
+}
+
+export function MapCanvas({
+  imageUrl,
+  imageWidth,
+  imageHeight,
+  zones,
+  lines,
+  pins,
+  terrainTypes,
+  lineTypes,
+  mode,
+  onCalibrate,
+  onZoneDrawn,
+  onLineDrawn,
+  onPinPlaced,
+  onPinClick
+}: MapCanvasProps): React.JSX.Element {
+  const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
+  const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
+  const [zoneDraft, setZoneDraft] = useState<Point[]>([])
+  const [lineDraft, setLineDraft] = useState<Point[]>([])
+  const svgRef = useRef<SVGSVGElement>(null)
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
+  // The window-level mousemove/mouseup listeners below are only rebound
+  // when viewBox.w/h change (not x/y — see that effect's comment), so a
+  // handler invoked after a pure pan (x/y-only change) would otherwise
+  // still be closed over the pre-pan viewBox. Reading through this ref
+  // instead of the `viewBox` variable directly keeps clientToSvgPoint
+  // correct regardless of when the listener closure was created, since the
+  // ref's current value is always up to date at call time.
+  const viewBoxRef = useRef(viewBox)
+  useEffect(() => {
+    viewBoxRef.current = viewBox
+  }, [viewBox])
+
+  const terrainTypesById = useMemo(() => new Map(terrainTypes.map((t) => [t.id, t])), [terrainTypes])
+  const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
+  const pinRadius = Math.max(6, Math.min(imageWidth, imageHeight) * 0.01)
+
+  // A freshly (re)loaded image gets a fresh full-image view; switching modes
+  // discards any in-progress calibration/zone draft so it can't leak in
+  // half-finished.
+  useEffect(() => {
+    setViewBox({ x: 0, y: 0, w: imageWidth, h: imageHeight })
+  }, [imageWidth, imageHeight, imageUrl])
+
+  useEffect(() => {
+    setCalibrationStart(null)
+    setZoneDraft([])
+    setLineDraft([])
+  }, [mode])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (mode === 'paint-zone') {
+        if (e.key === 'Enter' && zoneDraft.length >= 3) {
+          onZoneDrawn(zoneDraft)
+          setZoneDraft([])
+        } else if (e.key === 'Escape') {
+          setZoneDraft([])
+        }
+      } else if (mode === 'draw-line') {
+        if (e.key === 'Enter' && lineDraft.length >= 2) {
+          onLineDrawn(lineDraft)
+          setLineDraft([])
+        } else if (e.key === 'Escape') {
+          setLineDraft([])
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn])
+
+  const clientToSvgPoint = (clientX: number, clientY: number): Point | null => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    const vb = viewBoxRef.current
+    const { scale, offsetX, offsetY } = getViewportTransform(rect, vb)
+    return {
+      x: vb.x + (clientX - rect.left - offsetX) / scale,
+      y: vb.y + (clientY - rect.top - offsetY) / scale
+    }
+  }
+
+  const handleClickAt = (point: Point): void => {
+    if (mode === 'calibrate') {
+      if (!calibrationStart) {
+        setCalibrationStart(point)
+      } else {
+        onCalibrate(segmentDistance(calibrationStart, point))
+        setCalibrationStart(null)
+      }
+    } else if (mode === 'paint-zone') {
+      setZoneDraft((pts) => [...pts, point])
+    } else if (mode === 'draw-line') {
+      setLineDraft((pts) => [...pts, point])
+    } else if (mode === 'place-pin') {
+      onPinPlaced(point)
+    }
+  }
+
+  const handleWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
+    e.preventDefault()
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    setViewBox((vb) => {
+      const before = getViewportTransform(rect, vb)
+      const px = vb.x + (e.clientX - rect.left - before.offsetX) / before.scale
+      const py = vb.y + (e.clientY - rect.top - before.offsetY) / before.scale
+
+      const scaleFactor = e.deltaY < 0 ? 0.9 : 1.1
+      const newW = Math.min(imageWidth * 3, Math.max(50, vb.w * scaleFactor))
+      const newH = vb.h * (newW / vb.w)
+
+      // Keep the point under the cursor stationary — recomputed against the
+      // *new* viewBox's own scale/offset, not the old one, since zooming
+      // changes how much screen space the same viewBox unit covers.
+      const after = getViewportTransform(rect, { x: vb.x, y: vb.y, w: newW, h: newH })
+      const newMx = e.clientX - rect.left - after.offsetX
+      const newMy = e.clientY - rect.top - after.offsetY
+      return { x: px - newMx / after.scale, y: py - newMy / after.scale, w: newW, h: newH }
+    })
+  }
+
+  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>): void => {
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: viewBox.x, origY: viewBox.y, moved: false }
+  }
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent): void => {
+      const drag = dragRef.current
+      const rect = svgRef.current?.getBoundingClientRect()
+      if (!drag || !rect) return
+      if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > CLICK_MOVEMENT_THRESHOLD) {
+        drag.moved = true
+      }
+      if (!drag.moved) return
+      const { scale } = getViewportTransform(rect, viewBoxRef.current)
+      const dxUser = (e.clientX - drag.startX) / scale
+      const dyUser = (e.clientY - drag.startY) / scale
+      setViewBox((vb) => ({ ...vb, x: drag.origX - dxUser, y: drag.origY - dyUser }))
+    }
+    const handleMouseUp = (e: MouseEvent): void => {
+      const drag = dragRef.current
+      dragRef.current = null
+      if (!drag || drag.moved) return
+      const point = clientToSvgPoint(e.clientX, e.clientY)
+      if (point) handleClickAt(point)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+    // Deliberately omits viewBox.x/y and handleClickAt's other closed-over
+    // values from the dep list — only re-binding on the values above (same
+    // as CloudGraphView's identical pattern) avoids tearing down and
+    // rebuilding these window listeners on every pan tick.
+  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft])
+
+  return (
+    <svg
+      ref={svgRef}
+      className="graph-svg"
+      viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+      style={{ cursor: mode === 'view' ? 'grab' : 'crosshair' }}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+    >
+      <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />
+
+      <g>
+        {zones.map((zone) => (
+          <polygon
+            key={zone.id}
+            points={zone.points.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill={terrainTypesById.get(zone.terrainTypeId)?.color ?? '#888'}
+            fillOpacity={0.35}
+            stroke={terrainTypesById.get(zone.terrainTypeId)?.color ?? '#888'}
+            strokeWidth={2}
+          />
+        ))}
+      </g>
+
+      <g>
+        {lines.map((line) => (
+          <polyline
+            key={line.id}
+            points={line.points.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke={lineTypesById.get(line.lineTypeId)?.color ?? '#888'}
+            strokeOpacity={0.6}
+            strokeWidth={line.widthPixels}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+      </g>
+
+      {mode === 'paint-zone' && zoneDraft.length > 0 && (
+        <g>
+          {/* Black-outline-then-white-dash layering keeps this visible
+              regardless of the underlying map's colors — a flat white line
+              disappears entirely on a light background. */}
+          <polyline points={zoneDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+          <polyline points={zoneDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+          {zoneDraft.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+          ))}
+        </g>
+      )}
+
+      {mode === 'draw-line' && lineDraft.length > 0 && (
+        <g>
+          <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+          <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+          {lineDraft.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+          ))}
+        </g>
+      )}
+
+      {mode === 'calibrate' && calibrationStart && (
+        <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
+      )}
+
+      <g>
+        {pins.map((pin) => (
+          <g
+            key={pin.id}
+            transform={`translate(${pin.x}, ${pin.y})`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => onPinClick(pin)}
+            style={{ cursor: pin.locationTitle ? 'pointer' : 'default' }}
+          >
+            {/* Freehand pins (no linked note) get a dashed outline and a
+                muted fill — same "not a real note yet" visual language as
+                the graph view's phantom nodes. */}
+            <circle
+              r={pinRadius}
+              fill={pin.locationTitle ? '#e08a3c' : '#888'}
+              stroke="#fff"
+              strokeWidth={2}
+              strokeDasharray={pin.locationTitle ? undefined : '3,2'}
+            />
+            <text y={-pinRadius - 6} textAnchor="middle" fill="#fff">
+              {pinDisplayLabel(pin)}
+            </text>
+          </g>
+        ))}
+      </g>
+    </svg>
+  )
+}

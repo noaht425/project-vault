@@ -92,7 +92,7 @@ app.whenReady().then(async () => {
       mainWindow?.webContents.send('cloud:sessionRestored', restoredSession)
     }
   })
-  registerCloudIpc(cloud)
+  registerCloudIpc(cloud, mainWindow)
   // Fire-and-forget, deliberately not awaited — unlike the vault reopen
   // above, a slow or failing network request here must never delay
   // showing the window (the window is already created and shown by now).

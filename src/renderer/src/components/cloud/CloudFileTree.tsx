@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import type { CloudTreeNode } from '../../../../common/cloudTypes'
 import { CREATE_PLACEHOLDERS, TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY, type CreateKind } from '../../../../common/noteTemplateDefaults'
+import { defaultMapFrontmatter } from '../../../../common/noteTypes/map'
 import { NewItemMenu } from '../file-tree/NewItemMenu'
+import { VaultImportPanel } from './VaultImportPanel'
 import { useCloudStore } from '../../state/cloudStore'
 import { useCloudEditorStore } from '../../state/cloudEditorStore'
 
@@ -287,7 +289,9 @@ export function CloudFileTree(): React.JSX.Element {
   const refreshTree = useCloudStore((s) => s.refreshTree)
   const openNote = useCloudEditorStore((s) => s.openNote)
   const [creating, setCreating] = useState<CreateKind | null>(null)
+  const [creatingMap, setCreatingMap] = useState(false)
   const [isRootDropTarget, setIsRootDropTarget] = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   if (checkingSession) return <div className="sidebar" style={{ padding: 16 }}>Checking session…</div>
   if (!signedIn) return <CloudSignInForm />
@@ -310,6 +314,21 @@ export function CloudFileTree(): React.JSX.Element {
         await refreshTree()
         await openNote(note.id)
       }
+    } catch (err) {
+      reportError(err)
+    }
+  }
+
+  // Deliberately not routed through submitCreate/CREATABLE_NOTE_KINDS —
+  // 'map' isn't (and shouldn't be) part of that shared local+cloud template
+  // system, since a map note only makes sense in the Cloud Workspace (its
+  // sheet talks to window.cloudApi directly for image storage).
+  const submitCreateMap = async (name: string): Promise<void> => {
+    setCreatingMap(false)
+    try {
+      const note = await window.cloudApi.createNote({ name, frontmatter: defaultMapFrontmatter() })
+      await refreshTree()
+      await openNote(note.id)
     } catch (err) {
       reportError(err)
     }
@@ -341,7 +360,24 @@ export function CloudFileTree(): React.JSX.Element {
     <div className="sidebar">
       <div className="sidebar-toolbar">
         <NewItemMenu onSelect={(kind) => setCreating(kind)} />
+        <button onClick={() => setCreatingMap(true)} title="New map">
+          + Map
+        </button>
+        <button onClick={() => setShowImport((v) => !v)} title="Import Local Vault into Cloud Workspace">
+          Import Local Vault…
+        </button>
       </div>
+      {showImport && <VaultImportPanel onClose={() => setShowImport(false)} />}
+      {creatingMap && (
+        <div className="tree-row tree-row-creating">
+          <InlineNameInput
+            initialValue=""
+            placeholder="Map name…"
+            onSubmit={(v) => void submitCreateMap(v)}
+            onCancel={() => setCreatingMap(false)}
+          />
+        </div>
+      )}
       {creating && (
         <div className="tree-row tree-row-creating">
           <InlineNameInput
