@@ -16,9 +16,9 @@ interface SimNode extends GraphNode, SimulationNodeDatum {}
 // Fixed world-space canvas the simulation lays out into — the SVG's
 // viewBox (not CSS size) maps this onto whatever the container's actual
 // pixel size is, and zoom/pan below just changes which slice of it shows.
-const WORLD_WIDTH = 2000
-const WORLD_HEIGHT = 1400
-const TICKS = 300 // run the simulation to convergence once instead of animating it live — plenty for a few hundred notes
+const WORLD_WIDTH = 3400
+const WORLD_HEIGHT = 2380
+const TICKS = 500 // run the simulation to convergence once instead of animating it live — plenty for a few hundred notes
 
 const TYPE_COLORS: Record<string, string> = {
   pc: '#5fb3f0',
@@ -88,26 +88,31 @@ export function GraphView({ onOpenNode }: { onOpenNode: (path: string) => void }
         'link',
         forceLink(simLinks)
           .id((d) => (d as SimNode).id)
-          .distance(70)
-          .strength(0.35)
+          .distance(125)
+          .strength(0.3)
       )
       // distanceMax caps how far apart two nodes still repel each other —
       // without it, an isolated or weakly-linked note (nothing but charge
       // pushing it, nothing pulling it back) drifts further every tick from
       // countless tiny long-range repulsions that never fully cancel out,
       // ending up flung far off from the rest of the graph.
-      .force('charge', forceManyBody().strength(-160).distanceMax(300))
+      .force('charge', forceManyBody().strength(-440).distanceMax(750))
       .force('center', forceCenter(WORLD_WIDTH / 2, WORLD_HEIGHT / 2))
       // forceCenter only recenters the graph's average position — it does
       // nothing to keep any individual node bounded. A weak pull toward the
       // canvas center on every node is what actually stops outliers from
       // escaping, while staying gentle enough not to fight the link/charge
       // forces that do the real layout work.
-      .force('x', forceX(WORLD_WIDTH / 2).strength(0.03))
-      .force('y', forceY(WORLD_HEIGHT / 2).strength(0.03))
+      .force('x', forceX(WORLD_WIDTH / 2).strength(0.018))
+      .force('y', forceY(WORLD_HEIGHT / 2).strength(0.018))
       .force(
         'collide',
-        forceCollide<SimNode>().radius((d) => radiusFor(degreeById.get(d.id) ?? 0) + 6)
+        // multiple iterations per tick — a single pass doesn't fully resolve
+        // overlaps in the dense hub cluster where many high-degree (large
+        // radius) nodes compete for the same space.
+        forceCollide<SimNode>()
+          .radius((d) => radiusFor(degreeById.get(d.id) ?? 0) + 14)
+          .iterations(3)
       )
       .stop()
 

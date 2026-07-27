@@ -19,9 +19,9 @@ interface SimNode extends CloudGraphNode, SimulationNodeDatum {}
 // `noteType === null` is the click-ability check instead — both
 // buildGraph implementations set noteType to null only for synthesized
 // phantom nodes (see project-vault-cloud's src/lib/graph.ts).
-const WORLD_WIDTH = 2000
-const WORLD_HEIGHT = 1400
-const TICKS = 300
+const WORLD_WIDTH = 3400
+const WORLD_HEIGHT = 2380
+const TICKS = 500
 
 const TYPE_COLORS: Record<string, string> = {
   pc: '#5fb3f0',
@@ -91,16 +91,18 @@ export function CloudGraphView({ onOpenNode }: { onOpenNode: (id: string) => voi
         'link',
         forceLink(simLinks)
           .id((d) => (d as SimNode).id)
-          .distance(70)
-          .strength(0.35)
+          .distance(125)
+          .strength(0.3)
       )
-      .force('charge', forceManyBody().strength(-160).distanceMax(300))
+      .force('charge', forceManyBody().strength(-440).distanceMax(750))
       .force('center', forceCenter(WORLD_WIDTH / 2, WORLD_HEIGHT / 2))
-      .force('x', forceX(WORLD_WIDTH / 2).strength(0.03))
-      .force('y', forceY(WORLD_HEIGHT / 2).strength(0.03))
+      .force('x', forceX(WORLD_WIDTH / 2).strength(0.018))
+      .force('y', forceY(WORLD_HEIGHT / 2).strength(0.018))
       .force(
         'collide',
-        forceCollide<SimNode>().radius((d) => radiusFor(degreeById.get(d.id) ?? 0) + 6)
+        forceCollide<SimNode>()
+          .radius((d) => radiusFor(degreeById.get(d.id) ?? 0) + 14)
+          .iterations(3)
       )
       .stop()
 
