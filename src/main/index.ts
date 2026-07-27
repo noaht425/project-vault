@@ -11,6 +11,7 @@ import { registerSessionsIpc } from './ipc/sessions'
 import { registerEventsIpc } from './ipc/events'
 import { registerSearchIpc } from './ipc/search'
 import { registerGraphIpc } from './ipc/graph'
+import { registerInitiativeIpc } from './ipc/initiative'
 import { registerCloudIpc } from './ipc/cloud'
 import { CloudSession } from './cloud/cloudSession'
 import type { ExternalChangeEvent, TreeEntry } from '../common/types'
@@ -83,6 +84,7 @@ app.whenReady().then(async () => {
   registerEventsIpc(session)
   registerSearchIpc(session)
   registerGraphIpc(session)
+  registerInitiativeIpc(userDataDir)
 
   const cloud = new CloudSession(userDataDir, {
     onTreeUpdated: (tree: unknown) => {

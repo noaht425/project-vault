@@ -14,6 +14,7 @@ import type {
   VaultOpenResult
 } from '../common/types'
 import type { GraphData } from '../common/graph'
+import type { Encounter } from '../common/initiative'
 import type {
   CloudBacklink,
   CloudEventSummary,
@@ -53,6 +54,9 @@ const vaultApi = {
   search: (query: string, type?: string): Promise<SearchResult[]> =>
     ipcRenderer.invoke('search:fullText', query, type),
   getGraph: (): Promise<GraphData> => ipcRenderer.invoke('graph:get'),
+
+  getCurrentEncounter: (): Promise<Encounter> => ipcRenderer.invoke('initiative:read'),
+  saveCurrentEncounter: (encounter: Encounter): Promise<void> => ipcRenderer.invoke('initiative:write', encounter),
 
   onExternalChange: (callback: (event: ExternalChangeEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: ExternalChangeEvent): void =>

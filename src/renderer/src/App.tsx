@@ -10,6 +10,7 @@ import { RightPanel } from './components/layout/RightPanel'
 import { TimelineView } from './components/timeline/TimelineView'
 import { EventsTimelineView } from './components/timeline/EventsTimelineView'
 import { GraphView } from './components/graph/GraphView'
+import { InitiativeView } from './components/initiative/InitiativeView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
 import { CloudFileTree } from './components/cloud/CloudFileTree'
@@ -45,7 +46,7 @@ export default function App(): React.JSX.Element {
   const signedIn = useCloudStore((s) => s.signedIn)
   const cloudOpenNote = useCloudEditorStore((s) => s.openNote)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
-  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -179,6 +180,14 @@ export default function App(): React.JSX.Element {
           >
             Graph
           </button>
+          <button
+            className={mainView === 'initiative' ? 'active' : ''}
+            onClick={() => setMainView((v) => (v === 'initiative' ? 'editor' : 'initiative'))}
+            disabled={workspaceSource === 'cloud' || !vaultPath}
+            title={workspaceSource === 'cloud' ? 'Initiative Tracker is local-vault only for now' : undefined}
+          >
+            Initiative
+          </button>
         </div>
         <div className="title-bar-group">
           <DiceRoller />
@@ -256,6 +265,13 @@ export default function App(): React.JSX.Element {
         ) : effectiveView === 'graph' ? (
           <GraphView
             onOpenNode={(path) => {
+              void openNote(path)
+              setMainView('editor')
+            }}
+          />
+        ) : effectiveView === 'initiative' ? (
+          <InitiativeView
+            onOpenSourceNote={(path) => {
               void openNote(path)
               setMainView('editor')
             }}
