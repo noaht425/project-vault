@@ -52,6 +52,10 @@ export interface MapCanvasProps {
   onLineDrawn: (points: Point[]) => void
   onPinPlaced: (point: Point) => void
   onPinClick: (pin: MapPin) => void
+  // Pin ids to ring in an accent color — used by the Timeline section to
+  // show which locations have a revealed event as the slider moves.
+  // Optional since only that one caller needs it.
+  highlightedPinIds?: Set<string>
 }
 
 export function MapCanvas({
@@ -68,7 +72,8 @@ export function MapCanvas({
   onZoneDrawn,
   onLineDrawn,
   onPinPlaced,
-  onPinClick
+  onPinClick,
+  highlightedPinIds
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -291,6 +296,9 @@ export function MapCanvas({
             onClick={() => onPinClick(pin)}
             style={{ cursor: pin.locationTitle ? 'pointer' : 'default' }}
           >
+            {highlightedPinIds?.has(pin.id) && (
+              <circle r={pinRadius + 5} fill="none" stroke="#7c8cff" strokeWidth={3} />
+            )}
             {/* Freehand pins (no linked note) get a dashed outline and a
                 muted fill — same "not a real note yet" visual language as
                 the graph view's phantom nodes. */}

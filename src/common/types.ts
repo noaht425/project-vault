@@ -79,6 +79,11 @@ export interface EventSummary {
   // Events timeline show entries pulled from other notes' History sections
   // distinctly from dedicated Event notes.
   noteType: string
+  // Only ever set for noteType === 'event' entries (a location note's
+  // title, from that note's own `location` field) — History-section-derived
+  // facts have no such concept. Used by the Map×Timeline crossover to match
+  // an event to a pin on a given map.
+  location?: string | null
 }
 
 export interface SearchResult {

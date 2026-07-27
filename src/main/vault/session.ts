@@ -310,7 +310,8 @@ export class VaultSession {
           title,
           date: parsed.success ? parsed.data.date : '',
           summary: parsed.success ? parsed.data.summary : '',
-          noteType: 'event'
+          noteType: 'event',
+          location: parsed.success ? parsed.data.location : null
         })
       }
 

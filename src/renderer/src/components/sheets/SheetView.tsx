@@ -19,9 +19,9 @@ export function SheetView({
 }: {
   content: string
   onContentChange: (content: string) => void
-  /** Only PcSheet (class-reference lookup) and FamilyTreeSheet
-   *  (click-to-open diagram nodes) need this — everything else is a plain
-   *  form with no note-to-note resolution. */
+  /** Only PcSheet (class-reference lookup), EventSheet (location field), MapSheet
+   *  (pin placement), and FamilyTreeSheet (click-to-open diagram nodes) need this —
+   *  everything else is a plain form with no note-to-note resolution. */
   noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
   const { frontmatter } = parseNote(content)
@@ -37,7 +37,7 @@ export function SheetView({
     case 'session':
       return <SessionSheet content={content} onContentChange={onContentChange} />
     case 'event':
-      return <EventSheet content={content} onContentChange={onContentChange} />
+      return <EventSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'faction':
       return <FactionSheet content={content} onContentChange={onContentChange} />
     case 'item':

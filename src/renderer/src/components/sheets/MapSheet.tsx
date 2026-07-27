@@ -7,6 +7,7 @@ import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 import { MapCanvas, type MapCanvasMode } from './MapCanvas'
 import { MapTripCalculator } from './MapTripCalculator'
+import { MapTimeline } from './MapTimeline'
 import { TravelModesEditor } from './TravelModesEditor'
 
 function loadImageDimensions(url: string): Promise<{ width: number; height: number }> {
@@ -59,6 +60,10 @@ export function MapSheet({
   const [pendingPinPoint, setPendingPinPoint] = useState<Point | null>(null)
   const [pinQuery, setPinQuery] = useState('')
   const [pinResults, setPinResults] = useState<{ title: string }[]>([])
+
+  // Lifted up from the Timeline section (below) so MapCanvas, which renders
+  // above it, can ring the pins for whatever events are currently revealed.
+  const [highlightedPinIds, setHighlightedPinIds] = useState<Set<string>>(new Set())
 
   // Only for the line form's crossing-time preview below — travel modes
   // are otherwise entirely TravelModesEditor's/MapTripCalculator's concern.
@@ -303,6 +308,7 @@ export function MapSheet({
                 setPinResults([])
               }}
               onPinClick={(pin) => pin.locationTitle && void noteRefApi.openByTitle(pin.locationTitle, 'location')}
+              highlightedPinIds={highlightedPinIds}
             />
           </div>
 
@@ -587,6 +593,20 @@ export function MapSheet({
           terrainTypes={data.terrainTypes}
           lineTypes={data.lineTypes}
           scale={data.scale}
+        />
+      </details>
+
+      <details style={{ marginTop: 8 }} onToggle={(e) => !e.currentTarget.open && setHighlightedPinIds(new Set())}>
+        <summary>Timeline</summary>
+        <MapTimeline
+          pins={data.pins}
+          zones={data.zones}
+          lines={data.lines}
+          terrainTypes={data.terrainTypes}
+          lineTypes={data.lineTypes}
+          scale={data.scale}
+          noteRefApi={noteRefApi}
+          onHighlightChange={setHighlightedPinIds}
         />
       </details>
 
