@@ -1167,7 +1167,9 @@ button.active {
 }
 
 .initiative-add-count input {
-  width: 44px;
+  /* Wide enough for 2 digits plus the number input's spinner arrows —
+     44px clipped a typed "10" to "1" behind the spinner. */
+  width: 60px;
 }
 
 .initiative-add-checkbox {

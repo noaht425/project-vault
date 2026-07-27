@@ -69,6 +69,11 @@ export function AddCombatantPanel({ onAdd }: { onAdd: (input: NewCombatantInput)
   const selectMatch = async (match: TitleMatch): Promise<void> => {
     setSelected(match)
     setMatches([])
+    // The search box shows whatever fragment the user typed to find this
+    // match ("ner") — replace it with the full matched title so it's clear
+    // which note was actually selected, even though the fragment was never
+    // what got added (selected.title always is — see addFromNote).
+    setQuery(match.title)
     const note = await window.vaultApi.readNote(match.path)
     const { frontmatter } = parseNote(note.content)
     const data =
@@ -160,7 +165,7 @@ export function AddCombatantPanel({ onAdd }: { onAdd: (input: NewCombatantInput)
                 AC {preview.ac} · HP {preview.startingHp}/{preview.maxHp} · Init {formatBonus(preview.initiativeBonus)}
               </span>
               <label className="initiative-add-count">
-                ×
+                Copies
                 <input
                   type="number"
                   min={1}
@@ -192,7 +197,7 @@ export function AddCombatantPanel({ onAdd }: { onAdd: (input: NewCombatantInput)
             PC
           </label>
           <label className="initiative-add-count">
-            ×
+            Copies
             <input type="number" min={1} value={count} onChange={(e) => setCount(Math.max(1, Number(e.target.value)))} />
           </label>
           <button onClick={addAdhoc}>Add</button>
