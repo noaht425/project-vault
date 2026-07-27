@@ -3,6 +3,7 @@ import type { TreeEntry } from '../../../../common/types'
 import { CREATE_PLACEHOLDERS, type CreateKind } from '../../../../common/noteTemplateDefaults'
 import { useVaultStore } from '../../state/vaultStore'
 import { useEditorStore } from '../../state/editorStore'
+import { NewItemMenu } from './NewItemMenu'
 
 // window.alert() is one of the few dialogs Electron actually implements
 // (unlike window.prompt() — see InlineNameInput below), so a failed
@@ -292,42 +293,7 @@ export function FileTree(): React.JSX.Element {
   return (
     <div className="sidebar">
       <div className="sidebar-toolbar">
-        <button onClick={() => setCreating('note')} disabled={!vaultPath}>
-          + Note
-        </button>
-        <button onClick={() => setCreating('pc')} disabled={!vaultPath}>
-          + PC
-        </button>
-        <button onClick={() => setCreating('npc')} disabled={!vaultPath}>
-          + NPC
-        </button>
-        <button onClick={() => setCreating('class-reference')} disabled={!vaultPath}>
-          + Class Ref
-        </button>
-        <button onClick={() => setCreating('session')} disabled={!vaultPath}>
-          + Session
-        </button>
-        <button onClick={() => setCreating('event')} disabled={!vaultPath}>
-          + Event
-        </button>
-        <button onClick={() => setCreating('faction')} disabled={!vaultPath}>
-          + Faction
-        </button>
-        <button onClick={() => setCreating('item')} disabled={!vaultPath}>
-          + Item
-        </button>
-        <button onClick={() => setCreating('location')} disabled={!vaultPath}>
-          + Location
-        </button>
-        <button onClick={() => setCreating('language')} disabled={!vaultPath}>
-          + Language
-        </button>
-        <button onClick={() => setCreating('family-tree')} disabled={!vaultPath}>
-          + Family Tree
-        </button>
-        <button onClick={() => setCreating('folder')} disabled={!vaultPath}>
-          + Folder
-        </button>
+        <NewItemMenu disabled={!vaultPath} onSelect={(kind) => setCreating(kind)} />
       </div>
       {creating && (
         <div className="tree-row tree-row-creating">

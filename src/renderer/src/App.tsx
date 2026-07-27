@@ -122,8 +122,10 @@ export default function App(): React.JSX.Element {
   return (
     <div className="app-shell">
       <div className="title-bar">
-        <button onClick={() => void openVault()}>Open Vault…</button>
-        <span className="vault-path">{vaultPath ?? 'No vault open'}</span>
+        <div className="title-bar-group">
+          <button onClick={() => void openVault()}>Open Vault…</button>
+          <span className="vault-path">{vaultPath ?? 'No vault open'}</span>
+        </div>
         <input
           className="search-input"
           type="search"
@@ -139,42 +141,48 @@ export default function App(): React.JSX.Element {
           disabled={workspaceSource === 'local' && !vaultPath}
         />
         <span className="title-bar-spacer" />
-        <DiceRoller />
-        <button
-          className={workspaceSource === 'local' ? 'active' : ''}
-          onClick={() => setWorkspaceSource('local')}
-          title="Notes stored in this vault's local files"
-        >
-          Local Vault
-        </button>
-        <button
-          className={workspaceSource === 'cloud' ? 'active' : ''}
-          onClick={() => setWorkspaceSource('cloud')}
-          title="Notes stored in project-vault-cloud"
-        >
-          Cloud Workspace
-        </button>
-        <button
-          className={mainView === 'sessions' ? 'active' : ''}
-          onClick={() => setMainView((v) => (v === 'sessions' ? 'editor' : 'sessions'))}
-          disabled={workspaceSource === 'local' && !vaultPath}
-        >
-          Sessions
-        </button>
-        <button
-          className={mainView === 'events' ? 'active' : ''}
-          onClick={() => setMainView((v) => (v === 'events' ? 'editor' : 'events'))}
-          disabled={workspaceSource === 'local' && !vaultPath}
-        >
-          Events
-        </button>
-        <button
-          className={mainView === 'graph' ? 'active' : ''}
-          onClick={() => setMainView((v) => (v === 'graph' ? 'editor' : 'graph'))}
-          disabled={workspaceSource === 'local' && !vaultPath}
-        >
-          Graph
-        </button>
+        <div className="title-bar-group">
+          <button
+            className={workspaceSource === 'local' ? 'active' : ''}
+            onClick={() => setWorkspaceSource('local')}
+            title="Notes stored in this vault's local files"
+          >
+            Local Vault
+          </button>
+          <button
+            className={workspaceSource === 'cloud' ? 'active' : ''}
+            onClick={() => setWorkspaceSource('cloud')}
+            title="Notes stored in project-vault-cloud"
+          >
+            Cloud Workspace
+          </button>
+        </div>
+        <div className="title-bar-group">
+          <button
+            className={mainView === 'sessions' ? 'active' : ''}
+            onClick={() => setMainView((v) => (v === 'sessions' ? 'editor' : 'sessions'))}
+            disabled={workspaceSource === 'local' && !vaultPath}
+          >
+            Sessions
+          </button>
+          <button
+            className={mainView === 'events' ? 'active' : ''}
+            onClick={() => setMainView((v) => (v === 'events' ? 'editor' : 'events'))}
+            disabled={workspaceSource === 'local' && !vaultPath}
+          >
+            Events
+          </button>
+          <button
+            className={mainView === 'graph' ? 'active' : ''}
+            onClick={() => setMainView((v) => (v === 'graph' ? 'editor' : 'graph'))}
+            disabled={workspaceSource === 'local' && !vaultPath}
+          >
+            Graph
+          </button>
+        </div>
+        <div className="title-bar-group">
+          <DiceRoller />
+        </div>
       </div>
       <div className="app-body" style={{ gridTemplateColumns: `${sidebarWidth}px 5px 1fr 280px` }}>
         {workspaceSource === 'cloud' ? <CloudFileTree /> : <FileTree />}

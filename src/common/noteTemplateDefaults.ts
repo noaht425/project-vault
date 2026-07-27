@@ -51,3 +51,36 @@ export const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
   'family-tree': 'e.g. The Stormwind Family',
   folder: 'Folder name…'
 }
+
+// Friendly labels for the "New" dropdown menu (see NewItemMenu.tsx) — same
+// keys as CREATE_PLACEHOLDERS, just menu-item text instead of input hints.
+export const CREATE_LABELS: Record<CreateKind, string> = {
+  note: 'Note',
+  pc: 'PC',
+  npc: 'NPC',
+  'class-reference': 'Class Reference',
+  session: 'Session',
+  event: 'Event',
+  faction: 'Faction',
+  item: 'Item',
+  location: 'Location',
+  language: 'Language',
+  'family-tree': 'Family Tree',
+  folder: 'Folder'
+}
+
+// Display order for the "New" dropdown's note-type entries — Folder is
+// handled separately (own section of the menu, after a divider).
+export const CREATABLE_NOTE_KINDS: NoteTemplate[] = [
+  'note',
+  'pc',
+  'npc',
+  'class-reference',
+  'session',
+  'event',
+  'faction',
+  'item',
+  'location',
+  'language',
+  'family-tree'
+]
