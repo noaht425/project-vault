@@ -1189,6 +1189,7 @@ button.active {
 
 .initiative-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   background: var(--bg-panel);
@@ -1202,14 +1203,16 @@ button.active {
 }
 
 .initiative-row-initiative {
-  flex: 0 0 60px;
+  flex: 0 0 76px;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .initiative-row-initiative input {
-  width: 40px;
+  /* Wide enough for 2 digits (or a negative sign) plus the number input's
+     spinner arrows — 40px clipped the displayed value behind the spinner. */
+  width: 56px;
   background: var(--bg-app);
   color: var(--text-normal);
   border: 1px solid var(--border);
@@ -1226,9 +1229,19 @@ button.active {
 .initiative-row-name {
   flex: 1 0 160px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-weight: 600;
+}
+
+.initiative-row-name .sheet-open-ref-button {
+  /* Override the base rule's align-self: flex-end (meant for a column-
+     oriented sheet-row) — this row is centered, and the button shouldn't
+     wrap its own "Open ↗" text onto two lines when the row is tight. */
+  align-self: center;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .initiative-row-pc-badge {
@@ -1255,7 +1268,9 @@ button.active {
 }
 
 .initiative-hp-delta input {
-  width: 56px;
+  /* Wide enough for the placeholder text plus the number input's spinner
+     arrows — 56px clipped "amount" to "amou" behind the spinner. */
+  width: 68px;
   background: var(--bg-app);
   color: var(--text-normal);
   border: 1px solid var(--border);
@@ -1280,6 +1295,60 @@ button.active {
   border-radius: 3px;
   padding: 2px 6px;
   font-size: 11px;
+}
+
+.condition-picker {
+  position: relative;
+}
+
+.condition-picker > button {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.condition-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.condition-picker-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+.condition-picker-option:hover {
+  background: var(--bg-hover);
+}
+
+.condition-picker-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.condition-picker-description {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: normal;
 }
 
 .condition-tag button {

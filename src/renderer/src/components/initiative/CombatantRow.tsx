@@ -1,5 +1,11 @@
 import { useState } from 'react'
 import type { Combatant } from '../../../../common/initiative'
+import { DEFAULT_CONDITIONS } from '../../../../common/conditions'
+import { ConditionPicker } from './ConditionPicker'
+
+function conditionDescription(name: string): string | undefined {
+  return DEFAULT_CONDITIONS.find((c) => c.name === name)?.description
+}
 
 function HpDeltaControl({ onApply }: { onApply: (delta: number) => void }): React.JSX.Element {
   const [value, setValue] = useState('')
@@ -19,7 +25,7 @@ function HpDeltaControl({ onApply }: { onApply: (delta: number) => void }): Reac
         submit(-1)
       }}
     >
-      <input type="number" min={0} placeholder="amount" value={value} onChange={(e) => setValue(e.target.value)} />
+      <input type="number" min={0} placeholder="amt" value={value} onChange={(e) => setValue(e.target.value)} />
       <button type="submit" title="Apply damage">
         − Dmg
       </button>
@@ -103,11 +109,15 @@ export function CombatantRow({
 
       <div className="initiative-row-conditions">
         {combatant.conditions.map((cond) => (
-          <span key={cond} className="condition-tag">
+          // title only resolves for the standard conditions (or a custom tag
+          // that happens to match one by name) — a freeform typed condition
+          // just shows no tooltip, which is fine.
+          <span key={cond} className="condition-tag" title={conditionDescription(cond)}>
             {cond}
             <button onClick={() => onRemoveCondition(cond)}>×</button>
           </span>
         ))}
+        <ConditionPicker onAdd={onAddCondition} />
         <ConditionInput onAdd={onAddCondition} />
       </div>
 
