@@ -266,10 +266,58 @@ Schema shape, confirmed with the user at kickoff:
   irregular hour segments, named moon phases — both explicitly considered
   and left out this round since the user didn't flag them, but worth a
   second look with the real screenshots in hand).
-- Next session should start at step 3 (canonical-timestamp formatter/
-  parser) — steps 1 and 2 are both done now. Step 3 is flagged in the
-  build order above as "the trickiest pure-logic piece, budget real
-  time" — don't rush it.
 - The Settings tab's `defaultEraId` field (see Step 2 notes above) hasn't
   been shown to the user yet — worth a quick confirmation it's the right
   call before more is built on top of it.
+- Next session should start at step 4 (structured date field on `event`
+  notes) — steps 1-3 are all done now.
+
+**Step 3 done (2026-07-28, same session):** canonical-timestamp
+formatter/parser built — `src/common/calendarMath.ts`:
+- `toCanonicalMinutes(calendar, parts)` / `fromCanonicalMinutes(calendar,
+  minutes)` — the two-way conversion the architecture decision above
+  requires, using **minutes since an arbitrary shared epoch** as the
+  canonical unit (picked per the doc's own suggestion, since full
+  hour/minute precision was already required). Epoch = canonical minute 0
+  = a calendar's first `direction: 'up'` era's year 1, first month, day 1,
+  hour 0, minute 0. A `direction: 'down'` era's year 1 is the year
+  immediately before that (no year zero — matches real BCE/CE and
+  `worldDate.ts`'s existing AM/AF epoch() convention exactly). Two
+  calendars that both anchor to this same point (true of the user's own
+  two) come out mutually convertible automatically, with no extra
+  alignment field required — confirmed by a passing test converting the
+  SAME instant through both calendars.
+- `isLeapYear` / `yearLengthDays` / the internal leap-day-count math is
+  **closed-form** (floor-division, no loops) — the same trick real
+  Gregorian day-count algorithms use (`365y + floor(y/4) - floor(y/100) +
+  floor(y/400)`), generalized to the schema's arbitrary interval/
+  exception/exception-to-exception/extraDays shape. Verified against the
+  actual Gregorian rule's known behavior at 1900/2000/2024 in
+  `tests/calendarMath.test.ts`.
+- The REVERSE direction (canonical minutes -> calendar date) has no
+  closed-form inverse once a leap rule makes year length irregular — this
+  is a genuine, known-in-the-literature limitation of leap-year math, not
+  a shortcut I introduced. Used the standard fix instead: estimate the
+  year from the average year length, then correct with a small bounded
+  loop (leap adjustment is always tiny relative to a full year, so it
+  converges in 0-2 iterations in every test case, including a full
+  1900-2025 span crossing the 100-year exception AND the 400-year
+  exception-to-the-exception).
+- `formatCalendarDate` — human-readable rendering (e.g. "15 Aucaela, 42
+  AM", or with a trailing "14:30" once hour/minute are non-zero). Not
+  wired into any UI yet — step 7 (pill view) is the first real consumer.
+- 14 tests in `tests/calendarMath.test.ts`: round-trips across a plain
+  2-month calendar, the user's actual AM/AF two-era 400-day calendar
+  (including the AM/AF epoch boundary itself), and a Gregorian-style
+  leap-rule calendar spanning 1900-2025. `npm test` — 315/315 passing;
+  `tsc` clean on both configs (same 33 pre-existing unrelated errors as
+  before).
+- **Not yet wired to anything real**: this module has no caller yet.
+  Steps 4 (structured date field on notes) and 5 (migration) are what
+  will actually call `toCanonicalMinutes`/`fromCanonicalMinutes` on real
+  vault data — until then this is tested in isolation only.
+- **Still open**: what happens when a calendar has zero eras, or zero
+  'up'/'down' eras of the direction a given canonical minute needs —
+  `fromCanonicalMinutes` returns `null` in that case (same "leave it
+  undated" escape hatch as `worldDate.ts`), but no caller exists yet to
+  confirm that's the right UX (vs. e.g. falling back to raw free text).
