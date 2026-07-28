@@ -495,13 +495,16 @@ setting.
   column exists on `workspaces` to check against anyway. Wired through
   `cloudSession.ts`/`ipc/cloud.ts`/preload as `cloudApi.
   getWorkspaceSettings`/`updateWorkspaceSettings`.
-  **IMPORTANT — this migration has NOT been run against the live
-  Supabase project yet** (migrations in this repo are applied manually
-  via the Supabase Dashboard's SQL Editor, confirmed in that repo's own
-  README — there's no automated push, and no service_role key exists
-  anywhere in this codebase for a script to run DDL remotely). The cloud
-  workspace-settings feature will 404/error until the user runs
-  `0003_workspace_calendar_settings.sql` there themselves.
+  **Pushed to project-vault-cloud** (commit `b5e5732`, confirmed with the
+  user first, same auto-deploy-on-push caveat as the step 5 push) — but
+  **the migration itself has NOT been run against the live Supabase
+  project yet** (migrations in this repo are applied manually via the
+  Supabase Dashboard's SQL Editor, confirmed in that repo's own README —
+  there's no automated push, and no service_role key exists anywhere in
+  this codebase for a script to run DDL remotely). The cloud workspace-
+  settings feature will 404/error until the user runs
+  `0003_workspace_calendar_settings.sql` there themselves — the code is
+  live, the column isn't yet.
 - `EventSummary` (`common/types.ts`) and `CloudEventSummary`
   (`common/cloudTypes.ts`) both gained an optional `structuredDate` field
   (only ever set for `noteType === 'event'`), populated in
