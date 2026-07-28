@@ -139,7 +139,19 @@ export const buildingTypeDefSchema = z.object({
   // (service)". minSizeId reuses the exact same soft-gate concept as the
   // building type's own minSizeId: rarity IS availability-by-size, no
   // separate rarity enum needed.
-  itemPool: z.array(itemListingDefSchema).catch([])
+  itemPool: z.array(itemListingDefSchema).catch([]),
+  // What a notable of this type is actually CALLED — "Owner" is right for a
+  // commercial shop, but wrong for a Town Hall (a mayor doesn't "own" city
+  // government) or a Temple (a High Priest doesn't "own" the faith).
+  // Optional (not .catch()) so every existing seeded entry doesn't need
+  // updating — settlementGenerator.ts falls back to 'Owner' when unset,
+  // same defensive-fallback pattern as itemPool/jobTitlePool elsewhere.
+  notableTitle: z.string().optional(),
+  // Hard cap on how many instances of this type a single settlement will
+  // ever generate, regardless of weight/population (e.g. a city has ONE
+  // Town Hall, not seventeen). Optional/undefined = unlimited, same as
+  // every other building type's existing behavior.
+  maxInstances: z.number().nullable().optional()
 })
 export type BuildingTypeDef = z.infer<typeof buildingTypeDefSchema>
 
@@ -291,6 +303,27 @@ const craftBoosts: SpecialtyBoost[] = [
   { buildingTypeId: 'carpenter', multiplier: 2 },
   { buildingTypeId: 'tannery', multiplier: 1.5 }
 ]
+const templeBoosts: SpecialtyBoost[] = [
+  { buildingTypeId: 'temple', multiplier: 3 },
+  { buildingTypeId: 'shrine', multiplier: 3 }
+]
+const entertainmentBoosts: SpecialtyBoost[] = [
+  { buildingTypeId: 'theater', multiplier: 3 },
+  { buildingTypeId: 'tavern', multiplier: 1.5 },
+  { buildingTypeId: 'inn', multiplier: 1.3 }
+]
+const universityBoosts: SpecialtyBoost[] = [
+  { buildingTypeId: 'university', multiplier: 3 },
+  { buildingTypeId: 'school', multiplier: 2 },
+  { buildingTypeId: 'library', multiplier: 2.5 },
+  { buildingTypeId: 'bookshop', multiplier: 1.5 }
+]
+const docksBoosts: SpecialtyBoost[] = [
+  { buildingTypeId: 'docks', multiplier: 3 },
+  { buildingTypeId: 'fishmonger', multiplier: 2 },
+  { buildingTypeId: 'warehouse', multiplier: 2 },
+  { buildingTypeId: 'tavern', multiplier: 1.3 }
+]
 const noBoosts: SpecialtyBoost[] = []
 
 const DISTRICTS_BY_SIZE: Record<string, District[]> = {
@@ -302,14 +335,19 @@ const DISTRICTS_BY_SIZE: Record<string, District[]> = {
   town: [
     { id: 'market', name: 'Market District', buildingTypeBoosts: marketBoosts },
     { id: 'residential', name: 'Residential District', buildingTypeBoosts: noBoosts },
-    { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts }
+    { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts },
+    { id: 'temple', name: 'Temple District', buildingTypeBoosts: templeBoosts }
   ],
   city: [
     { id: 'north-market', name: 'North Market District', buildingTypeBoosts: marketBoosts },
     { id: 'south-market', name: 'South Market District', buildingTypeBoosts: marketBoosts },
     { id: 'residential', name: 'Residential District', buildingTypeBoosts: noBoosts },
     { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts },
-    { id: 'craft', name: 'Craft District', buildingTypeBoosts: craftBoosts }
+    { id: 'craft', name: 'Craft District', buildingTypeBoosts: craftBoosts },
+    { id: 'temple', name: 'Temple District', buildingTypeBoosts: templeBoosts },
+    { id: 'entertainment', name: 'Entertainment District', buildingTypeBoosts: entertainmentBoosts },
+    { id: 'university', name: 'University District', buildingTypeBoosts: universityBoosts },
+    { id: 'docks', name: 'Docks District', buildingTypeBoosts: docksBoosts }
   ],
   metropolis: [
     { id: 'north-market', name: 'North Market District', buildingTypeBoosts: marketBoosts },
@@ -318,7 +356,11 @@ const DISTRICTS_BY_SIZE: Record<string, District[]> = {
     { id: 'residential', name: 'Residential District', buildingTypeBoosts: noBoosts },
     { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts },
     { id: 'craft', name: 'Craft District', buildingTypeBoosts: craftBoosts },
-    { id: 'old-town', name: 'Old Town', buildingTypeBoosts: noBoosts }
+    { id: 'old-town', name: 'Old Town', buildingTypeBoosts: noBoosts },
+    { id: 'temple', name: 'Temple District', buildingTypeBoosts: templeBoosts },
+    { id: 'entertainment', name: 'Entertainment District', buildingTypeBoosts: entertainmentBoosts },
+    { id: 'university', name: 'University District', buildingTypeBoosts: universityBoosts },
+    { id: 'docks', name: 'Docks District', buildingTypeBoosts: docksBoosts }
   ]
 }
 
@@ -333,9 +375,15 @@ export function defaultDistricts(): District[] {
 export function defaultWealthTiers(): WealthTier[] {
   return [
     { id: 'ultra-wealthy', name: 'Ultra-wealthy', percent: 2 },
-    { id: 'upper', name: 'Upper', percent: 18 },
-    { id: 'middle', name: 'Middle', percent: 50 },
-    { id: 'lower', name: 'Lower', percent: 30 }
+    { id: 'upper', name: 'Upper', percent: 16 },
+    { id: 'middle', name: 'Middle', percent: 47 },
+    { id: 'lower', name: 'Lower', percent: 25 },
+    // Deliberately last in the list — settlementGenerator.ts's homelessness
+    // logic treats the LAST wealthTiers entry as "the lowest tier" (same
+    // "list order = rank" convention the People/Buildings tabs already rely
+    // on for wealth sorting), so this tier automatically becomes the one
+    // homelessness rolls against without any code change.
+    { id: 'destitute', name: 'Destitute', percent: 10 }
   ]
 }
 
@@ -1115,15 +1163,23 @@ export function defaultBuildingTypes(): BuildingTypeDef[] {
       ]
     },
     // Civic
-    { id: 'town-hall', name: 'Town Hall', category: 'civic', defaultWealthTierId: 'upper', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'cha', secondaryAbility: 'wis', proficiencyPool: ['Persuasion', 'Insight'], jobTitlePool: ['Clerk', 'Scribe', 'Deputy'], itemPool: noItems },
-    { id: 'guard-house', name: 'Guard House', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'village', primaryAbility: 'str', secondaryAbility: 'con', proficiencyPool: ['Athletics', 'Intimidation'], jobTitlePool: ['Guard', 'Watch Recruit'], itemPool: noItems },
-    { id: 'guildhall', name: 'Guildhall', category: 'civic', defaultWealthTierId: 'upper', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'cha', secondaryAbility: 'int', proficiencyPool: ['Persuasion', 'History'], jobTitlePool: ['Clerk', 'Aide'], itemPool: noItems },
+    // maxInstances: 1 — a settlement has exactly one seat of government,
+    // never several Town Halls regardless of population/weight.
+    { id: 'town-hall', name: 'Town Hall', category: 'civic', defaultWealthTierId: 'upper', staffed: true, weight: 1, minSizeId: 'town', maxInstances: 1, primaryAbility: 'cha', secondaryAbility: 'wis', proficiencyPool: ['Persuasion', 'Insight'], jobTitlePool: ['Clerk', 'Scribe', 'Deputy'], notableTitle: 'Mayor', itemPool: noItems },
+    { id: 'guard-house', name: 'Guard House', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'village', primaryAbility: 'str', secondaryAbility: 'con', proficiencyPool: ['Athletics', 'Intimidation'], jobTitlePool: ['Guard', 'Watch Recruit'], notableTitle: 'Captain of the Guard', itemPool: noItems },
+    { id: 'guildhall', name: 'Guildhall', category: 'civic', defaultWealthTierId: 'upper', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'cha', secondaryAbility: 'int', proficiencyPool: ['Persuasion', 'History'], jobTitlePool: ['Clerk', 'Aide'], notableTitle: 'Guildmaster', itemPool: noItems },
     { id: 'warehouse', name: 'Warehouse', category: 'civic', defaultWealthTierId: 'middle', staffed: false, weight: 2, minSizeId: 'village', ...none },
-    { id: 'docks', name: 'Docks', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'village', primaryAbility: 'str', secondaryAbility: 'con', proficiencyPool: ['Athletics', "Navigator's Tools"], jobTitlePool: ['Dockhand', 'Loader'], itemPool: noItems },
-    { id: 'mine', name: 'Mine', category: 'civic', defaultWealthTierId: 'lower', staffed: true, weight: 1, minSizeId: 'village', primaryAbility: 'con', secondaryAbility: 'str', proficiencyPool: ["Mason's Tools", 'Athletics'], jobTitlePool: ['Miner', 'Cart Runner'], itemPool: noItems },
-    { id: 'barracks', name: 'Barracks', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'str', secondaryAbility: 'con', proficiencyPool: ['Athletics', 'Intimidation'], jobTitlePool: ['Soldier', 'Recruit'], itemPool: noItems },
+    { id: 'docks', name: 'Docks', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'village', primaryAbility: 'str', secondaryAbility: 'con', proficiencyPool: ['Athletics', "Navigator's Tools"], jobTitlePool: ['Dockhand', 'Loader'], notableTitle: 'Harbormaster', itemPool: noItems },
+    { id: 'mine', name: 'Mine', category: 'civic', defaultWealthTierId: 'lower', staffed: true, weight: 1, minSizeId: 'village', primaryAbility: 'con', secondaryAbility: 'str', proficiencyPool: ["Mason's Tools", 'Athletics'], jobTitlePool: ['Miner', 'Cart Runner'], notableTitle: 'Mine Foreman', itemPool: noItems },
+    { id: 'barracks', name: 'Barracks', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'str', secondaryAbility: 'con', proficiencyPool: ['Athletics', 'Intimidation'], jobTitlePool: ['Soldier', 'Recruit'], notableTitle: 'Garrison Captain', itemPool: noItems },
+    // Added for the Entertainment/University districts (see
+    // defaultDistrictsForSize below) — these needed something to boost.
+    { id: 'theater', name: 'Theater', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'cha', secondaryAbility: 'dex', proficiencyPool: ['Performance', 'Persuasion'], jobTitlePool: ['Stagehand', 'Usher'], notableTitle: 'Theater Director', itemPool: noItems },
+    { id: 'school', name: 'School', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'wis', secondaryAbility: 'int', proficiencyPool: ['Insight', 'History'], jobTitlePool: ['Tutor', 'Groundskeeper'], notableTitle: 'Headmaster', itemPool: noItems },
+    { id: 'university', name: 'University', category: 'civic', defaultWealthTierId: 'upper', staffed: true, weight: 1, minSizeId: 'city', primaryAbility: 'int', secondaryAbility: 'wis', proficiencyPool: ['Arcana', 'History', 'Investigation'], jobTitlePool: ['Lecturer', 'Research Assistant'], notableTitle: 'Dean', itemPool: noItems },
+    { id: 'library', name: 'Library', category: 'civic', defaultWealthTierId: 'middle', staffed: true, weight: 1, minSizeId: 'town', primaryAbility: 'int', secondaryAbility: 'wis', proficiencyPool: ['History', 'Investigation'], jobTitlePool: ['Archivist', 'Page'], notableTitle: 'Head Librarian', itemPool: noItems },
     // Religious
-    { id: 'temple', name: 'Temple', category: 'religious', defaultWealthTierId: 'middle', staffed: true, weight: 2, minSizeId: 'village', primaryAbility: 'wis', secondaryAbility: 'cha', proficiencyPool: ['Religion', 'Medicine', 'Insight'], jobTitlePool: ['Acolyte', 'Novice'], itemPool: [
+    { id: 'temple', name: 'Temple', category: 'religious', defaultWealthTierId: 'middle', staffed: true, weight: 2, minSizeId: 'village', primaryAbility: 'wis', secondaryAbility: 'cha', proficiencyPool: ['Religion', 'Medicine', 'Insight'], jobTitlePool: ['Acolyte', 'Novice'], notableTitle: 'High Priest', itemPool: [
       item('Blessing (service)', 'hamlet'), item('Prayer candle', 'hamlet'),
       item('Holy water vial', 'village'), item('Healing rites (service)', 'village'),
       item('Consecrated relic replica', 'town'),
@@ -1142,7 +1198,7 @@ export function defaultBuildingTypes(): BuildingTypeDef[] {
       item('Revivify, 3rd level (service, 400 gp)', 'village'),
       item('Raise Dead, 5th level (service, 1,000 gp)', 'town'),
     ] },
-    { id: 'shrine', name: 'Shrine', category: 'religious', defaultWealthTierId: 'lower', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: 'wis', secondaryAbility: 'cha', proficiencyPool: ['Religion', 'Insight'], jobTitlePool: ['Caretaker'], itemPool: [
+    { id: 'shrine', name: 'Shrine', category: 'religious', defaultWealthTierId: 'lower', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: 'wis', secondaryAbility: 'cha', proficiencyPool: ['Religion', 'Insight'], jobTitlePool: ['Caretaker'], notableTitle: 'Shrine Keeper', itemPool: [
       item('Offering candle', 'hamlet'), item('Small carved idol', 'hamlet'), item('Quiet blessing (service)', 'hamlet'),
       item("Pilgrim's token", 'village'),
       item('Alms box (5 gp)', 'village'),
@@ -1151,7 +1207,7 @@ export function defaultBuildingTypes(): BuildingTypeDef[] {
       item('Cure Wounds, 1st level (service, 10 gp)', 'hamlet'),
     ] },
     // Tavern
-    { id: 'tavern', name: 'Tavern', category: 'tavern', defaultWealthTierId: 'middle', staffed: true, weight: 3, minSizeId: 'village', primaryAbility: 'cha', secondaryAbility: 'con', proficiencyPool: ['Performance', 'Persuasion', 'Insight'], jobTitlePool: ['Server', 'Cook', 'Bartender'], itemPool: [
+    { id: 'tavern', name: 'Tavern', category: 'tavern', defaultWealthTierId: 'middle', staffed: true, weight: 3, minSizeId: 'village', primaryAbility: 'cha', secondaryAbility: 'con', proficiencyPool: ['Performance', 'Persuasion', 'Insight'], jobTitlePool: ['Server', 'Cook', 'Bartender'], notableTitle: 'Proprietor', itemPool: [
       item('Mug of ale', 'hamlet'), item('Hot meal', 'hamlet'),
       item('Private table (service)', 'village'),
       item('Live music tonight (service)', 'town'),
@@ -1164,7 +1220,7 @@ export function defaultBuildingTypes(): BuildingTypeDef[] {
       item('Rack of lamb (2 gp)', 'city'),
       item('Dragon turtle soup (4 gp)', 'metropolis'),
     ] },
-    { id: 'inn', name: 'Inn', category: 'tavern', defaultWealthTierId: 'middle', staffed: true, weight: 2, minSizeId: 'town', primaryAbility: 'cha', secondaryAbility: 'wis', proficiencyPool: ['Persuasion', 'Insight'], jobTitlePool: ['Server', 'Stablehand', 'Housekeeper'], itemPool: [
+    { id: 'inn', name: 'Inn', category: 'tavern', defaultWealthTierId: 'middle', staffed: true, weight: 2, minSizeId: 'town', primaryAbility: 'cha', secondaryAbility: 'wis', proficiencyPool: ['Persuasion', 'Insight'], jobTitlePool: ['Server', 'Stablehand', 'Housekeeper'], notableTitle: 'Innkeeper', itemPool: [
       item('A bed for the night (service)', 'village'), item('Hot bath (service)', 'village'),
       item('Stabling included (service)', 'town'),
       item('Private suite (service)', 'city'), item('The finest room in the house (service)', 'metropolis'),

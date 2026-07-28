@@ -563,11 +563,44 @@ describe('stub employment', () => {
     expect(primeRate).toBeGreaterThan(nearMaxRate)
   })
 
-  it('gives every notable an "Owner" job title and "employed" status', () => {
+  it('gives every notable a non-empty job title (their building type\'s notableTitle, or "Owner" by default) and "employed" status', () => {
     const result = generateSettlement(baseOptions({ sizeId: 'town', population: 2000 }), undefined, seededRng(53), sequenceIds('r'))
     const notables = result.residents.filter((r) => r.notable)
     expect(notables.length).toBeGreaterThan(5)
-    expect(notables.every((r) => r.jobTitle === 'Owner' && r.employmentStatus === 'employed' && !r.homeless)).toBe(true)
+    expect(notables.every((r) => r.jobTitle.length > 0 && r.employmentStatus === 'employed' && !r.homeless)).toBe(true)
+  })
+
+  it('gives a Town Hall notable the "Mayor" title, not "Owner"', () => {
+    const buildingTypes: BuildingTypeDef[] = [
+      { id: 'town-hall', name: 'Town Hall', category: 'civic', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', maxInstances: 1, primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], notableTitle: 'Mayor', itemPool: [] }
+    ]
+    const result = generateSettlement(baseOptions({ sizeId: 'town', population: 2000, buildingTypes }), undefined, seededRng(55), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    expect(notables.length).toBeGreaterThan(0)
+    expect(notables.every((r) => r.jobTitle === 'Mayor')).toBe(true)
+  })
+
+  it('falls back to "Owner" for a building type with no notableTitle set', () => {
+    const buildingTypes: BuildingTypeDef[] = [
+      { id: 'plain-shop', name: 'Plain Shop', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
+    ]
+    const result = generateSettlement(baseOptions({ sizeId: 'town', population: 2000, buildingTypes }), undefined, seededRng(56), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    expect(notables.length).toBeGreaterThan(0)
+    expect(notables.every((r) => r.jobTitle === 'Owner')).toBe(true)
+  })
+
+  it('never generates more than maxInstances of a capped building type', () => {
+    const buildingTypes: BuildingTypeDef[] = [
+      { id: 'town-hall', name: 'Town Hall', category: 'civic', defaultWealthTierId: '', staffed: true, weight: 50, minSizeId: 'hamlet', maxInstances: 1, primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], notableTitle: 'Mayor', itemPool: [] },
+      { id: 'house', name: 'House', category: 'residence', defaultWealthTierId: '', staffed: false, weight: 40, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
+    ]
+    // Deliberately heavy weight + large population — without the cap this
+    // would generate far more than one Town Hall (the reported bug: a city
+    // generated 17 of them).
+    const result = generateSettlement(baseOptions({ sizeId: 'metropolis', population: 60000, buildingTypes }), undefined, seededRng(57), sequenceIds('r'))
+    const townHalls = result.buildings.filter((b) => b.buildingTypeId === 'town-hall')
+    expect(townHalls.length).toBe(1)
   })
 
   it('only marks homeless stubs as unemployed adults in the lowest wealth tier, never a notable', () => {
@@ -575,7 +608,7 @@ describe('stub employment', () => {
     const homeless = result.residents.filter((r) => r.homeless)
     expect(homeless.length).toBeGreaterThan(0)
     expect(homeless.every((r) => !r.notable && r.employmentStatus === 'unemployed' && r.homeBuildingId === null)).toBe(true)
-    expect(homeless.every((r) => r.wealthTierId === 'lower')).toBe(true)
+    expect(homeless.every((r) => r.wealthTierId === 'destitute')).toBe(true)
   })
 })
 

@@ -533,7 +533,14 @@ export function generateSettlement(
   const staffedCounts = allocateByWeight(staffedBudget, staffedTypes.map(effectiveWeight))
   staffedTypes.forEach((type, i) => {
     const wealthTierId = wealthTiers.some((t) => t.id === type.defaultWealthTierId) ? type.defaultWealthTierId : pickWealthTierId()
-    for (let n = 0; n < staffedCounts[i]; n++) buildOneBuilding(type, wealthTierId)
+    // maxInstances is a hard cap (unlike every other soft gate in this
+    // engine) — some building types are singular by nature (a settlement
+    // has exactly one Town Hall), not just less common. The budget "lost"
+    // to a capped type simply isn't redistributed elsewhere; a slightly
+    // smaller total staffed-building count is a fine tradeoff for never
+    // generating seventeen Town Halls.
+    const count = type.maxInstances != null ? Math.min(staffedCounts[i], type.maxInstances) : staffedCounts[i]
+    for (let n = 0; n < count; n++) buildOneBuilding(type, wealthTierId)
   })
 
   // Fix up names now that every instance of each type has been created, so
@@ -575,9 +582,10 @@ export function generateSettlement(
       gender,
       professionBuildingId: building.id,
       // A notable definitionally runs the place they're staffed at (see
-      // BuildingTypeDef.staffed) — always "Owner" in v1 rather than drawn
-      // from a pool, since every staffed building has exactly one notable.
-      jobTitle: 'Owner',
+      // BuildingTypeDef.staffed) — the building type's own notableTitle
+      // ("Mayor" for a Town Hall, "High Priest" for a Temple, ...), falling
+      // back to "Owner" for the common case of an actual commercial shop.
+      jobTitle: buildingType.notableTitle ?? 'Owner',
       employmentStatus: 'employed',
       homeless: false,
       homeBuildingId: null,

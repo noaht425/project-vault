@@ -86,6 +86,7 @@ export function SettlementPeopleTab({
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [page, setPage] = useState(0)
+  const [pageJump, setPageJump] = useState('')
 
   const districtNameById = new Map(data.districts.map((d) => [d.id, d.name]))
   const wealthTierNameById = new Map(data.wealthTiers.map((t) => [t.id, t.name]))
@@ -117,6 +118,12 @@ export function SettlementPeopleTab({
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const clampedPage = Math.min(page, totalPages - 1)
   const pageItems = sorted.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE)
+
+  const goToPage = (): void => {
+    const n = Number(pageJump)
+    if (Number.isFinite(n) && n >= 1) setPage(Math.min(totalPages, Math.max(1, Math.round(n))) - 1)
+    setPageJump('')
+  }
 
   const toggleSort = (key: SortKey): void => {
     if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -306,6 +313,20 @@ export function SettlementPeopleTab({
               <button disabled={clampedPage >= totalPages - 1} onClick={() => setPage(clampedPage + 1)}>
                 Next →
               </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+                Go to page
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  style={{ width: 70 }}
+                  value={pageJump}
+                  placeholder={String(clampedPage + 1)}
+                  onChange={(e) => setPageJump(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && goToPage()}
+                />
+              </label>
+              <button onClick={goToPage}>Go</button>
             </div>
           )}
         </>

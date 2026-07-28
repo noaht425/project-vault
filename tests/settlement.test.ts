@@ -33,6 +33,32 @@ describe('defaultSettlementFrontmatter', () => {
     expect(defaultDistrictsForSize('not-a-real-size')).toEqual(defaultDistrictsForSize('village'))
   })
 
+  it('seeds Temple/Entertainment/University/Docks districts at city+ (Temple also at town), each boosting a real building type', () => {
+    const buildingTypeIds = new Set(defaultBuildingTypes().map((t) => t.id))
+    for (const sizeId of ['city', 'metropolis']) {
+      const districts = defaultDistrictsForSize(sizeId)
+      const byName = new Map(districts.map((d) => [d.name, d]))
+      for (const name of ['Temple District', 'Entertainment District', 'University District', 'Docks District']) {
+        const district = byName.get(name)
+        expect(district, `${name} missing at ${sizeId}`).toBeDefined()
+        expect(district!.buildingTypeBoosts.length).toBeGreaterThan(0)
+        for (const boost of district!.buildingTypeBoosts) {
+          expect(buildingTypeIds.has(boost.buildingTypeId), `${name}'s boost references unknown type ${boost.buildingTypeId}`).toBe(true)
+        }
+      }
+    }
+    expect(defaultDistrictsForSize('town').some((d) => d.name === 'Temple District')).toBe(true)
+  })
+
+  it('seeds the new civic building types (theater, school, university, library) referenced by the new districts', () => {
+    const types = defaultBuildingTypes()
+    for (const id of ['theater', 'school', 'university', 'library']) {
+      const type = types.find((t) => t.id === id)
+      expect(type, `${id} missing from defaultBuildingTypes()`).toBeDefined()
+      expect(type!.staffed).toBe(true)
+    }
+  })
+
   it('seeds wealth tiers that sum to 100 percent', () => {
     const tiers = defaultWealthTiers()
     expect(tiers.reduce((sum, t) => sum + t.percent, 0)).toBe(100)
