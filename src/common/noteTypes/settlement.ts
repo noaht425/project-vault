@@ -209,8 +209,46 @@ export const settlementFrontmatterSchema = z
 
 export type SettlementFrontmatter = z.infer<typeof settlementFrontmatterSchema>
 
+// Scaled district sets per settlement size — a hamlet is too small to
+// meaningfully divide, but a city/metropolis plausibly has multiple market
+// districts, not just one. Generic placeholder names (same spirit as every
+// other seeded default here), fully renameable/removable/addable — this is
+// just a better starting point than one bare "Main District" for every size.
+const DISTRICTS_BY_SIZE: Record<string, District[]> = {
+  hamlet: [{ id: 'main', name: 'Village Center' }],
+  village: [
+    { id: 'market', name: 'Market Square' },
+    { id: 'residential', name: 'Residential Quarter' }
+  ],
+  town: [
+    { id: 'market', name: 'Market District' },
+    { id: 'residential', name: 'Residential District' },
+    { id: 'government', name: 'Government District' }
+  ],
+  city: [
+    { id: 'north-market', name: 'North Market District' },
+    { id: 'south-market', name: 'South Market District' },
+    { id: 'residential', name: 'Residential District' },
+    { id: 'government', name: 'Government District' },
+    { id: 'craft', name: 'Craft District' }
+  ],
+  metropolis: [
+    { id: 'north-market', name: 'North Market District' },
+    { id: 'south-market', name: 'South Market District' },
+    { id: 'east-market', name: 'East Market District' },
+    { id: 'residential', name: 'Residential District' },
+    { id: 'government', name: 'Government District' },
+    { id: 'craft', name: 'Craft District' },
+    { id: 'old-town', name: 'Old Town' }
+  ]
+}
+
+export function defaultDistrictsForSize(sizeId: string): District[] {
+  return DISTRICTS_BY_SIZE[sizeId] ?? DISTRICTS_BY_SIZE.village
+}
+
 export function defaultDistricts(): District[] {
-  return [{ id: 'main', name: 'Main District (edit me)' }]
+  return defaultDistrictsForSize('village')
 }
 
 export function defaultWealthTiers(): WealthTier[] {

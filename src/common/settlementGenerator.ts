@@ -154,6 +154,20 @@ function normalRandom(rng: () => number): number {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
 }
 
+// A requested population is an estimate, not a precise census — generating
+// EXACTLY the typed number every single time (especially when it's the
+// size preset's suspiciously round midpoint, e.g. 62500 for a Metropolis)
+// reads as artificial. SD 1% of the target keeps the actual count close to
+// what was asked for while landing on an ordinary-looking number almost
+// every time; reuses the same normalRandom tool as ability scores/ages for
+// consistency.
+const POPULATION_JITTER_SD_FRACTION = 0.01
+
+function jitterPopulation(target: number, rng: () => number): number {
+  const sd = Math.max(1, target * POPULATION_JITTER_SD_FRACTION)
+  return Math.max(1, Math.round(target + sd * normalRandom(rng)))
+}
+
 const ABILITY_MEAN = 10
 const ABILITY_SD = 2
 const ABILITY_MIN = 3
@@ -300,7 +314,12 @@ export function generateSettlement(
   const customRaces = options.customRaces ?? []
   const inspirationSources = options.inspirationSources ?? []
   const phoneticProfiles = options.phoneticProfiles ?? PHONETIC_PROFILES
+  // sizeId is inferred from the NOMINAL population (the user's actual size
+  // choice), not the jittered one below — a Metropolis pick should always
+  // gate building types like a Metropolis regardless of which side of
+  // 62500 the jitter happens to land on.
   const sizeId = options.sizeId ?? inferSizeId(options.population)
+  const population = jitterPopulation(options.population, rng)
   const specialties = options.specialties ?? []
   const activeSpecialtyIds = options.activeSpecialtyIds ?? []
   const raceLifeStages = options.raceLifeStages ?? []
@@ -358,7 +377,7 @@ export function generateSettlement(
   // manor, tenement, farmstead, ...) fills each tier's slots by weight —
   // preferring types whose defaultWealthTierId matches that tier, falling
   // back to every residence type if none match.
-  const targetResidenceCount = Math.max(1, Math.ceil(options.population / AVG_HOUSEHOLD_SIZE))
+  const targetResidenceCount = Math.max(1, Math.ceil(population / AVG_HOUSEHOLD_SIZE))
   if (residenceTypes.length > 0) {
     const tierBudgets =
       wealthTiers.length > 0
@@ -382,7 +401,7 @@ export function generateSettlement(
     }
   }
 
-  const staffedBudget = Math.max(1, Math.round(options.population / POPULATION_PER_STAFFED_BUILDING))
+  const staffedBudget = Math.max(1, Math.round(population / POPULATION_PER_STAFFED_BUILDING))
   const staffedCounts = allocateByWeight(staffedBudget, staffedTypes.map(effectiveWeight))
   staffedTypes.forEach((type, i) => {
     const wealthTierId = wealthTiers.some((t) => t.id === type.defaultWealthTierId) ? type.defaultWealthTierId : pickWealthTierId()
@@ -443,7 +462,7 @@ export function generateSettlement(
   // overflow still gets generated but with no homeBuildingId — an honest
   // signal to add more residences rather than silently dropping people.
   const notableCount = residents.length
-  const remainingPopulation = Math.max(0, options.population - notableCount)
+  const remainingPopulation = Math.max(0, population - notableCount)
   let homeCursor = 0
   const nextHomeBuildingId = (occupantIndex: number): string | null => {
     if (residenceBuildings.length === 0) return null

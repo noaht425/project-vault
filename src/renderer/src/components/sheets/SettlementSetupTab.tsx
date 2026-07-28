@@ -1,6 +1,12 @@
-import { BUILDING_CATEGORIES, SETTLEMENT_SIZE_IDS, type SettlementFrontmatter } from '../../../../common/noteTypes/settlement'
+import {
+  BUILDING_CATEGORIES,
+  SETTLEMENT_SIZE_IDS,
+  defaultDistrictsForSize,
+  defaultRaceLifeStages,
+  type SettlementFrontmatter
+} from '../../../../common/noteTypes/settlement'
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement } from '../../../../common/settlementGenerator'
-import { NAME_INSPIRATION_SOURCES } from '../../../../common/settlementNames'
+import { BASELINE_RACES, NAME_INSPIRATION_SOURCES } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 
 // All the generation-input editors, mirroring GenerationOptions field for
@@ -18,8 +24,6 @@ export function SettlementSetupTab({
 }): React.JSX.Element {
   const updateBuildingType = (id: string, patch: Record<string, unknown>): void =>
     updateFrontmatter({ buildingTypes: data.buildingTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)) })
-  const updateCustomRace = (id: string, patch: Record<string, unknown>): void =>
-    updateFrontmatter({ customRaces: data.customRaces.map((r) => (r.id === id ? { ...r, ...patch } : r)) })
 
   const raceTotal = data.raceDistribution.reduce((sum, r) => sum + r.percent, 0)
   const wealthTotal = data.wealthTiers.reduce((sum, t) => sum + t.percent, 0)
@@ -81,10 +85,15 @@ export function SettlementSetupTab({
               {preset.name}
             </button>
           ))}
-          <label className="sheet-field sheet-field-narrow">
+          <label className="sheet-field" style={{ flex: '0 0 120px' }}>
             Population
+            {/* .sheet-field-narrow is 64px — clips a 6-digit population
+                (metropolises run up to 100000) behind the number input's
+                spinner arrows, same bug class as initiative-add-count's
+                60px fix. 120px comfortably fits 6 digits + spinner. */}
             <input
               type="number"
+              style={{ width: '100%' }}
               value={data.targetPopulation}
               onChange={(e) => updateFrontmatter({ targetPopulation: Number(e.target.value) })}
             />
@@ -127,115 +136,52 @@ export function SettlementSetupTab({
             <button onClick={() => updateFrontmatter({ districts: data.districts.filter((x) => x.id !== d.id) })}>✕</button>
           </div>
         ))}
-        <button
-          style={{ marginTop: 4 }}
-          onClick={() => updateFrontmatter({ districts: [...data.districts, { id: crypto.randomUUID(), name: 'New District' }] })}
-        >
-          + Add district
-        </button>
+        <div className="sheet-row" style={{ marginTop: 4 }}>
+          <button onClick={() => updateFrontmatter({ districts: [...data.districts, { id: crypto.randomUUID(), name: 'New District' }] })}>
+            + Add district
+          </button>
+          <button
+            onClick={() => {
+              const proceed = window.confirm(
+                `Replace all ${data.districts.length} current district(s) with the default set for a ${data.sizeId}? This can't be undone.`
+              )
+              if (proceed) updateFrontmatter({ districts: defaultDistrictsForSize(data.sizeId) })
+            }}
+          >
+            Reset to defaults for this size
+          </button>
+        </div>
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <strong>Race distribution</strong>{' '}
+        <strong>Races</strong>{' '}
         <span className="right-panel-note">
           Total: {raceTotal}%{raceTotal !== 100 ? ' (should total 100)' : ''}
         </span>
-        {data.raceDistribution.map((r, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
-            <input
-              style={{ flex: 1 }}
-              value={r.race}
-              placeholder="human, elf, or any custom race id…"
-              onChange={(e) =>
-                updateFrontmatter({ raceDistribution: data.raceDistribution.map((x, xi) => (xi === i ? { ...x, race: e.target.value } : x)) })
-              }
-            />
-            <input
-              type="number"
-              style={{ width: 60 }}
-              value={r.percent}
-              onChange={(e) =>
-                updateFrontmatter({
-                  raceDistribution: data.raceDistribution.map((x, xi) => (xi === i ? { ...x, percent: Number(e.target.value) } : x))
-                })
-              }
-            />
-            %
-            <button onClick={() => updateFrontmatter({ raceDistribution: data.raceDistribution.filter((_, xi) => xi !== i) })}>✕</button>
-          </div>
+        <p className="right-panel-note">
+          Percent share, age milestones, and (for custom races) name-source config all live together per race now —
+          no more editing the same race in separate places.
+        </p>
+        {data.raceDistribution.map((_, i) => (
+          <RaceCard key={i} data={data} updateFrontmatter={updateFrontmatter} index={i} />
         ))}
-        <button style={{ marginTop: 4 }} onClick={() => updateFrontmatter({ raceDistribution: [...data.raceDistribution, { race: 'human', percent: 0 }] })}>
+        <button
+          style={{ marginTop: 6 }}
+          onClick={() => {
+            const usedIds = new Set(data.raceDistribution.map((r) => r.race))
+            const nextBaseline = BASELINE_RACES.find((id) => !usedIds.has(id)) ?? 'human'
+            const seededStage = defaultRaceLifeStages().find((s) => s.race === nextBaseline)
+            updateFrontmatter({
+              raceDistribution: [...data.raceDistribution, { race: nextBaseline, percent: 0 }],
+              raceLifeStages: data.raceLifeStages.some((s) => s.race === nextBaseline)
+                ? data.raceLifeStages
+                : [...data.raceLifeStages, seededStage ?? { race: nextBaseline, adulthood: 18, oldAge: 70, maxAge: 90 }]
+            })
+          }}
+        >
           + Add race
         </button>
       </div>
-
-      <details style={{ marginTop: 12 }}>
-        <summary>Race life stages ({data.raceLifeStages.length})</summary>
-        <p className="right-panel-note">
-          Per-race adulthood/old-age/max-age, used to generate believable ages — fully yours to edit (e.g. a shorter- or
-          longer-lived elf variant than the seeded default).
-        </p>
-        {data.raceLifeStages.map((stage, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
-            <input
-              style={{ flex: 1 }}
-              value={stage.race}
-              placeholder="race id"
-              onChange={(e) =>
-                updateFrontmatter({ raceLifeStages: data.raceLifeStages.map((x, xi) => (xi === i ? { ...x, race: e.target.value } : x)) })
-              }
-            />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
-              Adulthood
-              <input
-                type="number"
-                style={{ width: 70 }}
-                value={stage.adulthood}
-                onChange={(e) =>
-                  updateFrontmatter({
-                    raceLifeStages: data.raceLifeStages.map((x, xi) => (xi === i ? { ...x, adulthood: Number(e.target.value) } : x))
-                  })
-                }
-              />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
-              Old age
-              <input
-                type="number"
-                style={{ width: 70 }}
-                value={stage.oldAge}
-                onChange={(e) =>
-                  updateFrontmatter({
-                    raceLifeStages: data.raceLifeStages.map((x, xi) => (xi === i ? { ...x, oldAge: Number(e.target.value) } : x))
-                  })
-                }
-              />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
-              Max age
-              <input
-                type="number"
-                style={{ width: 70 }}
-                value={stage.maxAge}
-                onChange={(e) =>
-                  updateFrontmatter({
-                    raceLifeStages: data.raceLifeStages.map((x, xi) => (xi === i ? { ...x, maxAge: Number(e.target.value) } : x))
-                  })
-                }
-              />
-            </label>
-            <button onClick={() => updateFrontmatter({ raceLifeStages: data.raceLifeStages.filter((_, xi) => xi !== i) })}>✕</button>
-          </div>
-        ))}
-        <button
-          style={{ marginTop: 4 }}
-          onClick={() =>
-            updateFrontmatter({ raceLifeStages: [...data.raceLifeStages, { race: 'new-race', adulthood: 18, oldAge: 70, maxAge: 90 }] })
-          }
-        >
-          + Add race life stage
-        </button>
-      </details>
 
       <div style={{ marginTop: 12 }}>
         <strong>Wealth tiers</strong>{' '}
@@ -307,125 +253,78 @@ export function SettlementSetupTab({
         </button>
       </div>
 
-      <details style={{ marginTop: 12 }}>
-        <summary>Custom races ({data.customRaces.length})</summary>
-        <p className="right-panel-note">
-          Each custom race uses EITHER real-world name-inspiration sources OR a phonetic profile, never both — picking one clears the other.
-        </p>
-        {data.customRaces.map((cr) => (
-          <div key={cr.id} style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 8, marginTop: 6 }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input style={{ flex: 1 }} value={cr.name} onChange={(e) => updateCustomRace(cr.id, { name: e.target.value })} />
-              <span className="right-panel-note">id: {cr.id}</span>
-              <button onClick={() => updateFrontmatter({ customRaces: data.customRaces.filter((x) => x.id !== cr.id) })}>✕</button>
-            </div>
-            <div className="sheet-row" style={{ marginTop: 6 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-                <input
-                  type="radio"
-                  checked={!cr.phoneticProfileId}
-                  onChange={() => updateCustomRace(cr.id, { phoneticProfileId: null })}
-                />
-                Real-world inspiration sources
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-                <input
-                  type="radio"
-                  checked={!!cr.phoneticProfileId}
-                  onChange={() => updateCustomRace(cr.id, { phoneticProfileId: PHONETIC_PROFILES[0].id, inspirationSourceIds: [] })}
-                />
-                Phonetic profile
-              </label>
-            </div>
-            {!cr.phoneticProfileId ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                {NAME_INSPIRATION_SOURCES.map((source) => (
-                  <label key={source.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <input
-                      type="checkbox"
-                      checked={cr.inspirationSourceIds.includes(source.id)}
-                      onChange={(e) =>
-                        updateCustomRace(cr.id, {
-                          inspirationSourceIds: e.target.checked
-                            ? [...cr.inspirationSourceIds, source.id]
-                            : cr.inspirationSourceIds.filter((id) => id !== source.id)
-                        })
-                      }
-                    />
-                    {source.name}
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <select
-                style={{ marginTop: 4 }}
-                value={cr.phoneticProfileId}
-                onChange={(e) => updateCustomRace(cr.id, { phoneticProfileId: e.target.value })}
-              >
-                {PHONETIC_PROFILES.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        ))}
-        <button
-          style={{ marginTop: 6 }}
-          onClick={() =>
-            updateFrontmatter({
-              customRaces: [...data.customRaces, { id: crypto.randomUUID(), name: 'New Race', inspirationSourceIds: [], phoneticProfileId: null }]
-            })
-          }
-        >
-          + Add custom race
-        </button>
-      </details>
-
       <details style={{ marginTop: 8 }}>
         <summary>Building types ({data.buildingTypes.length})</summary>
-        {data.buildingTypes.map((bt) => (
-          <div key={bt.id} style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
-            <input style={{ flex: 1, minWidth: 100 }} value={bt.name} onChange={(e) => updateBuildingType(bt.id, { name: e.target.value })} />
-            <select value={bt.category} onChange={(e) => updateBuildingType(bt.id, { category: e.target.value })}>
-              {BUILDING_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select value={bt.defaultWealthTierId} onChange={(e) => updateBuildingType(bt.id, { defaultWealthTierId: e.target.value })}>
-              <option value="">(no default tier)</option>
-              {data.wealthTiers.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
-              Staffed
-              <input type="checkbox" checked={bt.staffed} onChange={(e) => updateBuildingType(bt.id, { staffed: e.target.checked })} />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
-              Weight
-              <input
-                type="number"
-                style={{ width: 50 }}
-                value={bt.weight}
-                onChange={(e) => updateBuildingType(bt.id, { weight: Number(e.target.value) })}
-              />
-            </label>
-            <select value={bt.minSizeId} onChange={(e) => updateBuildingType(bt.id, { minSizeId: e.target.value })}>
-              {SETTLEMENT_SIZE_IDS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <button onClick={() => updateFrontmatter({ buildingTypes: data.buildingTypes.filter((x) => x.id !== bt.id) })}>✕</button>
-          </div>
-        ))}
+        <p className="right-panel-note">
+          <strong>Weight</strong> is how often this type shows up relative to other types in the same category — a
+          House at weight 40 vs. a Manor at weight 5 means far more houses get built. <strong>Min. size</strong> is a
+          soft floor: below that settlement size this type is heavily deprioritized (not forbidden) — a Hamlet can
+          still roll a Guildhall, just rarely.
+        </p>
+        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left' }}>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Default wealth tier</th>
+              <th>Staffed</th>
+              <th>Weight</th>
+              <th>Min. size</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.buildingTypes.map((bt) => (
+              <tr key={bt.id}>
+                <td>
+                  <input style={{ minWidth: 100 }} value={bt.name} onChange={(e) => updateBuildingType(bt.id, { name: e.target.value })} />
+                </td>
+                <td>
+                  <select value={bt.category} onChange={(e) => updateBuildingType(bt.id, { category: e.target.value })}>
+                    {BUILDING_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <select value={bt.defaultWealthTierId} onChange={(e) => updateBuildingType(bt.id, { defaultWealthTierId: e.target.value })}>
+                    <option value="">(none)</option>
+                    {data.wealthTiers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  <input type="checkbox" checked={bt.staffed} onChange={(e) => updateBuildingType(bt.id, { staffed: e.target.checked })} />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    style={{ width: 55 }}
+                    value={bt.weight}
+                    onChange={(e) => updateBuildingType(bt.id, { weight: Number(e.target.value) })}
+                  />
+                </td>
+                <td>
+                  <select value={bt.minSizeId} onChange={(e) => updateBuildingType(bt.id, { minSizeId: e.target.value })}>
+                    {SETTLEMENT_SIZE_IDS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <button onClick={() => updateFrontmatter({ buildingTypes: data.buildingTypes.filter((x) => x.id !== bt.id) })}>✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         <button
           style={{ marginTop: 6 }}
           onClick={() =>
@@ -446,6 +345,189 @@ export function SettlementSetupTab({
           Generate
         </button>
       </div>
+    </div>
+  )
+}
+
+// One card per race in `raceDistribution` — percent share, age milestones
+// (raceLifeStages, matched by the `race` string), and — only when this race
+// id also matches a customRaces entry — its name-source config, all
+// together. Previously these lived in 3 separate sections keyed by the same
+// string with no structural link between them, which is exactly what made
+// them easy to accidentally drift out of sync (add a race to the
+// distribution, forget its life stage, or typo the id differently in each
+// place). Changing which race this row represents (the <select>) now
+// renames the matching life-stage entry in the same update rather than
+// leaving an orphaned one behind.
+function RaceCard({
+  data,
+  updateFrontmatter,
+  index
+}: {
+  data: SettlementFrontmatter
+  updateFrontmatter: (patch: Record<string, unknown>) => void
+  index: number
+}): React.JSX.Element {
+  const row = data.raceDistribution[index]
+  const customRace = data.customRaces.find((cr) => cr.id === row.race)
+  const lifeStage = data.raceLifeStages.find((s) => s.race === row.race)
+  const stage = lifeStage ?? { adulthood: 18, oldAge: 70, maxAge: 90 }
+
+  const renameLifeStage = (newRace: string): SettlementFrontmatter['raceLifeStages'] =>
+    lifeStage
+      ? data.raceLifeStages.map((s) => (s.race === row.race ? { ...s, race: newRace } : s))
+      : [...data.raceLifeStages, { race: newRace, adulthood: 18, oldAge: 70, maxAge: 90 }]
+
+  const handleRaceIdChange = (newRaceId: string): void => {
+    if (newRaceId === '__new_custom__') {
+      const newId = crypto.randomUUID()
+      updateFrontmatter({
+        customRaces: [...data.customRaces, { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileId: null }],
+        raceDistribution: data.raceDistribution.map((x, xi) => (xi === index ? { ...x, race: newId } : x)),
+        raceLifeStages: renameLifeStage(newId)
+      })
+      return
+    }
+    updateFrontmatter({
+      raceDistribution: data.raceDistribution.map((x, xi) => (xi === index ? { ...x, race: newRaceId } : x)),
+      raceLifeStages: renameLifeStage(newRaceId)
+    })
+  }
+
+  const updatePercent = (percent: number): void =>
+    updateFrontmatter({ raceDistribution: data.raceDistribution.map((x, xi) => (xi === index ? { ...x, percent } : x)) })
+
+  const updateLifeStageField = (patch: Record<string, unknown>): void =>
+    updateFrontmatter({
+      raceLifeStages: lifeStage
+        ? data.raceLifeStages.map((s) => (s.race === row.race ? { ...s, ...patch } : s))
+        : [...data.raceLifeStages, { race: row.race, adulthood: 18, oldAge: 70, maxAge: 90, ...patch }]
+    })
+
+  const updateCustomRaceField = (patch: Record<string, unknown>): void =>
+    updateFrontmatter({ customRaces: data.customRaces.map((cr) => (cr.id === row.race ? { ...cr, ...patch } : cr)) })
+
+  const removeRace = (): void =>
+    updateFrontmatter({
+      raceDistribution: data.raceDistribution.filter((_, xi) => xi !== index),
+      raceLifeStages: data.raceLifeStages.filter((s) => s.race !== row.race),
+      customRaces: data.customRaces.filter((cr) => cr.id !== row.race)
+    })
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 8, marginTop: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select value={row.race} onChange={(e) => handleRaceIdChange(e.target.value)}>
+          {BASELINE_RACES.map((id) => (
+            <option key={id} value={id}>
+              {id.charAt(0).toUpperCase() + id.slice(1)}
+            </option>
+          ))}
+          {data.customRaces
+            .filter((cr) => cr.id === row.race || !data.raceDistribution.some((r) => r.race === cr.id))
+            .map((cr) => (
+              <option key={cr.id} value={cr.id}>
+                {cr.name} (custom)
+              </option>
+            ))}
+          <option value="__new_custom__">+ New custom race…</option>
+        </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+          Percent
+          <input type="number" style={{ width: 60 }} value={row.percent} onChange={(e) => updatePercent(Number(e.target.value))} />%
+        </label>
+        <button onClick={removeRace} title="Remove this race (and its age/name-source settings) from the settlement">
+          ✕
+        </button>
+      </div>
+
+      {customRace && (
+        <label className="sheet-field" style={{ maxWidth: 220, marginTop: 6 }}>
+          Custom race name
+          <input value={customRace.name} onChange={(e) => updateCustomRaceField({ name: e.target.value })} />
+        </label>
+      )}
+
+      <div className="sheet-row" style={{ marginTop: 6 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
+          Adulthood
+          <input
+            type="number"
+            style={{ width: 70 }}
+            value={stage.adulthood}
+            onChange={(e) => updateLifeStageField({ adulthood: Number(e.target.value) })}
+          />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
+          Old age
+          <input
+            type="number"
+            style={{ width: 70 }}
+            value={stage.oldAge}
+            onChange={(e) => updateLifeStageField({ oldAge: Number(e.target.value) })}
+          />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
+          Max age
+          <input
+            type="number"
+            style={{ width: 70 }}
+            value={stage.maxAge}
+            onChange={(e) => updateLifeStageField({ maxAge: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+
+      {customRace && (
+        <div style={{ marginTop: 6 }}>
+          <div className="sheet-row">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <input type="radio" checked={!customRace.phoneticProfileId} onChange={() => updateCustomRaceField({ phoneticProfileId: null })} />
+              Real-world inspiration sources
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <input
+                type="radio"
+                checked={!!customRace.phoneticProfileId}
+                onChange={() => updateCustomRaceField({ phoneticProfileId: PHONETIC_PROFILES[0].id, inspirationSourceIds: [] })}
+              />
+              Phonetic profile
+            </label>
+          </div>
+          {!customRace.phoneticProfileId ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+              {NAME_INSPIRATION_SOURCES.map((source) => (
+                <label key={source.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input
+                    type="checkbox"
+                    checked={customRace.inspirationSourceIds.includes(source.id)}
+                    onChange={(e) =>
+                      updateCustomRaceField({
+                        inspirationSourceIds: e.target.checked
+                          ? [...customRace.inspirationSourceIds, source.id]
+                          : customRace.inspirationSourceIds.filter((id) => id !== source.id)
+                      })
+                    }
+                  />
+                  {source.name}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <select
+              style={{ marginTop: 4 }}
+              value={customRace.phoneticProfileId}
+              onChange={(e) => updateCustomRaceField({ phoneticProfileId: e.target.value })}
+            >
+              {PHONETIC_PROFILES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
     </div>
   )
 }

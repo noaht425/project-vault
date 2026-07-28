@@ -46,9 +46,17 @@ function baseOptions(overrides: Partial<GenerationOptions> = {}): GenerationOpti
 }
 
 describe('generateSettlement', () => {
-  it('generates exactly `population` residents in total', () => {
-    const result = generateSettlement(baseOptions(), undefined, seededRng(1), sequenceIds('r'))
-    expect(result.residents).toHaveLength(120)
+  it('generates close to (not exactly) `population` residents, with a small amount of seed-to-seed variance', () => {
+    // A requested population is an estimate, not a precise census — jitter
+    // (SD 1% of target, see jitterPopulation) means the actual count
+    // shouldn't be the exact same suspiciously-round number every time.
+    const counts = new Set<number>()
+    for (let seed = 1; seed <= 20; seed++) {
+      const result = generateSettlement(baseOptions(), undefined, seededRng(seed), sequenceIds('r'))
+      expect(Math.abs(result.residents.length - 120)).toBeLessThan(15)
+      counts.add(result.residents.length)
+    }
+    expect(counts.size).toBeGreaterThan(1)
   })
 
   it('gives every staffed building exactly one notable resident, and no notable for non-staffed buildings', () => {

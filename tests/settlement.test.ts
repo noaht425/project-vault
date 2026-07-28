@@ -4,7 +4,9 @@ import {
   defaultSettlementFrontmatter,
   defaultWealthTiers,
   defaultBuildingTypes,
+  defaultDistrictsForSize,
   BUILDING_CATEGORIES,
+  SETTLEMENT_SIZE_IDS,
   customRaceDefSchema
 } from '../src/common/noteTypes/settlement'
 
@@ -12,9 +14,23 @@ describe('defaultSettlementFrontmatter', () => {
   it('produces a settlement note with sane seeded defaults', () => {
     const fm = defaultSettlementFrontmatter()
     expect(fm.type).toBe('settlement')
-    expect(fm.districts).toHaveLength(1)
+    expect(fm.districts.length).toBeGreaterThan(0)
     expect(fm.buildings).toEqual([])
     expect(fm.residents).toEqual([])
+  })
+
+  it('seeds a district set for every settlement size, growing with size (more market districts for bigger towns)', () => {
+    for (const sizeId of SETTLEMENT_SIZE_IDS) {
+      const districts = defaultDistrictsForSize(sizeId)
+      expect(districts.length).toBeGreaterThan(0)
+      // Every district id is unique within its own set.
+      expect(new Set(districts.map((d) => d.id)).size).toBe(districts.length)
+    }
+    expect(defaultDistrictsForSize('hamlet').length).toBeLessThan(defaultDistrictsForSize('metropolis').length)
+  })
+
+  it('falls back to the village set for an unrecognized size id', () => {
+    expect(defaultDistrictsForSize('not-a-real-size')).toEqual(defaultDistrictsForSize('village'))
   })
 
   it('seeds wealth tiers that sum to 100 percent', () => {
@@ -41,7 +57,7 @@ describe('settlementFrontmatterSchema', () => {
     const fm = settlementFrontmatterSchema.parse({ type: 'settlement' })
     expect(fm.wealthTiers).toEqual(defaultWealthTiers())
     expect(fm.buildingTypes).toEqual(defaultBuildingTypes())
-    expect(fm.districts).toHaveLength(1)
+    expect(fm.districts).toEqual(defaultDistrictsForSize('village'))
   })
 
   it('falls back on corrupt arrays instead of throwing', () => {
