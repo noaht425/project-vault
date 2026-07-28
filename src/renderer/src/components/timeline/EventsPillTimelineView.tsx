@@ -267,12 +267,31 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
       </p>
 
       <div className="pill-timeline-track" ref={setContainer} style={{ height: trackHeight }}>
+        {/* Two flat passes, not one nested pass per event — every connector
+            line renders (and so paints, and so stacks) BEFORE every pill,
+            guaranteeing pills always sit on top regardless of which event's
+            data drives them. A per-event wrapper can't do this: .pill-anchor's
+            translateX(-50%) creates its own stacking context, which isolates
+            z-index comparisons to within ONE event's own pill+connector pair
+            and can never reach across to a DIFFERENT event's anchor — which
+            is exactly the case that needs fixing (one event's tall connector
+            crossing behind a different, lower-lane event's pill). */}
         {placements.map((p, i) => (
-          <div key={i} className="pill-anchor" style={{ left: `${p.positionFraction * 100}%` }}>
+          <div
+            key={`connector-${i}`}
+            className="pill-connector"
+            style={{ left: `${p.positionFraction * 100}%`, height: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }}
+          />
+        ))}
+        {placements.map((p, i) => (
+          <div
+            key={`pill-${i}`}
+            className="pill-anchor"
+            style={{ left: `${p.positionFraction * 100}%`, bottom: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }}
+          >
             <button className="pill" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
               {p.event.title}
             </button>
-            <div className="pill-connector" style={{ height: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }} />
             {expandedIndex === i && (
               <div className="pill-expanded">
                 <div className="pill-expanded-date">{formatDate(p.event, p.minutes)}</div>

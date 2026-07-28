@@ -301,9 +301,16 @@ button.active {
   touch-action: none;
 }
 
+/* bottom/left are set inline per pill (lane-dependent height). Rendered
+   as a flat pass AFTER every .pill-connector in the DOM (see the
+   component's render comment) — that plain paint-order separation, not
+   z-index, is what keeps every pill on top of every connector line: each
+   anchor's own translateX(-50%) creates a stacking context, which would
+   otherwise trap any z-index comparison inside just ONE event's own
+   pill+connector pair and never let it reach across to a DIFFERENT
+   event's anchor. */
 .pill-anchor {
   position: absolute;
-  bottom: 0;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -318,17 +325,6 @@ button.active {
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
-  /* Every pill, regardless of which event's anchor it belongs to, must
-     paint above every OTHER event's connector line — two different
-     events' anchors are independent absolutely-positioned siblings that
-     can overlap in screen space (a tall connector for a high-lane event
-     can fall behind a nearby low-lane pill's wide rounded rect), and
-     without an explicit stacking order here, paint order just followed
-     whichever left-to-right position order they happened to be placed
-     in, not lane. position:relative is required for z-index to apply at
-     all (buttons/divs default to position:static, which ignores it). */
-  position: relative;
-  z-index: 2;
 }
 
 .pill:hover {
@@ -338,13 +334,15 @@ button.active {
 /* Connects a stacked (lane > 0) pill down to its real position on the
    axis line — see placeEventsInLanes's doc comment for why events close
    together stack onto separate rows instead of collapsing into a count.
-   Lower z-index than .pill (see that rule's comment) so it always
-   renders BEHIND every pill, never drawn across one. */
+   Positioned independently (not nested inside .pill-anchor) so it can be
+   rendered as an earlier sibling in the DOM, painting behind every pill —
+   see .pill-anchor's comment for why z-index alone can't do this here. */
 .pill-connector {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
   width: 1px;
   background: var(--border);
-  position: relative;
-  z-index: 1;
 }
 
 .pill-expanded {

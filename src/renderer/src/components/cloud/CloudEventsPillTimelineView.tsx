@@ -255,12 +255,29 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
       </p>
 
       <div className="pill-timeline-track" ref={setContainer} style={{ height: trackHeight }}>
+        {/* Two flat passes, not one nested pass per event — see
+            EventsPillTimelineView.tsx's identical comment: .pill-anchor's
+            translateX(-50%) creates its own stacking context, which
+            traps z-index comparisons inside one event's own pill+
+            connector pair and can't reach across to a DIFFERENT event's
+            anchor. Rendering every connector before every pill makes
+            plain paint order (not z-index) guarantee pills stay on top. */}
         {placements.map((p, i) => (
-          <div key={i} className="pill-anchor" style={{ left: `${p.positionFraction * 100}%` }}>
+          <div
+            key={`connector-${i}`}
+            className="pill-connector"
+            style={{ left: `${p.positionFraction * 100}%`, height: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }}
+          />
+        ))}
+        {placements.map((p, i) => (
+          <div
+            key={`pill-${i}`}
+            className="pill-anchor"
+            style={{ left: `${p.positionFraction * 100}%`, bottom: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }}
+          >
             <button className="pill" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
               {p.event.name}
             </button>
-            <div className="pill-connector" style={{ height: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }} />
             {expandedIndex === i && (
               <div className="pill-expanded">
                 <div className="pill-expanded-date">{formatDate(p.event, p.minutes)}</div>
