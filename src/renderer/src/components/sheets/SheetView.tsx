@@ -11,6 +11,7 @@ import { LocationSheet } from './LocationSheet'
 import { LanguageSheet } from './LanguageSheet'
 import { FamilyTreeSheet } from './FamilyTreeSheet'
 import { MapSheet } from './MapSheet'
+import { SettlementSheet } from './SettlementSheet'
 
 export function SheetView({
   content,
@@ -50,6 +51,8 @@ export function SheetView({
       return <FamilyTreeSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'map':
       return <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+    case 'settlement':
+      return <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     default:
       return null
   }

@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { parseNote } from '../../../common/frontmatter'
+import { parseNote, stringifyNote } from '../../../common/frontmatter'
 import { useEditorStore } from '../state/editorStore'
 import { useCloudEditorStore } from '../state/cloudEditorStore'
+import { useVaultStore } from '../state/vaultStore'
 
 // Shared shape for "resolve a note by title" operations that need to work
 // against either backend: PcSheet's class-reference field, ClassFeaturesPanel's
@@ -13,6 +14,11 @@ export interface NoteRefApi {
   searchTitles(query: string, type?: string): Promise<{ title: string }[]>
   openByTitle(title: string, type?: string): Promise<void>
   readBodyByTitle(title: string, type?: string): Promise<string | null>
+  // Used by the Settlement Populator's "promote to real note" action — the
+  // only place in the app that creates a note from inside a sheet rather
+  // than the file tree. Lands in the vault/workspace root for both backends
+  // in v1; the user can move it via the file tree afterward like any note.
+  createNote(name: string, frontmatter: Record<string, unknown>, body?: string): Promise<{ title: string }>
 }
 
 // Exported for direct testing (tests/noteRefApi.test.ts) — the two hooks
@@ -22,7 +28,8 @@ export interface NoteRefApi {
 export function createNoteRefApi(
   searchTitles: (query: string, type?: string) => Promise<{ title: string; ref: string }[]>,
   openByRef: (ref: string) => Promise<void>,
-  readBodyByRef: (ref: string) => Promise<string>
+  readBodyByRef: (ref: string) => Promise<string>,
+  createNoteImpl: (name: string, frontmatter: Record<string, unknown>, body: string) => Promise<{ title: string }>
 ): NoteRefApi {
   async function findExact(title: string, type?: string): Promise<{ title: string; ref: string } | undefined> {
     const matches = await searchTitles(title, type)
@@ -47,21 +54,38 @@ export function createNoteRefApi(
     async readBodyByTitle(title, type) {
       const exact = await findExact(title, type)
       return exact ? readBodyByRef(exact.ref) : null
+    },
+    async createNote(name, frontmatter, body = '') {
+      return createNoteImpl(name, frontmatter, body)
     }
   }
 }
 
 export function useLocalNoteRefApi(): NoteRefApi {
   const openNote = useEditorStore((s) => s.openNote)
+  const vaultPath = useVaultStore((s) => s.vaultPath)
   return useMemo(
     () =>
       createNoteRefApi(
         async (query, type) =>
           (await window.vaultApi.searchTitles(query, type)).map((m) => ({ title: m.title, ref: m.path })),
         (path) => openNote(path),
-        async (path) => parseNote((await window.vaultApi.readNote(path)).content).body
+        async (path) => parseNote((await window.vaultApi.readNote(path)).content).body,
+        async (name, frontmatter, body) => {
+          if (!vaultPath) throw new Error('No vault open')
+          // vaultApi.createNote only accepts a NoteTemplate for default
+          // frontmatter, not an arbitrary object — create a blank note, then
+          // immediately overwrite it with the real (frontmatter, body).
+          const created = await window.vaultApi.createNote(vaultPath, name)
+          await window.vaultApi.saveNote({
+            path: created.path,
+            content: stringifyNote({ frontmatter, body }),
+            baseVersion: created.version
+          })
+          return { title: name }
+        }
       ),
-    [openNote]
+    [openNote, vaultPath]
   )
 }
 
@@ -73,7 +97,11 @@ export function useCloudNoteRefApi(): NoteRefApi {
         async (query, type) =>
           (await window.cloudApi.searchTitles(query, type)).map((m) => ({ title: m.name, ref: m.id })),
         (id) => openNote(id),
-        async (id) => (await window.cloudApi.getNote(id)).body
+        async (id) => (await window.cloudApi.getNote(id)).body,
+        async (name, frontmatter, body) => {
+          const created = await window.cloudApi.createNote({ name, frontmatter, body })
+          return { title: created.name }
+        }
       ),
     [openNote]
   )
