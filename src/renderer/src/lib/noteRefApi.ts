@@ -14,6 +14,11 @@ export interface NoteRefApi {
   searchTitles(query: string, type?: string): Promise<{ title: string }[]>
   openByTitle(title: string, type?: string): Promise<void>
   readBodyByTitle(title: string, type?: string): Promise<string | null>
+  // Added for EventSheet's structured-date picker (see
+  // docs/plans/2026-07-28-calendar-timeline-system.md, build step 4) — it
+  // needs a referenced calendar note's actual era/month/week definitions to
+  // populate its dropdowns, not just its body text like readBodyByTitle.
+  readFrontmatterByTitle(title: string, type?: string): Promise<Record<string, unknown> | null>
   // Used by the Settlement Populator's "promote to real note" action — the
   // only place in the app that creates a note from inside a sheet rather
   // than the file tree. Lands in the vault/workspace root for both backends
@@ -29,7 +34,8 @@ export function createNoteRefApi(
   searchTitles: (query: string, type?: string) => Promise<{ title: string; ref: string }[]>,
   openByRef: (ref: string) => Promise<void>,
   readBodyByRef: (ref: string) => Promise<string>,
-  createNoteImpl: (name: string, frontmatter: Record<string, unknown>, body: string) => Promise<{ title: string }>
+  createNoteImpl: (name: string, frontmatter: Record<string, unknown>, body: string) => Promise<{ title: string }>,
+  readFrontmatterByRef: (ref: string) => Promise<Record<string, unknown>>
 ): NoteRefApi {
   async function findExact(title: string, type?: string): Promise<{ title: string; ref: string } | undefined> {
     const matches = await searchTitles(title, type)
@@ -54,6 +60,10 @@ export function createNoteRefApi(
     async readBodyByTitle(title, type) {
       const exact = await findExact(title, type)
       return exact ? readBodyByRef(exact.ref) : null
+    },
+    async readFrontmatterByTitle(title, type) {
+      const exact = await findExact(title, type)
+      return exact ? readFrontmatterByRef(exact.ref) : null
     },
     async createNote(name, frontmatter, body = '') {
       return createNoteImpl(name, frontmatter, body)
@@ -83,7 +93,8 @@ export function useLocalNoteRefApi(): NoteRefApi {
             baseVersion: created.version
           })
           return { title: name }
-        }
+        },
+        async (path) => parseNote((await window.vaultApi.readNote(path)).content).frontmatter
       ),
     [openNote, vaultPath]
   )
@@ -101,7 +112,8 @@ export function useCloudNoteRefApi(): NoteRefApi {
         async (name, frontmatter, body) => {
           const created = await window.cloudApi.createNote({ name, frontmatter, body })
           return { title: created.name }
-        }
+        },
+        async (id) => (await window.cloudApi.getNote(id)).frontmatter
       ),
     [openNote]
   )

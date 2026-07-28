@@ -269,8 +269,8 @@ Schema shape, confirmed with the user at kickoff:
 - The Settings tab's `defaultEraId` field (see Step 2 notes above) hasn't
   been shown to the user yet — worth a quick confirmation it's the right
   call before more is built on top of it.
-- Next session should start at step 4 (structured date field on `event`
-  notes) — steps 1-3 are all done now.
+- Next session should start at step 5 (migration) — steps 1-4 are all
+  done now.
 
 **Step 3 done (2026-07-28, same session):** canonical-timestamp
 formatter/parser built — `src/common/calendarMath.ts`:
@@ -321,3 +321,54 @@ formatter/parser built — `src/common/calendarMath.ts`:
   `fromCanonicalMinutes` returns `null` in that case (same "leave it
   undated" escape hatch as `worldDate.ts`), but no caller exists yet to
   confirm that's the right UX (vs. e.g. falling back to raw free text).
+
+**Step 4 done (2026-07-28, same session):** structured date field added to
+`event` notes — `src/common/noteTypes/event.ts`'s new
+`eventStructuredDateSchema` / `structuredDate` field. Key decision: this
+**adds to** the existing free-text `date` field, never replaces it — every
+existing event note keeps working exactly as before (`structuredDate`
+defaults `null`), matching the doc's own migration-section reasoning
+("keep the original free text as a fallback/override field so nothing is
+silently lost") applied one step early, at the schema level. A
+`structuredDate` references a calendar note **by title** (`calendarNoteTitle`,
+same convention as this file's existing `location` field) plus
+`{eraId, year, monthId, day, hour, minute}` — the exact shape
+`calendarMath.ts`'s `CalendarDateParts` expects, so `toCanonicalMinutes`/
+`fromCanonicalMinutes` can consume it directly once a caller needs to
+(nothing does yet — see Step 3's notes).
+
+`EventSheet.tsx` got a new checkbox-gated "structured date" section:
+picks a calendar note (datalist, like the existing Location field), then
+era/year/month/day/hour/minute inputs once that calendar's own frontmatter
+is fetched. This needed a genuinely new capability — `NoteRefApi` (used by
+4+ existing sheets) only exposed `readBodyByTitle`, not frontmatter, so a
+`readFrontmatterByTitle` method was added to the shared interface and both
+backend implementations (`useLocalNoteRefApi`/`useCloudNoteRefApi` in
+`src/renderer/src/lib/noteRefApi.ts`) — local reads+parses the note's raw
+content, cloud already returns `frontmatter` directly from `getNote`.
+`tests/renderer/noteRefApi.test.ts` updated (new 5th constructor arg on
+every existing `createNoteRefApi(...)` call) plus a new
+`readFrontmatterByTitle` describe block.
+
+Tests: `tests/event.test.ts` (schema — coexistence of `date`/`structuredDate`,
+malformed-input fallback). Verification: `npm test` — 320/320 passing;
+both `tsc` configs clean (still the same 33 pre-existing unrelated errors).
+Could not visually verify the new EventSheet UI in the actual app (no
+desktop screenshot access) — worth checking a real event note's Date
+section renders/behaves as expected.
+
+**Not yet resolved / still open:**
+- `structuredDate` is populated ONLY by hand via this new UI — nothing
+  auto-fills it from the existing free-text `date` yet. That's step 5
+  (migration), which still has its own unresolved kickoff questions from
+  the original plan (auto vs. manual trigger; what happens to text
+  `worldDate.ts` can't parse) — unchanged by this session's work.
+- `worldTimeline.ts`'s History-bullet/Born-Died extraction (free text
+  inside note bodies, not frontmatter) was deliberately left untouched,
+  per the doc's own "stays as-is, feeds INTO the new structured date
+  system" — no structured equivalent exists for those yet, only for
+  dedicated `event` notes.
+- The EventSheet UI is functional but minimal (plain dropdowns, no
+  validation that the chosen day/month/hour/minute combination is even
+  in-range for the selected calendar) — worth a pass once real usage
+  surfaces rough edges.

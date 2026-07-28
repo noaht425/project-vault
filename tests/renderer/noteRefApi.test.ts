@@ -11,7 +11,7 @@ beforeEach(() => {
 describe('createNoteRefApi', () => {
   it('searchTitles passes through to the injected function unchanged', async () => {
     const searchTitles = vi.fn().mockResolvedValue([{ title: 'Alice', ref: '1' }])
-    const api = createNoteRefApi(searchTitles, vi.fn(), vi.fn(), vi.fn())
+    const api = createNoteRefApi(searchTitles, vi.fn(), vi.fn(), vi.fn(), vi.fn())
     const result = await api.searchTitles('ali', 'npc')
     expect(searchTitles).toHaveBeenCalledWith('ali', 'npc')
     expect(result).toEqual([{ title: 'Alice', ref: '1' }])
@@ -21,7 +21,7 @@ describe('createNoteRefApi', () => {
     it('opens the exact case-insensitive match', async () => {
       const searchTitles = vi.fn().mockResolvedValue([{ title: 'Alice', ref: 'note-1' }])
       const openByRef = vi.fn().mockResolvedValue(undefined)
-      const api = createNoteRefApi(searchTitles, openByRef, vi.fn(), vi.fn())
+      const api = createNoteRefApi(searchTitles, openByRef, vi.fn(), vi.fn(), vi.fn())
 
       await api.openByTitle('alice')
 
@@ -32,7 +32,7 @@ describe('createNoteRefApi', () => {
     it('alerts instead of opening when no exact match exists', async () => {
       const searchTitles = vi.fn().mockResolvedValue([{ title: 'Bob', ref: 'note-2' }])
       const openByRef = vi.fn()
-      const api = createNoteRefApi(searchTitles, openByRef, vi.fn(), vi.fn())
+      const api = createNoteRefApi(searchTitles, openByRef, vi.fn(), vi.fn(), vi.fn())
 
       await api.openByTitle('Alice')
 
@@ -42,7 +42,7 @@ describe('createNoteRefApi', () => {
 
     it('alerts with the error message instead of throwing on failure', async () => {
       const searchTitles = vi.fn().mockRejectedValue(new Error('network down'))
-      const api = createNoteRefApi(searchTitles, vi.fn(), vi.fn(), vi.fn())
+      const api = createNoteRefApi(searchTitles, vi.fn(), vi.fn(), vi.fn(), vi.fn())
 
       await expect(api.openByTitle('Alice')).resolves.toBeUndefined()
       expect(window.alert).toHaveBeenCalledWith('network down')
@@ -53,7 +53,7 @@ describe('createNoteRefApi', () => {
     it('returns the body of the exact match', async () => {
       const searchTitles = vi.fn().mockResolvedValue([{ title: 'Fighter', ref: 'cr-1' }])
       const readBodyByRef = vi.fn().mockResolvedValue('## Level 1\nSecond Wind')
-      const api = createNoteRefApi(searchTitles, vi.fn(), readBodyByRef, vi.fn())
+      const api = createNoteRefApi(searchTitles, vi.fn(), readBodyByRef, vi.fn(), vi.fn())
 
       const body = await api.readBodyByTitle('fighter')
 
@@ -64,7 +64,7 @@ describe('createNoteRefApi', () => {
     it('returns null without calling readBodyByRef when there is no exact match', async () => {
       const searchTitles = vi.fn().mockResolvedValue([])
       const readBodyByRef = vi.fn()
-      const api = createNoteRefApi(searchTitles, vi.fn(), readBodyByRef, vi.fn())
+      const api = createNoteRefApi(searchTitles, vi.fn(), readBodyByRef, vi.fn(), vi.fn())
 
       const body = await api.readBodyByTitle('Fighter')
 
@@ -76,12 +76,36 @@ describe('createNoteRefApi', () => {
   describe('createNote', () => {
     it('passes through to the injected function, defaulting body to an empty string', async () => {
       const createNoteImpl = vi.fn().mockResolvedValue({ title: 'New NPC' })
-      const api = createNoteRefApi(vi.fn(), vi.fn(), vi.fn(), createNoteImpl)
+      const api = createNoteRefApi(vi.fn(), vi.fn(), vi.fn(), createNoteImpl, vi.fn())
 
       const result = await api.createNote('New NPC', { type: 'npc' })
 
       expect(createNoteImpl).toHaveBeenCalledWith('New NPC', { type: 'npc' }, '')
       expect(result).toEqual({ title: 'New NPC' })
+    })
+  })
+
+  describe('readFrontmatterByTitle', () => {
+    it('returns the frontmatter of the exact match', async () => {
+      const searchTitles = vi.fn().mockResolvedValue([{ title: 'Age of the Many', ref: 'cal-1' }])
+      const readFrontmatterByRef = vi.fn().mockResolvedValue({ type: 'calendar', months: [] })
+      const api = createNoteRefApi(searchTitles, vi.fn(), vi.fn(), vi.fn(), readFrontmatterByRef)
+
+      const frontmatter = await api.readFrontmatterByTitle('age of the many', 'calendar')
+
+      expect(readFrontmatterByRef).toHaveBeenCalledWith('cal-1')
+      expect(frontmatter).toEqual({ type: 'calendar', months: [] })
+    })
+
+    it('returns null without calling readFrontmatterByRef when there is no exact match', async () => {
+      const searchTitles = vi.fn().mockResolvedValue([])
+      const readFrontmatterByRef = vi.fn()
+      const api = createNoteRefApi(searchTitles, vi.fn(), vi.fn(), vi.fn(), readFrontmatterByRef)
+
+      const frontmatter = await api.readFrontmatterByTitle('Nonexistent')
+
+      expect(frontmatter).toBeNull()
+      expect(readFrontmatterByRef).not.toHaveBeenCalled()
     })
   })
 })
