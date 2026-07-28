@@ -14,7 +14,8 @@ import type {
   CloudSearchResult,
   CloudSessionSummary,
   CloudTitleMatch,
-  CloudTreeNode
+  CloudTreeNode,
+  CloudWorkspaceSettings
 } from '../../common/cloudTypes'
 
 // URL and anon key for project-vault-cloud's Supabase project. Both are the
@@ -291,6 +292,23 @@ export class CloudSession {
   async migrateDates(): Promise<{ migrated: number; skipped: number }> {
     const res = await fetch(`${API_BASE_URL}/api/migrate-dates`, { method: 'POST', headers: this.authHeaders() })
     return this.parseOrThrow<{ migrated: number; skipped: number }>(res)
+  }
+
+  // Step 6 of docs/plans/2026-07-28-calendar-timeline-system.md — per-
+  // workspace (not per-user), same setting the local vault stores in
+  // .project-vault-settings.json.
+  async getWorkspaceSettings(): Promise<CloudWorkspaceSettings> {
+    const res = await fetch(`${API_BASE_URL}/api/workspace-settings`, { headers: this.authHeaders() })
+    return this.parseOrThrow<CloudWorkspaceSettings>(res)
+  }
+
+  async updateWorkspaceSettings(patch: Partial<CloudWorkspaceSettings>): Promise<CloudWorkspaceSettings> {
+    const res = await fetch(`${API_BASE_URL}/api/workspace-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify(patch)
+    })
+    return this.parseOrThrow<CloudWorkspaceSettings>(res)
   }
 
   // Instant, never-blocks-on-network read of whatever was cached — from

@@ -450,3 +450,146 @@ marker file/mechanism needed.
   tests of the pure matching logic and a clean `next build` typecheck.
   Worth the user actually trying it against their real cloud workspace
   once both repos are live.
+
+**Real vault data created (2026-07-28, same session, before steps 6/7):**
+Two actual calendar notes now exist at
+`/Users/Noah/Documents/Project Planar/Calendars/` — "Age of the Many.md"
+(the main calendar) and "Kingdom of Krotaphos.md" — built by a small
+one-off Node script using the app's own `gray-matter`/schema shapes
+directly (no `tsx`/`ts-node` available, so this was NOT run through
+`defaultCalendarFrontmatter()` in-process — hand-verified instead by
+round-tripping a REAL event from the vault, "The Great Unrest.md"'s "36
+Morcaela, 546 AM", through `calendarFrontmatterSchema.parse` +
+`toCanonicalMinutes`/`fromCanonicalMinutes` + `migrateFreeTextDate`, all
+of which matched correctly). The running Electron app should pick these
+up via its live file watcher; the automatic migration itself only runs
+on vault OPEN, so a close/reopen (or app restart) is needed for existing
+events to actually get `structuredDate` populated against them.
+
+## Steps 6 & 7 — confirmed with the user at kickoff
+
+- **Active-calendars list: per-vault**, not per-user (no per-user
+  preferences mechanism exists anywhere in this app; per-vault reuses
+  existing patterns).
+- **Timeline axis: horizontal.**
+- **Pill click: expand inline, with a link to open the full note**
+  (combines the plan doc's two suggested options).
+
+**Step 6 done:** per-vault/per-workspace `activeCalendarNoteTitles`
+setting.
+- **Local**: hidden dotfile `.project-vault-settings.json` at the vault
+  root (`VaultSession.getSettings()`/`updateSettings()` in
+  `src/main/vault/session.ts`, IPC in `ipc/vault.ts`, preload
+  `vaultApi.getSettings`/`updateSettings`) — confirmed invisible to both
+  `tree.ts`'s file tree and the search index (both already skip
+  dot-prefixed entries), no special-casing needed. Tested in
+  `tests/vaultSettings.test.ts` against a real `VaultSession` + temp
+  vault dir (open/update/close/reopen round-trip, corrupt-file fallback).
+- **Cloud**: new `active_calendar_titles jsonb` column on the
+  `workspaces` table (`project-vault-cloud/supabase/migrations/
+  0003_workspace_calendar_settings.sql`) + `GET`/`PATCH
+  /api/workspace-settings` route. **Unlike every other cloud write in
+  this app, this is a plain last-write-wins update, not version-checked**
+  — a deliberate, proportionate call: this is a single owner's own
+  display preference, not shared/contended note content, and no version
+  column exists on `workspaces` to check against anyway. Wired through
+  `cloudSession.ts`/`ipc/cloud.ts`/preload as `cloudApi.
+  getWorkspaceSettings`/`updateWorkspaceSettings`.
+  **IMPORTANT — this migration has NOT been run against the live
+  Supabase project yet** (migrations in this repo are applied manually
+  via the Supabase Dashboard's SQL Editor, confirmed in that repo's own
+  README — there's no automated push, and no service_role key exists
+  anywhere in this codebase for a script to run DDL remotely). The cloud
+  workspace-settings feature will 404/error until the user runs
+  `0003_workspace_calendar_settings.sql` there themselves.
+- `EventSummary` (`common/types.ts`) and `CloudEventSummary`
+  (`common/cloudTypes.ts`) both gained an optional `structuredDate` field
+  (only ever set for `noteType === 'event'`), populated in
+  `session.ts`'s `listEvents()` and the cloud `/api/events` route
+  (duck-typed there, matching that route's existing style) — this is
+  what the pill view actually reads to place events on the axis.
+
+**Step 7 done:** the pill timeline view.
+- **Axis/zoom/clustering, pure and unit-tested**:
+  `src/common/eventTimelinePlacement.ts` (`computeFullWindow`,
+  `windowForZoom`, `panWindow`, `placeEvents` — 16 tests in
+  `tests/eventTimelinePlacement.test.ts`). Directly addresses the plan
+  doc's explicit "don't hand-wave the scale/zoom problem" concern: zoom
+  levels are a ratio of the FULL data range (not an absolute constant,
+  since a vault's actual event spread could be a few years or several
+  millennia) — each level in is 3x narrower — so the axis is never a
+  fixed range that squishes a day-long event next to a millennium-
+  spanning gap. Clustering greedily chains events whose PIXEL positions
+  (at the current window+zoom) are closer than a spacing threshold into
+  one cluster pill, same "chain nearby points" approach real point-
+  clustering (e.g. map markers) uses — clicking a cluster zooms in
+  centered on it, same behavior as clicking anywhere to zoom, just
+  pre-aimed at that cluster's mean position.
+  - Deliberate v1 scope choice: zoom is a **discrete level ladder**
+    (0 to `MAX_ZOOM_LEVEL`), not continuous/free-form drag-to-zoom —
+    simpler to implement correctly, still solves the core problem.
+  - Only a POINT in time is placed, never a range/duration — matches
+    `structuredDate`'s own shape (a single day/hour/minute, no "end"
+    field). A free-text date range (e.g. "The Great Unrest.md"'s "36
+    Morcaela, 546 AM – 16 Auctera, 657 AM") still only gets a single
+    structured point if/when migrated (worldDate.ts/dateMigration.ts
+    both only ever take the START of a range) — the pill shows that
+    start point only, not the full span. Worth a future look if range
+    display ever matters.
+- **`EventsPillTimelineView.tsx`** (local) / **`CloudEventsPillTimelineView.tsx`**
+  (cloud) — new sibling views, NOT replacing the existing plain-list
+  views. Only `event`-type notes with a RESOLVED `structuredDate` can be
+  placed (a History-bullet/Born-Died fact, or an event with only free
+  text, has nothing to plot) — those still show up in the List view,
+  just not Timeline. Fetches every `calendar` note in the vault/workspace
+  (via `noteRefApi.searchTitles`/`readFrontmatterByTitle`, same pattern
+  `EventSheet.tsx` already uses) to (a) look up an event's OWN calendar
+  for `toCanonicalMinutes`, and (b) format each pill's date through every
+  ACTIVE calendar via `fromCanonicalMinutes`/`formatCalendarDate` — a
+  pill shows one label per active calendar, joined with " / ". Zero
+  active calendars falls back to the event's raw free-text `date`,
+  confirmed matching the plan doc's "still works with zero
+  configuration" requirement.
+  - Active-calendars checkboxes live directly in this view (not a
+    separate global settings page — no such page exists anywhere in this
+    app, and building one wasn't otherwise justified for a single
+    consumer).
+  - Pixel width for clustering is measured live via a `ResizeObserver` on
+    the track container, not assumed/hardcoded.
+- **`EventsSection.tsx`** (local) / **`CloudEventsSection.tsx`** (cloud)
+  — new thin wrapper adding a List/Timeline toggle around the existing
+  list view + the new pill view, replacing the direct
+  `EventsTimelineView`/`CloudEventsTimelineView` render in `App.tsx`.
+  List stays the default tab — nothing about today's default behavior
+  changes unless the user clicks into Timeline.
+- New CSS in `styles.css` (`.pill-timeline-*`, `.pill*`, `.events-section*`)
+  — `.events-section` carries the grid placement that used to belong
+  directly to `.timeline-view`, since that's no longer a direct grid
+  child once wrapped by the new toggle.
+- Verification: both `tsc` configs clean, `npm test` — 356/356 passing.
+  Could not visually verify the new Timeline tab/pills/toolbar in the
+  actual Electron app (no desktop screenshot access, and the renderer
+  depends on Electron-injected `window.vaultApi`/`cloudApi` so it can't
+  be checked via a plain browser tab either) — worth the user actually
+  clicking into a real Events → Timeline tab and trying the zoom/pan/
+  cluster/expand interactions before trusting this is production-ready.
+
+**Not yet resolved / still open after steps 6-7:**
+- The `/api/workspace-settings` migration needs to be run manually in
+  the Supabase Dashboard before cloud active-calendars actually works
+  (see above).
+- No consumer besides the new pill view formats a date through active
+  calendars yet — `EventSheet.tsx`'s own date display, the plain List
+  view, etc. all still show only the raw free-text `date`. Extending
+  "active calendars" formatting to those would be natural future work
+  but wasn't required by this step.
+- Continuous drag-to-zoom/pan (vs. the current discrete zoom-level +
+  pan-by-40%-of-window buttons) could be a nicer interaction eventually
+  — deliberately deferred as v1 scope.
+- No "jump to today" marker exists (no concept of a canonical "current
+  in-campaign date" was ever defined anywhere in this system) — every
+  view starts zoomed all the way out, centered on the full data range.
+- This was the last of the plan doc's originally suggested 7 build
+  steps. Nothing further is queued unless the user has new requests
+  (e.g. deeper zoom interactions, range/duration display, extending
+  active-calendar formatting elsewhere).

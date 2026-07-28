@@ -11,7 +11,8 @@ import type {
   SearchResult,
   SessionSummary,
   TreeEntry,
-  VaultOpenResult
+  VaultOpenResult,
+  VaultSettings
 } from '../common/types'
 import type { GraphData } from '../common/graph'
 import type { Encounter } from '../common/initiative'
@@ -25,13 +26,16 @@ import type {
   CloudSearchResult,
   CloudSessionSummary,
   CloudTitleMatch,
-  CloudTreeNode
+  CloudTreeNode,
+  CloudWorkspaceSettings
 } from '../common/cloudTypes'
 
 const vaultApi = {
   openVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:open'),
   getTree: (): Promise<TreeEntry[]> => ipcRenderer.invoke('vault:getTree'),
   getCurrentVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:getCurrent'),
+  getSettings: (): Promise<VaultSettings> => ipcRenderer.invoke('vault:getSettings'),
+  updateSettings: (patch: Partial<VaultSettings>): Promise<VaultSettings> => ipcRenderer.invoke('vault:updateSettings', patch),
 
   readNote: (path: string): Promise<NoteData> => ipcRenderer.invoke('notes:read', path),
   saveNote: (req: SaveNoteRequest): Promise<SaveNoteResult> => ipcRenderer.invoke('notes:save', req),
@@ -122,6 +126,9 @@ const cloudApi = {
   listSessions: (): Promise<CloudSessionSummary[]> => ipcRenderer.invoke('cloud:listSessions'),
   listEvents: (): Promise<CloudEventSummary[]> => ipcRenderer.invoke('cloud:listEvents'),
   migrateDates: (): Promise<{ migrated: number; skipped: number }> => ipcRenderer.invoke('cloud:migrateDates'),
+  getWorkspaceSettings: (): Promise<CloudWorkspaceSettings> => ipcRenderer.invoke('cloud:getWorkspaceSettings'),
+  updateWorkspaceSettings: (patch: Partial<CloudWorkspaceSettings>): Promise<CloudWorkspaceSettings> =>
+    ipcRenderer.invoke('cloud:updateWorkspaceSettings', patch),
 
   // getCachedTree resolves instantly with whatever's already known (may be
   // null); refreshTree always hits the network. onTreeUpdated fires

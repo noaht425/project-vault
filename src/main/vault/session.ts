@@ -30,8 +30,20 @@ import type {
   SearchResult,
   SessionSummary,
   TreeEntry,
-  VaultOpenResult
+  VaultOpenResult,
+  VaultSettings
 } from '../../common/types'
+
+// Hidden (dot-prefixed) file at the vault root — both tree.ts's buildTree
+// and index-db/indexer.ts's rebuildIndex already skip any dot-prefixed
+// entry, so this is automatically invisible to the file tree and search
+// index with no special-casing needed elsewhere, same as any other dotfile
+// a vault might contain.
+const VAULT_SETTINGS_FILENAME = '.project-vault-settings.json'
+
+function defaultVaultSettings(): VaultSettings {
+  return { activeCalendarNoteTitles: [] }
+}
 
 export interface VaultSessionHandlers {
   onExternalChange(event: ExternalChangeEvent): void
@@ -271,6 +283,30 @@ export class VaultSession {
     return { newPath }
   }
 
+  /** Step 6 of docs/plans/2026-07-28-calendar-timeline-system.md — per-vault
+   * (confirmed with the user, not per-user) list of which calendar notes
+   * currently format displayed dates. Missing/corrupt file reads back as
+   * defaults rather than throwing, same "don't fail vault-open over an
+   * optional enhancement" spirit as migrateEventDates. */
+  async getSettings(): Promise<VaultSettings> {
+    const root = this.requireVault()
+    try {
+      const raw = await fs.readFile(join(root, VAULT_SETTINGS_FILENAME), 'utf8')
+      const parsed = JSON.parse(raw)
+      return { activeCalendarNoteTitles: Array.isArray(parsed?.activeCalendarNoteTitles) ? parsed.activeCalendarNoteTitles : [] }
+    } catch {
+      return defaultVaultSettings()
+    }
+  }
+
+  async updateSettings(patch: Partial<VaultSettings>): Promise<VaultSettings> {
+    const root = this.requireVault()
+    const current = await this.getSettings()
+    const next = { ...current, ...patch }
+    await fs.writeFile(join(root, VAULT_SETTINGS_FILENAME), JSON.stringify(next, null, 2), 'utf8')
+    return next
+  }
+
   async searchTitles(query: string, type?: string): Promise<NoteTitleMatch[]> {
     const db = this.requireDb()
     const rows = type
@@ -373,7 +409,8 @@ export class VaultSession {
           date: parsed.success ? parsed.data.date : '',
           summary: parsed.success ? parsed.data.summary : '',
           noteType: 'event',
-          location: parsed.success ? parsed.data.location : null
+          location: parsed.success ? parsed.data.location : null,
+          structuredDate: parsed.success ? parsed.data.structuredDate : null
         })
       }
 

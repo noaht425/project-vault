@@ -3,6 +3,8 @@
 // identified by id, not files identified by path. See
 // src/main/cloud/cloudSession.ts for the client that produces these.
 
+import type { EventStructuredDate } from './noteTypes/event'
+
 export interface CloudNoteData {
   id: string
   name: string
@@ -78,4 +80,18 @@ export interface CloudEventSummary {
   date: string
   summary: string
   noteType: string
+  // Only ever set for noteType === 'event' — see EventSummary's own
+  // comment in common/types.ts (this is the cloud-side mirror). Consumed
+  // by the pill timeline view (build step 7 of
+  // docs/plans/2026-07-28-calendar-timeline-system.md).
+  structuredDate?: EventStructuredDate | null
+}
+
+// Cloud-side mirror of VaultSettings (common/types.ts) — per-workspace,
+// not per-user (confirmed with the user, same as the local vault's
+// setting). Stored as a column on the workspaces table rather than a
+// separate table (see project-vault-cloud's
+// supabase/migrations/0003_workspace_calendar_settings.sql).
+export interface CloudWorkspaceSettings {
+  activeCalendarNoteTitles: string[]
 }

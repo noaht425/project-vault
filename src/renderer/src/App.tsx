@@ -8,7 +8,7 @@ import { Editor } from './components/editor/Editor'
 import { ConflictBanner } from './components/conflicts/ConflictBanner'
 import { RightPanel } from './components/layout/RightPanel'
 import { TimelineView } from './components/timeline/TimelineView'
-import { EventsTimelineView } from './components/timeline/EventsTimelineView'
+import { EventsSection } from './components/timeline/EventsSection'
 import { GraphView } from './components/graph/GraphView'
 import { InitiativeView } from './components/initiative/InitiativeView'
 import { SearchView } from './components/search/SearchView'
@@ -19,7 +19,7 @@ import { CloudRightPanel } from './components/cloud/CloudRightPanel'
 import { CloudSearchView } from './components/cloud/CloudSearchView'
 import { CloudGraphView } from './components/cloud/CloudGraphView'
 import { CloudTimelineView } from './components/cloud/CloudTimelineView'
-import { CloudEventsTimelineView } from './components/cloud/CloudEventsTimelineView'
+import { CloudEventsSection } from './components/cloud/CloudEventsSection'
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 const SIDEBAR_MIN = 180
@@ -237,7 +237,7 @@ export default function App(): React.JSX.Element {
               }}
             />
           ) : mainView === 'events' ? (
-            <CloudEventsTimelineView
+            <CloudEventsSection
               onOpenEvent={(id) => {
                 void cloudOpenNote(id)
                 setMainView('editor')
@@ -267,7 +267,7 @@ export default function App(): React.JSX.Element {
             }}
           />
         ) : effectiveView === 'events' ? (
-          <EventsTimelineView
+          <EventsSection
             onOpenEvent={(path) => {
               void openNote(path)
               setMainView('editor')
