@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { generateSettlement, inferSizeId, type GenerationOptions } from '../src/common/settlementGenerator'
+import {
+  generateSettlement,
+  inferSizeId,
+  resolveGatingSizeId,
+  SETTLEMENT_SIZE_PRESETS,
+  type GenerationOptions
+} from '../src/common/settlementGenerator'
 import {
   defaultBuildingTypes,
   defaultRaceLifeStages,
   defaultWealthTiers,
+  SETTLEMENT_SIZE_IDS,
   type BuildingTypeDef,
   type District,
   type RaceLifeStage,
@@ -277,6 +284,52 @@ describe('inferSizeId', () => {
     expect(inferSizeId(50000)).toBe('metropolis')
     expect(inferSizeId(1)).toBe('hamlet')
     expect(inferSizeId(10_000_000)).toBe('metropolis')
+  })
+})
+
+describe('SETTLEMENT_SIZE_PRESETS', () => {
+  it('has 11 uniquely-id\'d presets in ascending population order', () => {
+    expect(SETTLEMENT_SIZE_PRESETS.length).toBe(11)
+    expect(new Set(SETTLEMENT_SIZE_PRESETS.map((p) => p.id)).size).toBe(11)
+    for (let i = 1; i < SETTLEMENT_SIZE_PRESETS.length; i++) {
+      expect(SETTLEMENT_SIZE_PRESETS[i].averagePopulation).toBeGreaterThan(SETTLEMENT_SIZE_PRESETS[i - 1].averagePopulation)
+    }
+  })
+
+  it('gates every preset to one of the 5 canonical size tiers', () => {
+    for (const preset of SETTLEMENT_SIZE_PRESETS) {
+      expect(SETTLEMENT_SIZE_IDS).toContain(preset.gatingSizeId)
+    }
+  })
+})
+
+describe('resolveGatingSizeId', () => {
+  it('maps a preset id down to its canonical gating tier', () => {
+    expect(resolveGatingSizeId('big-town')).toBe('city')
+    expect(resolveGatingSizeId('small-village')).toBe('village')
+    expect(resolveGatingSizeId('big-city')).toBe('metropolis')
+    expect(resolveGatingSizeId('metropolis')).toBe('metropolis')
+  })
+
+  it('passes an unrecognized id straight through', () => {
+    expect(resolveGatingSizeId('some-custom-id')).toBe('some-custom-id')
+  })
+})
+
+describe('population jitter across finer-grained presets', () => {
+  it('jitters within a few percent of a preset\'s averagePopulation and gates by its gatingSizeId, not its own id', () => {
+    const bigTown = SETTLEMENT_SIZE_PRESETS.find((p) => p.id === 'big-town')!
+    const result = generateSettlement(
+      baseOptions({ sizeId: bigTown.id, population: bigTown.averagePopulation }),
+      undefined,
+      seededRng(58),
+      sequenceIds('r')
+    )
+    // Within ~10% is a generous bound for a single draw at ~1% SD — this is
+    // a regression guard against a broken jitter wiring, not a precise
+    // statistical test (that already exists elsewhere for jitterPopulation).
+    expect(result.residents.length).toBeGreaterThan(bigTown.averagePopulation * 0.9)
+    expect(result.residents.length).toBeLessThan(bigTown.averagePopulation * 1.1)
   })
 })
 

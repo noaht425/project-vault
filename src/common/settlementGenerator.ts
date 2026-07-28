@@ -19,29 +19,63 @@ import { generateAppearance } from './settlementAppearance'
 export interface SettlementSizePreset {
   id: string
   name: string
-  minPopulation: number
-  maxPopulation: number
+  // The average a generated population centers on — actual generation
+  // still jitters around this by ±~1% SD (see POPULATION_JITTER_SD_FRACTION
+  // below), same mechanism as before; this is just the center point, not a
+  // min/max range, since these presets are now much more finely grained.
+  averagePopulation: number
+  // Which of the 5 canonical SETTLEMENT_SIZE_IDS (noteTypes/settlement.ts)
+  // this preset gates building types/items/districts as — decoupled from
+  // the preset's own id so there can be many more named population presets
+  // than there are gating tiers, without needing 11 separate district sets
+  // or an 11-tier sizeGateMultiplier decay (which would effectively become
+  // a hard cutoff instead of the soft one this engine uses everywhere).
+  gatingSizeId: string
 }
 
-// Round starting points for the "pick a size" step of generation — the user
-// can always override with an exact population instead. Generic, not tied
-// to any specific ruleset's settlement-size tables. Ids match
-// SETTLEMENT_SIZE_IDS in noteTypes/settlement.ts, which is what
-// sizeGateMultiplier below actually compares against.
+// Finely-grained population presets for the "pick a size" step — the user
+// can always override with an exact population instead. Several presets
+// share the same gatingSizeId (e.g. Small/regular/Big Village all gate as
+// 'village') since gating only needs 5 tiers to stay a soft bias rather
+// than a hard wall; the presets themselves can be as granular as wanted.
 export const SETTLEMENT_SIZE_PRESETS: SettlementSizePreset[] = [
-  { id: 'hamlet', name: 'Hamlet', minPopulation: 20, maxPopulation: 100 },
-  { id: 'village', name: 'Village', minPopulation: 100, maxPopulation: 1000 },
-  { id: 'town', name: 'Town', minPopulation: 1000, maxPopulation: 5000 },
-  { id: 'city', name: 'City', minPopulation: 5000, maxPopulation: 25000 },
-  { id: 'metropolis', name: 'Metropolis', minPopulation: 25000, maxPopulation: 100000 }
+  { id: 'hamlet', name: 'Hamlet', averagePopulation: 100, gatingSizeId: 'hamlet' },
+  { id: 'small-village', name: 'Small Village', averagePopulation: 250, gatingSizeId: 'village' },
+  { id: 'village', name: 'Village', averagePopulation: 500, gatingSizeId: 'village' },
+  { id: 'big-village', name: 'Big Village', averagePopulation: 1000, gatingSizeId: 'village' },
+  { id: 'small-town', name: 'Small Town', averagePopulation: 2500, gatingSizeId: 'town' },
+  { id: 'town', name: 'Town', averagePopulation: 5000, gatingSizeId: 'town' },
+  { id: 'big-town', name: 'Big Town', averagePopulation: 7500, gatingSizeId: 'city' },
+  { id: 'small-city', name: 'Small City', averagePopulation: 10000, gatingSizeId: 'city' },
+  { id: 'city', name: 'City', averagePopulation: 20000, gatingSizeId: 'city' },
+  { id: 'big-city', name: 'Big City', averagePopulation: 30000, gatingSizeId: 'metropolis' },
+  { id: 'metropolis', name: 'Metropolis', averagePopulation: 60000, gatingSizeId: 'metropolis' }
 ]
 
-/** Nearest size preset for a raw population, for callers that haven't picked a size explicitly. Clamps to the smallest/largest preset outside the whole range. */
+// Population thresholds an unlabeled population number gates as — same 5
+// canonical tiers/boundaries this engine has always used (100/1,000/
+// 5,000/25,000), just no longer expressed as each preset's own min/max
+// since presets are a finer-grained, separate concept now (see
+// SettlementSizePreset.gatingSizeId above).
+const GATING_POPULATION_THRESHOLDS: { maxPopulation: number; sizeId: string }[] = [
+  { maxPopulation: 100, sizeId: 'hamlet' },
+  { maxPopulation: 1000, sizeId: 'village' },
+  { maxPopulation: 5000, sizeId: 'town' },
+  { maxPopulation: 25000, sizeId: 'city' }
+]
+
+/** Canonical gating tier for a raw population, for callers that haven't picked a size explicitly. Clamps to 'metropolis' above the whole range. */
 export function inferSizeId(population: number): string {
-  for (const preset of SETTLEMENT_SIZE_PRESETS) {
-    if (population <= preset.maxPopulation) return preset.id
+  for (const { maxPopulation, sizeId } of GATING_POPULATION_THRESHOLDS) {
+    if (population <= maxPopulation) return sizeId
   }
-  return SETTLEMENT_SIZE_PRESETS[SETTLEMENT_SIZE_PRESETS.length - 1].id
+  return 'metropolis'
+}
+
+/** Resolves a size preset's id to the canonical gating tier it uses (see SettlementSizePreset.gatingSizeId) — passes an already-canonical id (or any unrecognized custom value) straight through unchanged. */
+export function resolveGatingSizeId(presetOrGatingId: string): string {
+  const preset = SETTLEMENT_SIZE_PRESETS.find((p) => p.id === presetOrGatingId)
+  return preset ? preset.gatingSizeId : presetOrGatingId
 }
 
 function sizeIndex(sizeId: string): number {
@@ -420,10 +454,13 @@ export function generateSettlement(
   const inspirationSources = options.inspirationSources ?? []
   const phoneticProfiles = options.phoneticProfiles ?? PHONETIC_PROFILES
   // sizeId is inferred from the NOMINAL population (the user's actual size
-  // choice), not the jittered one below — a Metropolis pick should always
-  // gate building types like a Metropolis regardless of which side of
-  // 62500 the jitter happens to land on.
-  const sizeId = options.sizeId ?? inferSizeId(options.population)
+  // choice), not the jittered one below — a Metropolis-gated pick should
+  // always gate building types like a Metropolis regardless of which side
+  // of the average the jitter happens to land on. options.sizeId may be a
+  // preset id (e.g. "big-town") rather than an already-canonical gating
+  // tier — resolveGatingSizeId maps it down to the 5 tiers this function
+  // actually gates against.
+  const sizeId = options.sizeId ? resolveGatingSizeId(options.sizeId) : inferSizeId(options.population)
   const population = jitterPopulation(options.population, rng)
   const specialties = options.specialties ?? []
   const activeSpecialtyIds = options.activeSpecialtyIds ?? []

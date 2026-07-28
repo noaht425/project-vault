@@ -6,7 +6,7 @@ import {
   defaultRaceLifeStages,
   type SettlementFrontmatter
 } from '../../../../common/noteTypes/settlement'
-import { SETTLEMENT_SIZE_PRESETS, generateSettlement } from '../../../../common/settlementGenerator'
+import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
 import { BASELINE_RACES, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 
@@ -82,7 +82,7 @@ export function SettlementSetupTab({
               onClick={() =>
                 updateFrontmatter({
                   sizeId: preset.id,
-                  targetPopulation: Math.round((preset.minPopulation + preset.maxPopulation) / 2)
+                  targetPopulation: preset.averagePopulation
                 })
               }
             >
@@ -92,9 +92,10 @@ export function SettlementSetupTab({
           <label className="sheet-field" style={{ flex: '0 0 120px' }}>
             Population
             {/* .sheet-field-narrow is 64px — clips a 6-digit population
-                (metropolises run up to 100000) behind the number input's
-                spinner arrows, same bug class as initiative-add-count's
-                60px fix. 120px comfortably fits 6 digits + spinner. */}
+                (the Metropolis preset averages 60,000, and a hand-typed
+                custom value can run well past that) behind the number
+                input's spinner arrows, same bug class as initiative-add-
+                count's 60px fix. 120px comfortably fits 6 digits + spinner. */}
             <input
               type="number"
               style={{ width: '100%' }}
@@ -198,10 +199,11 @@ export function SettlementSetupTab({
           </button>
           <button
             onClick={() => {
+              const sizeName = SETTLEMENT_SIZE_PRESETS.find((p) => p.id === data.sizeId)?.name ?? data.sizeId
               const proceed = window.confirm(
-                `Replace all ${data.districts.length} current district(s) with the default set for a ${data.sizeId}? This can't be undone.`
+                `Replace all ${data.districts.length} current district(s) with the default set for a ${sizeName}? This can't be undone.`
               )
-              if (proceed) updateFrontmatter({ districts: defaultDistrictsForSize(data.sizeId) })
+              if (proceed) updateFrontmatter({ districts: defaultDistrictsForSize(resolveGatingSizeId(data.sizeId)) })
             }}
           >
             Reset to defaults for this size
