@@ -1,0 +1,239 @@
+# Plan: Custom Calendar System + Multi-Calendar Timeline with Event Pills
+
+Written 2026-07-28, for a **future session with no memory of this one** to pick
+up and execute. This is a big feature — comparable in size to the Settlement
+Populator (see `docs/plans/2026-07-27-initiative-timeline-settlement.md`),
+likely its own multi-session build. Read this whole doc before starting.
+
+## Why
+
+Two things prompted this:
+1. The user wants **other people** to be able to use Project Vault for their
+   own campaigns, which means a real calendar-editing UI (not just this
+   vault's hardcoded parser) — reference screenshots from a site they like
+   ("Time System Editor") were shown: Overview / Months / Week / Days /
+   Years-Eras / Moons / Settings tabs, each editing a structured calendar.
+2. For their OWN campaign, they want **multiple calendar systems viewable
+   simultaneously** on the same timeline (their real-world example: a WWII
+   timeline showing both Gregorian and Islamic dates for the same events) —
+   plus a real visual timeline (scaled axis, event "pills" you click to
+   expand), not the current plain sorted list.
+
+## Current state (confirmed by reading the code, not assumed)
+
+- `event` notes have a `date` field that is **plain free text**
+  (`z.string()`, `src/common/noteTypes/event.ts`) — explicitly commented
+  "not a real calendar date." No calendar note type or structured date
+  exists anywhere in the app today.
+- `src/common/worldTimeline.ts` pulls dated facts out of ANY note's body
+  (a `## History` section's bullets, or bare `Born:`/`Died:` lines) — not
+  just `event` notes.
+- `src/common/worldTimeline.ts`'s Events view (`EventsTimelineView.tsx`,
+  `CloudEventsTimelineView.tsx`) is a **plain list**, not a scaled visual
+  timeline. No pills, no zoom, no axis.
+- **`src/common/worldDate.ts` already exists** and is the key asset for
+  this build — it parses this vault's specific free-text dates into a
+  sortable chronological value, and already encodes the user's actual
+  calendar data (recovered from an earlier session's chat + this file,
+  see "Recovered calendar data" below). It's currently ONLY used for
+  sorting (`compareWorldDates`), not for structured storage or display.
+- Map×Timeline crossover (`src/common/mapTimeline.ts`, `MapSheet`'s
+  Timeline section) already exists and steps through location-tagged
+  events index-by-index — deliberately NOT date-scaled (see that doc).
+  This new timeline is a different, date-scaled view; the map one can stay
+  as-is unless a future session decides to unify them.
+
+## Recovered calendar data (confirmed with user 2026-07-28, don't re-derive)
+
+The user's own campaign (`Documents/Project Planar`) uses two calendars,
+both already partially encoded in `worldDate.ts`:
+
+**Age of the Many / Age of the Few** (main calendar — AM counts up like CE,
+AF counts down like BCE; "Age of the Many" = AM's full era name, "Age of
+the Few" = AF's full era name, confirmed by the AM/AF abbreviations):
+- 4 months × 100 days each = 400-day year: Aucaela, Auctera, Morcaela, Mortera.
+- 9-day week, each day named after a progenitor, **in this exact order**:
+  Minem, Kleipur, Sylvana, Shram, Thean, Numen, Genasi, Talav, Sithi.
+
+**Kingdom of Krotaphos** (a regional calendar, used only in dates about
+that kingdom, sharing the same AM/AF year numbering as the main calendar):
+- 12 variable-length months: Blython 30, Neemon 29, Veriton 28, Pavlon 27,
+  Themon 26, Gwenon 25, Belphala 30, Abala 29, Tiyala 28, Lukala 27,
+  Archala 26, Lilia 25 (330-day year total). Note the spelling is
+  **Belphala**, not "Belphalia" — confirmed with the user after an initial
+  spelling mismatch in the source chat.
+- **6-day week** (different from the main calendar's 9-day week — confirmed
+  NOT shared), names in order: Aaranea, Baator, Charios, Hesit, Sylas, Themati.
+
+**Confirmed 2026-07-28**: build full hours/minutes/moons structure now
+(not deferred), even though nothing in the vault currently uses sub-day
+precision — the user wants this for the general-purpose calendar editor,
+not just their own data. No hour/minute/moon values for either of the
+user's own two calendars have been specified yet — ask at kickoff.
+
+**For the migration** (see below): `worldDate.ts`'s existing parsing logic
+(FULL_DATE_RE / BARE_YEAR_RE / COMPACT_RANGE_RE, month-name lookup across
+both calendars, typo-tolerant fallback to year-only precision) is
+proven-correct against this exact vault's real content already — reuse it
+as the migration's parser rather than writing a new one.
+
+## Architecture decision (confirmed with user 2026-07-28)
+
+**A single canonical continuous timestamp per dated thing, with each
+calendar acting as a pure formatter/parser over that shared axis** — the
+only way "view this event in 2+ calendars simultaneously" actually works,
+same principle real-world calendar conversion uses (a Julian day number as
+the substrate, Gregorian/Islamic/Hebrew as display layers on top). Pick a
+canonical unit now (suggest: minutes since an arbitrary epoch, since the
+user wants full hour/minute precision) and stick with it everywhere a date
+is stored.
+
+**Calendar is its own note type** (like `settlement`/`map`), confirmed —
+NOT a global app setting. A vault can define as many calendars as it wants;
+each is a note holding the structured Months/Week/Days/Years-Eras/Moons
+config (mirrors `settlement.ts`'s "one note, lightweight config, not
+per-entity notes" pattern — there's no per-entity bloat risk here anyway,
+a calendar definition is small).
+
+**Multi-calendar display is fully generic (any N calendars active at
+once)**, confirmed — not hardcoded to 2. A per-vault (or per-user?
+ask at kickoff) list of "active calendars" controls which calendar(s)
+format every displayed date. For the user's own campaign: Age of the
+Many/Few + Krotaphos should both show. Design so a brand-new user with
+zero calendars defined still works sensibly (probably: fall back to
+showing raw free text, same as today, until they define at least one).
+
+## Migration (confirmed with user 2026-07-28)
+
+Write a real migration, not an additive-only field. Existing free-text
+`date` values (on `event` notes, `## History` bullets, `Born:`/`Died:`
+lines) get converted into the new canonical-timestamp format using
+`worldDate.ts`'s existing parser as the base. Open questions to resolve
+at kickoff, don't guess:
+- What happens to text that `worldDate.ts` can't parse today (it already
+  has a documented "returns null, caller leaves it undated" escape hatch)?
+  Probably: keep the original free text as a fallback/override field so
+  nothing is silently lost, same spirit as the `isPronounceable` fallback
+  pattern used elsewhere in this codebase (Settlement Populator's
+  phonetic-name synthesis) — return something usable rather than nothing.
+- Does the migration run automatically on vault open, or is it a manual
+  one-time action the user triggers? A one-time explicit action is safer
+  (matches this codebase's general caution around irreversible-feeling
+  operations) — confirm at kickoff.
+- Krotaphos dates need to convert cleanly against the SAME canonical axis
+  as main-calendar dates (worldDate.ts already does this scaling for
+  sorting purposes — `scaledDay` in `parsePoint` — reuse that exact logic
+  rather than re-deriving the conversion math).
+
+## Timeline pill view (new, doesn't exist yet)
+
+A new visual component (distinct from the existing plain-list
+`EventsTimelineView.tsx`) — a scaled horizontal (or vertical?) axis over
+the canonical timestamp range, events rendered as clickable pills
+positioned proportionally, click-to-expand showing the event's summary
+inline (or open the full note — ask which at kickoff). Needs:
+- A sensible axis scale/zoom strategy for a world with a 400-day year and
+  potentially many events spanning centuries (can't just be linear-always,
+  or a single day-long event centuries ago becomes an invisible sliver
+  next to a millennium-spanning era) — this is a real design question,
+  don't hand-wave it; look at how other timeline libraries/tools handle
+  this (clustering nearby events, zoom levels) before building from scratch.
+- Formats each pill's date using whichever calendar(s) are currently
+  active (see multi-calendar section above) — a pill might show two date
+  strings stacked if 2 calendars are active, same as the reference
+  screenshots' spirit of "see it in multiple systems."
+
+## Suggested build order
+
+1. `calendar` note type + schema (Months/Week/Days/Years-Eras/Moons fields,
+   mirroring the reference screenshots' structure) — foundational, nothing
+   else can be built without it.
+2. Calendar editor UI (the 6 tabs from the reference screenshots, adapted
+   to this app's existing sheet/tab conventions — `SettlementSheet.tsx`'s
+   button-row tab pattern is the closest precedent, no real tab primitive
+   exists in this codebase yet).
+3. Canonical-timestamp formatter/parser per calendar (the actual
+   month/week/day math — this is the trickiest pure-logic piece, budget
+   real time for it, and write it calendar-agnostic from the start since
+   day one requirement is "any user can define their own").
+4. Structured date field on `event` notes (+ wherever else dates live) —
+   replace/augment the free-text field.
+5. Migration script reusing `worldDate.ts`'s parser.
+6. Multi-calendar simultaneous display (active-calendars list + formatting
+   every shown date through all active calendars).
+7. New pill-based timeline view.
+
+Each numbered step has its own open questions noted inline above — confirm
+with the user at the start of whichever step you're building, don't
+silently assume defaults for anything marked "ask at kickoff."
+
+## Key files
+
+- `src/common/noteTypes/event.ts` — current free-text `date` field.
+- `src/common/worldTimeline.ts` — History-bullet/Born-Died extraction (stays
+  as-is, feeds INTO the new structured date system rather than being
+  replaced by it).
+- `src/common/worldDate.ts` — the parser to reuse for migration; also
+  currently the single source of truth for the user's actual calendar data
+  (see "Recovered calendar data" above).
+- `src/renderer/src/components/timeline/EventsTimelineView.tsx` +
+  `CloudEventsTimelineView.tsx` — current plain-list view, precedent for
+  where the new pill view's sibling component would live.
+- `src/common/noteTypes/settlement.ts` + `SettlementSheet.tsx` +
+  `SettlementSetupTab.tsx` — closest precedent for "a note type holding a
+  big structured config, edited via a multi-tab sheet UI."
+- `src/common/types.ts`'s `NoteTemplate` union — where `'calendar'` gets
+  registered, same mechanical pattern as `'settlement'`/`'map'`.
+
+## Progress
+
+**Step 1 done (2026-07-28):** `calendar` note type + schema built —
+`src/common/noteTypes/calendar.ts` (`calendarFrontmatterSchema`,
+`defaultCalendarFrontmatter`), registered the normal `NoteTemplate` way
+(not the `map`-style cloud bypass — a calendar note is plain per-vault
+config, no cloud-only storage need): `types.ts`'s `NoteTemplate` union,
+`noteTemplateDefaults.ts`'s `TEMPLATE_DEFAULTS`/`CREATE_PLACEHOLDERS`/
+`CREATE_LABELS`/`CREATABLE_NOTE_KINDS`. A minimal placeholder
+`CalendarSheet.tsx` (summary field + a one-line data readout) is wired
+into `SheetView.tsx`'s dispatch switch so a calendar note doesn't render
+blank — the real Overview/Months/Week/Days/Years-Eras/Moons tabbed editor
+is still step 2, not yet built. Tests in `tests/calendar.test.ts`.
+
+Schema shape, confirmed with the user at kickoff:
+- `eras: CalendarEra[]` — `{ id, name, abbreviation, direction: 'up'|'down' }`.
+- `leapYearRule: LeapYearRule | null` — Gregorian-style nested interval/
+  exception/exception-to-the-exception (`intervalYears`,
+  `exceptionEveryYears`, `exceptionToExceptionEveryYears`, `extraDays`,
+  `monthId` — null `monthId` means standalone intercalary day(s), not
+  added to any month). `null` = no leap years (true of both the user's own
+  calendars). This was the one gap in my first draft — user flagged
+  leap years were missing before I wrote any code.
+- `months: CalendarMonth[]` — `{ id, name, days }`, every month enumerated
+  explicitly (handles both fixed-length and Krotaphos-style variable-length
+  calendars, no "uniform length" shortcut).
+- `weekDays: string[]` — ordered day names, no separate week-length field
+  (length IS the array length).
+- `hoursPerDay` / `minutesPerHour` — numeric, seeded 24/60 placeholders.
+  User confirmed: no real hour/minute/moon values for their own two
+  calendars yet, seed placeholders and fill in later via the editor
+  (still true after this session — nothing decided about their actual
+  sub-day precision).
+- `moons: CalendarMoon[]` — `{ id, name, cycleDays, phaseOffsetDays }`.
+
+**Not yet resolved / still open for a future session:**
+- Everything in "Architecture decision," "Migration," and "Timeline pill
+  view" above is UNCHANGED — none of it was touched this session. In
+  particular the canonical-timestamp unit (step 3) is still just a
+  suggestion, not decided.
+- The reference site's actual field list was never seen directly this
+  session (no screenshots available) — the schema above is a best-effort
+  reconstruction confirmed against the user's verbal description plus one
+  correction (leap years). If a future session gets access to the actual
+  reference screenshots, double-check nothing else is missing (e.g. named/
+  irregular hour segments, named moon phases — both explicitly considered
+  and left out this round since the user didn't flag them, but worth a
+  second look with the real screenshots in hand).
+- Next session should start at step 2 (calendar editor UI) or step 3
+  (canonical-timestamp formatter/parser) — both are unblocked now that the
+  schema exists; step 3 has no UI dependency on step 2, so it could go
+  first if that's a better sequencing call.

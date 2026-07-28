@@ -12,6 +12,7 @@ import { LanguageSheet } from './LanguageSheet'
 import { FamilyTreeSheet } from './FamilyTreeSheet'
 import { MapSheet } from './MapSheet'
 import { SettlementSheet } from './SettlementSheet'
+import { CalendarSheet } from './CalendarSheet'
 
 export function SheetView({
   content,
@@ -53,6 +54,8 @@ export function SheetView({
       return <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'settlement':
       return <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+    case 'calendar':
+      return <CalendarSheet content={content} onContentChange={onContentChange} />
     default:
       return null
   }

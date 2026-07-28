@@ -53,6 +53,7 @@ export type NoteTemplate =
   | 'language'
   | 'family-tree'
   | 'settlement'
+  | 'calendar'
 
 export interface NoteTitleMatch {
   path: string
