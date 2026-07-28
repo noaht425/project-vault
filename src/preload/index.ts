@@ -121,6 +121,7 @@ const cloudApi = {
 
   listSessions: (): Promise<CloudSessionSummary[]> => ipcRenderer.invoke('cloud:listSessions'),
   listEvents: (): Promise<CloudEventSummary[]> => ipcRenderer.invoke('cloud:listEvents'),
+  migrateDates: (): Promise<{ migrated: number; skipped: number }> => ipcRenderer.invoke('cloud:migrateDates'),
 
   // getCachedTree resolves instantly with whatever's already known (may be
   // null); refreshTree always hits the network. onTreeUpdated fires

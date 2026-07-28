@@ -372,3 +372,82 @@ section renders/behaves as expected.
   validation that the chosen day/month/hour/minute combination is even
   in-range for the selected calendar) — worth a pass once real usage
   surfaces rough edges.
+
+**Step 5 done (2026-07-28, same session):** migration built for BOTH
+backends — confirmed with the user at kickoff:
+- **Trigger: automatic on open**, not a manual action (the doc's own
+  suggestion was manual/safer — the user explicitly chose automatic
+  instead).
+- **Unparseable dates: left undated**, original free text untouched —
+  the user picked this over a best-effort year-only guess.
+- **Cloud scope: build both** (local AND the project-vault-cloud server
+  endpoint), not local-only — the user explicitly chose the larger scope
+  after being shown that cloud needed a new deployed backend endpoint,
+  which local didn't.
+
+Matching logic is pure/shared-by-design across both backends —
+`src/common/dateMigration.ts` (`migrateFreeTextDate`,
+`computeDateMigration`) here, and a near-identical port at
+`project-vault-cloud/src/lib/dateMigration.ts` (that repo has no shared
+package with this one — same "ported, not imported" convention already
+used for its `worldDate.ts`/`worldTimeline.ts`). Both reuse
+`worldDate.ts`'s exact existing regexes (`FULL_DATE_RE`/`BARE_YEAR_RE`/
+`COMPACT_RANGE_RE`) via a new `parseWorldDateRaw` export (added to BOTH
+copies of `worldDate.ts`) that returns the raw month name/day instead of
+`parseWorldDateStart`'s scaled epoch number — needed because migration
+must look an actual month up BY NAME in a real calendar note, not just
+sort against the hardcoded MAIN_MONTHS/KROTAPHOS_MONTHS this file already
+knows about.
+
+Matching rule: an event's free-text date matches the first given
+calendar whose `months` list contains its parsed month name (case-
+insensitive) — a bare year/compact range with no month at all falls back
+to that calendar's first month, same "start of year" coarse precision
+`worldDate.ts` itself already uses. Era resolves from the AM/AF suffix,
+or that calendar's own `defaultEraId` when absent. No match on either ->
+try the next calendar -> no calendars match at all -> leave undated.
+**Idempotency is structural, not a separate flag**: `computeDateMigration`
+only ever considers events with `structuredDate` still null, so calling
+it on every single open is always safe — this sidesteps the "no ran-once
+tracking exists" gap the pre-implementation research flagged, no new
+marker file/mechanism needed.
+
+- **Local vault**: `src/main/vault/session.ts`'s `migrateEventDates()`
+  (private), called fire-and-forget from `openVault()` right after
+  `onVaultOpened` fires — reads every `event`/`calendar` note fresh via
+  the existing `readNoteFromDisk`, writes back through the existing
+  version-checked `fileWriteQueue.saveFile` (a version mismatch — the
+  note changed between scan and write — is skipped silently, same
+  spirit as leaving an unparseable date alone; next open retries).
+  Wrapped so a migration failure can never block the vault from opening.
+- **Cloud**: new `POST /api/migrate-dates` route in `project-vault-cloud`
+  (separate repo) — bulk-selects every `event`/`calendar` note for the
+  workspace in one query (Supabase's `note_type` generated column makes
+  this trivial; no new schema/index needed), version-checked update per
+  event exactly like the existing `/api/notes/[id]` PATCH route. Called
+  from the Electron renderer's `App.tsx` `signedIn` effect (`cloudApi.
+  migrateDates()`, new IPC method wired through `cloudSession.ts`/
+  `ipc/cloud.ts`/`preload/index.ts`) — there's no single main-process
+  "cloud workspace opened" choke point the way local vault has
+  `openVault()`, so this fires from the renderer instead, same
+  frequency (once per sign-in) as the existing `refreshCloudTree()` call
+  right next to it.
+- Tests: `tests/dateMigration.test.ts` + new `parseWorldDateRaw` cases in
+  `tests/worldDate.test.ts` (this repo); `tests/dateMigration.test.ts` +
+  new `parseWorldDateRaw` cases in `tests/worldDate.test.ts` (cloud repo,
+  58/58 passing there). This repo: `npm test` — 336/336 passing; both
+  `tsc` configs clean (still the same 33 pre-existing unrelated errors).
+  Cloud repo: `npm run build` (Next.js + full TypeScript check) and
+  `npm run lint` both clean, `/api/migrate-dates` confirmed registered
+  in the build's route list.
+- **NOT YET PUSHED to project-vault-cloud** as of writing this — that
+  repo's `main` has GitHub-auto-deploy-to-production wired up (push =
+  immediate live Vercel deploy), a bigger-consequence action than this
+  session's other pushes, so it's being confirmed with the user
+  separately before pushing rather than bundled into the usual
+  commit/push rhythm.
+- **Still open**: no live end-to-end test against a real Supabase
+  workspace was run (would require real auth/credentials) — only unit
+  tests of the pure matching logic and a clean `next build` typecheck.
+  Worth the user actually trying it against their real cloud workspace
+  once both repos are live.

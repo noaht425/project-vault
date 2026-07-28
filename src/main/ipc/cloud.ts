@@ -103,6 +103,7 @@ export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow): vo
 
   ipcMain.handle('cloud:listSessions', async (): Promise<CloudSessionSummary[]> => cloud.listSessions())
   ipcMain.handle('cloud:listEvents', async (): Promise<CloudEventSummary[]> => cloud.listEvents())
+  ipcMain.handle('cloud:migrateDates', async (): Promise<{ migrated: number; skipped: number }> => cloud.migrateDates())
 
   ipcMain.handle('cloud:getCachedTree', (): CloudTreeNode[] | null => cloud.getCachedTree())
   ipcMain.handle('cloud:refreshTree', async (): Promise<CloudTreeNode[]> => cloud.refreshTree())

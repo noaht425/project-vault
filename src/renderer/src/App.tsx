@@ -104,8 +104,19 @@ export default function App(): React.JSX.Element {
   // (an already-resumed session found by checkSession, or a slightly later
   // cloud:sessionRestored push) — pulls a fresh tree over the network since
   // the cached one loaded above may be stale or from a previous session.
+  // Also runs the calendar/timeline date migration here — the cloud
+  // equivalent of the local vault's automatic-on-open hook in
+  // main/vault/session.ts's openVault, since there's no single main-process
+  // "cloud workspace opened" choke point to hook instead (see
+  // docs/plans/2026-07-28-calendar-timeline-system.md's Step 5 notes).
+  // Errors are swallowed — an enhancement, not required for the workspace
+  // to be usable, and idempotent by construction so a failed attempt here
+  // just gets retried next time signedIn flips true.
   useEffect(() => {
-    if (signedIn) void refreshCloudTree()
+    if (signedIn) {
+      void refreshCloudTree()
+      void window.cloudApi.migrateDates().catch((err) => console.error('Event date migration failed:', err))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signedIn])
 

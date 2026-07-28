@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseWorldDateStart, compareWorldDates } from '../src/common/worldDate'
+import { parseWorldDateStart, compareWorldDates, parseWorldDateRaw } from '../src/common/worldDate'
 
 describe('parseWorldDateStart', () => {
   it('returns null for empty or unparseable text', () => {
@@ -81,5 +81,36 @@ describe('compareWorldDates', () => {
     const dates = ['50 AF', '', '1 Aucaela, 1 AM', 'unknown']
     const sorted = [...dates].sort(compareWorldDates)
     expect(sorted).toEqual(['50 AF', '1 Aucaela, 1 AM', '', 'unknown'])
+  })
+})
+
+describe('parseWorldDateRaw', () => {
+  it('returns the raw month name/day, unscaled, for a full date', () => {
+    expect(parseWorldDateRaw('15 Aucaela, 42 AM')).toEqual({ monthName: 'Aucaela', day: 15, year: 42, era: 'AM' })
+  })
+
+  it('defaults a missing suffix to AM, same as parseWorldDateStart', () => {
+    expect(parseWorldDateRaw('99 Morcaela, 427')).toEqual({ monthName: 'Morcaela', day: 99, year: 427, era: 'AM' })
+  })
+
+  it('has no month name for a bare year', () => {
+    expect(parseWorldDateRaw('50 AF')).toEqual({ monthName: null, day: null, year: 50, era: 'AF' })
+  })
+
+  it('has no month name for a compact range (takes the start year)', () => {
+    expect(parseWorldDateRaw('39-10 AF')).toEqual({ monthName: null, day: null, year: 39, era: 'AF' })
+  })
+
+  it('takes the start of a spelled-out range', () => {
+    expect(parseWorldDateRaw('1 Aucaela, 3 AM – 50 Auctera, 3 AM')).toEqual({ monthName: 'Aucaela', day: 1, year: 3, era: 'AM' })
+  })
+
+  it('still surfaces an unrecognized month name as-is, unlike parseWorldDateStart\'s silent year-only fallback', () => {
+    expect(parseWorldDateRaw('5 Frobmonth, 10 AM')).toEqual({ monthName: 'Frobmonth', day: 5, year: 10, era: 'AM' })
+  })
+
+  it('returns null for empty or unparseable text', () => {
+    expect(parseWorldDateRaw('')).toBeNull()
+    expect(parseWorldDateRaw('sometime last week')).toBeNull()
   })
 })

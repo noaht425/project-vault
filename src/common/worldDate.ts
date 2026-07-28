@@ -147,3 +147,62 @@ export function compareWorldDates(a: string, b: string): number {
   if (eb !== null) return 1
   return a.localeCompare(b)
 }
+
+export interface WorldDateRawComponents {
+  // Absent (not just typo'd) whenever the text gave no month at all (a
+  // bare year, or the compact "39-10 AF" range shorthand) — a typo'd month
+  // name that matched neither calendar still comes through here as-is
+  // (unlike parsePoint's dayOfYear, which silently falls back to 1 in that
+  // case): the calendar/timeline migration (see
+  // docs/plans/2026-07-28-calendar-timeline-system.md, build step 5) needs
+  // the RAW name to attempt a match against a user-defined calendar note's
+  // own month list, not this file's hardcoded MAIN_MONTHS/KROTAPHOS_MONTHS.
+  monthName: string | null
+  day: number | null
+  year: number
+  era: 'AM' | 'AF'
+}
+
+/**
+ * Same parsing as parseWorldDateStart, but returns the raw month name/day
+ * instead of a scaled/sorted epoch number — for the calendar/timeline
+ * migration, which needs to look an actual month up by name in a
+ * user-defined calendar note, not just sort against this file's own
+ * hardcoded calendars. Returns null under the same conditions
+ * parseWorldDateStart does (empty text, or a shape this parser doesn't
+ * recognize at all).
+ */
+export function parseWorldDateRaw(text: string): WorldDateRawComponents | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  const rangeParts = trimmed.split(RANGE_SPLIT_RE)
+  const candidate = rangeParts.length > 1 ? rangeParts[0] : trimmed
+
+  const full = candidate.match(FULL_DATE_RE)
+  if (full) {
+    return {
+      monthName: full[2],
+      day: Number(full[1]),
+      year: Number(full[3].replace(/,/g, '')),
+      era: (full[4]?.toUpperCase() as 'AM' | 'AF' | undefined) ?? 'AM'
+    }
+  }
+
+  const compact = candidate.match(COMPACT_RANGE_RE)
+  if (compact) {
+    return { monthName: null, day: null, year: Number(compact[1].replace(/,/g, '')), era: compact[3].toUpperCase() as 'AM' | 'AF' }
+  }
+
+  const bare = candidate.match(BARE_YEAR_RE)
+  if (bare) {
+    return {
+      monthName: null,
+      day: null,
+      year: Number(bare[1].replace(/,/g, '')),
+      era: (bare[2]?.toUpperCase() as 'AM' | 'AF' | undefined) ?? 'AM'
+    }
+  }
+
+  return null
+}

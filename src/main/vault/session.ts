@@ -6,8 +6,10 @@ import { fileWriteQueue, readNote as readNoteFromDisk, readVersion } from './fil
 import { stringifyNote, parseNote } from '../../common/frontmatter'
 import { sessionFrontmatterSchema } from '../../common/noteTypes/session'
 import { eventFrontmatterSchema } from '../../common/noteTypes/event'
+import { calendarFrontmatterSchema } from '../../common/noteTypes/calendar'
 import { extractHistoryFacts, extractBornDiedFacts } from '../../common/worldTimeline'
 import { compareWorldDates } from '../../common/worldDate'
+import { computeDateMigration, type CalendarCandidate } from '../../common/dateMigration'
 import { buildGraph, type GraphData } from '../../common/graph'
 import { TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY } from '../../common/noteTemplateDefaults'
 import { buildTree } from './tree'
@@ -72,7 +74,67 @@ export class VaultSession {
 
     const tree = await buildTree(vaultRoot)
     this.handlers.onVaultOpened(vaultRoot)
+    // Fire-and-forget: an enhancement, not required for the vault to be
+    // usable — a failure here must never block opening the vault itself.
+    // Safe to run on every open (see computeDateMigration's own idempotency
+    // comment): only events with no structuredDate yet are ever touched.
+    void this.migrateEventDates().catch((err) => console.error('Event date migration failed:', err))
     return { vaultPath: vaultRoot, tree }
+  }
+
+  /**
+   * Step 5 of docs/plans/2026-07-28-calendar-timeline-system.md — populates
+   * event.structuredDate from the existing free-text date field by
+   * matching it against whatever `calendar` notes exist in this vault (see
+   * common/dateMigration.ts for the actual matching logic, kept pure/
+   * shared with a future cloud-side equivalent). Confirmed with the user:
+   * runs automatically on every vault open rather than as a manual action,
+   * and any event whose date can't be matched to a calendar is left
+   * undated (original free text untouched either way).
+   */
+  private async migrateEventDates(): Promise<void> {
+    const db = this.requireDb()
+    const rows = db.prepare(`SELECT path, type FROM notes WHERE type IN ('event', 'calendar')`).all() as {
+      path: string
+      type: string
+    }[]
+
+    const calendars: CalendarCandidate[] = []
+    const events: { path: string; date: string; hasStructuredDate: boolean }[] = []
+
+    for (const row of rows) {
+      const note = await readNoteFromDisk(row.path).catch(() => null)
+      if (!note) continue
+      const { frontmatter } = parseNote(note.content)
+
+      if (row.type === 'calendar') {
+        const parsed = calendarFrontmatterSchema.safeParse(frontmatter)
+        if (parsed.success) calendars.push({ noteTitle: titleFromPath(row.path), frontmatter: parsed.data })
+      } else {
+        const parsed = eventFrontmatterSchema.safeParse(frontmatter)
+        if (parsed.success) events.push({ path: row.path, date: parsed.data.date, hasStructuredDate: parsed.data.structuredDate !== null })
+      }
+    }
+
+    if (calendars.length === 0) return // nothing to migrate against yet
+
+    for (const update of computeDateMigration(events, calendars)) {
+      // Re-read fresh right before writing (rather than reusing the read
+      // above) so a concurrent edit to this exact note during the scan is
+      // still caught by saveFile's version check instead of silently
+      // clobbered.
+      const note = await readNoteFromDisk(update.path).catch(() => null)
+      if (!note) continue
+      const { frontmatter, body } = parseNote(note.content)
+      const content = stringifyNote({ frontmatter: { ...frontmatter, structuredDate: update.structuredDate }, body })
+      const result = await fileWriteQueue.saveFile(update.path, content, note.version)
+      // On conflict: skip silently, same as leaving an unparseable date
+      // undated — the note changed since the scan, and the next vault open
+      // will simply retry against whatever's there then.
+      if (result.status === 'saved') indexNote(db, update.path, result.version, content)
+    }
+
+    await this.refreshTree()
   }
 
   async getCurrentVault(): Promise<VaultOpenResult | null> {

@@ -283,6 +283,16 @@ export class CloudSession {
     return this.parseOrThrow<CloudEventSummary[]>(res)
   }
 
+  // Step 5 of docs/plans/2026-07-28-calendar-timeline-system.md (local
+  // copy of the plan — project-vault-cloud doesn't keep one). Confirmed
+  // with the user: called once per workspace open (see App.tsx's signedIn
+  // effect) rather than as a manual action — safe to call repeatedly,
+  // idempotent by construction (see the route's own comment).
+  async migrateDates(): Promise<{ migrated: number; skipped: number }> {
+    const res = await fetch(`${API_BASE_URL}/api/migrate-dates`, { method: 'POST', headers: this.authHeaders() })
+    return this.parseOrThrow<{ migrated: number; skipped: number }>(res)
+  }
+
   // Instant, never-blocks-on-network read of whatever was cached — from
   // this session's last refresh, or loaded from disk on a cold start. Can
   // be null the very first time, before any refresh has ever completed.
