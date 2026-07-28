@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EventSummary, VaultSettings } from '../../../../common/types'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../../../../common/noteTypes/calendar'
 import { toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate } from '../../../../common/calendarMath'
@@ -6,9 +6,10 @@ import {
   computeFullWindow,
   windowForZoom,
   panWindow,
-  placeEvents,
+  placeEventsInLanes,
+  computeAxisTicks,
   MAX_ZOOM_LEVEL,
-  type TimelinePlacement
+  type LanePlacement
 } from '../../../../common/eventTimelinePlacement'
 import { useLocalNoteRefApi } from '../../lib/noteRefApi'
 
@@ -16,6 +17,20 @@ interface PlacedEventData {
   event: EventSummary
   minutes: number
 }
+
+const LANE_HEIGHT = 30
+const BASE_CONNECTOR_HEIGHT = 8
+// No live DOM measurement in this pure-data pipeline — a rough estimate
+// from title length keeps lane-stacking from either over-stacking short
+// titles or overlapping long ones. Padding/clamped to a sane pixel range.
+function estimatePillWidth(title: string): number {
+  return Math.max(70, Math.min(220, title.length * 6.5 + 28))
+}
+// Trackpad pinch (reported as wheel events with ctrlKey set) delivers many
+// small deltaY ticks over the course of one gesture — this converts a
+// single tick into a small fraction of a zoom level so a full pinch
+// gesture feels smooth and continuous rather than jumping levels.
+const ZOOM_WHEEL_SENSITIVITY = 0.015
 
 // Step 7 of docs/plans/2026-07-28-calendar-timeline-system.md — a scaled,
 // zoomable/pannable horizontal axis, distinct from EventsTimelineView's
@@ -34,12 +49,12 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
   const [center, setCenter] = useState<number | null>(null)
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   const [containerWidth, setContainerWidth] = useState(0)
-  // A callback ref, not a plain useRef + effect-on-mount — the track div
-  // only exists once `events`/`calendars` finish loading (the initial
-  // render shows the "Loading…" branch instead), so an effect with `[]`
-  // deps would fire once against a still-null ref and never run again.
-  // A callback ref fires exactly when the node actually attaches,
-  // whichever render pass that happens on.
+  // Callback ref, not plain useRef — the track div only exists once
+  // `events`/`calendars` finish loading (the initial render shows the
+  // "Loading…" branch instead), so an effect with `[]` deps would fire
+  // once against a still-null ref and never run again. A callback ref
+  // fires exactly when the node actually attaches, whichever render pass
+  // that happens on.
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -74,13 +89,6 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    if (!container) return
-    const observer = new ResizeObserver((entries) => setContainerWidth(entries[0].contentRect.width))
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [container])
-
   const calendarByTitle = useMemo(() => new Map((calendars ?? []).map((c) => [c.title, c.frontmatter])), [calendars])
 
   const placedItems = useMemo<PlacedEventData[]>(() => {
@@ -100,19 +108,22 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
   const effectiveCenter = center ?? (fullWindow.start + fullWindow.end) / 2
   const currentWindow = windowForZoom(fullWindow, zoomLevel, effectiveCenter)
 
-  const placements = useMemo<TimelinePlacement<EventSummary>[]>(
+  const activeCalendars = (settings?.activeCalendarNoteTitles ?? [])
+    .map((title) => calendarByTitle.get(title))
+    .filter((c): c is CalendarFrontmatter => c !== undefined)
+  const tickCalendar = activeCalendars[0] ?? null
+
+  const placements = useMemo<LanePlacement<EventSummary>[]>(
     () =>
-      placeEvents(
-        placedItems.map((i) => ({ minutes: i.minutes, data: i.event })),
+      placeEventsInLanes(
+        placedItems.map((i) => ({ minutes: i.minutes, data: i.event, widthPx: estimatePillWidth(i.event.title) })),
         currentWindow,
         containerWidth
       ),
     [placedItems, currentWindow, containerWidth]
   )
 
-  const activeCalendars = (settings?.activeCalendarNoteTitles ?? [])
-    .map((title) => calendarByTitle.get(title))
-    .filter((c): c is CalendarFrontmatter => c !== undefined)
+  const ticks = useMemo(() => computeAxisTicks(tickCalendar, currentWindow), [tickCalendar, currentWindow])
 
   const formatDate = (event: EventSummary, minutes: number): string => {
     if (activeCalendars.length === 0) return event.date || 'Undated'
@@ -123,18 +134,6 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
       })
       .filter((label): label is string => label !== null)
     return labels.length > 0 ? labels.join(' / ') : event.date || 'Undated'
-  }
-
-  // For an arbitrary point on the axis (a window edge, not a specific
-  // event) there's no free-text fallback to fall back to — null means
-  // "no active calendar to format this with," and the caller shows a
-  // hint to activate one instead of a raw, meaningless canonical-minute
-  // number.
-  const formatWindowEdge = (minutes: number): string | null => {
-    if (activeCalendars.length === 0) return null
-    const cal = activeCalendars[0]
-    const parts = fromCanonicalMinutes(cal, minutes)
-    return parts ? formatCalendarDate(cal, parts) : null
   }
 
   const toggleActiveCalendar = (title: string, active: boolean): void => {
@@ -153,6 +152,56 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
     setCenter((panned.start + panned.end) / 2)
   }
 
+  // Wheel handling needs the LATEST window/center/width inside a listener
+  // that's only attached once per container node — a ref updated every
+  // render (not a dependency-tracked effect) is what lets the one
+  // long-lived listener always read fresh values instead of a stale
+  // closure from whichever render first attached it.
+  const liveRef = useRef({ currentWindow, effectiveCenter, containerWidth })
+  liveRef.current = { currentWindow, effectiveCenter, containerWidth }
+
+  useEffect(() => {
+    if (!container) return
+    const handleWheel = (e: WheelEvent): void => {
+      e.preventDefault()
+      const { currentWindow: win, effectiveCenter: c, containerWidth: width } = liveRef.current
+      if (e.ctrlKey) {
+        // Trackpad pinch (Chromium reports this as ctrl+wheel) or an
+        // actual Ctrl+scroll — zoom continuously, centered where the
+        // cursor already is.
+        setCenter(c)
+        setZoomLevel((z) => Math.min(MAX_ZOOM_LEVEL, Math.max(0, z - e.deltaY * ZOOM_WHEEL_SENSITIVITY)))
+      } else {
+        // Plain scroll (trackpad two-finger swipe, or a mouse wheel) —
+        // pan. Prefer horizontal delta; vertical is the common case for a
+        // plain mouse wheel over a horizontal timeline.
+        const pixelDelta = e.deltaX !== 0 ? e.deltaX : e.deltaY
+        if (width <= 0) return
+        const span = win.end - win.start
+        setCenter(c + (pixelDelta / width) * span)
+      }
+    }
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => container.removeEventListener('wheel', handleWheel)
+  }, [container])
+
+  useEffect(() => {
+    if (!container) return
+    const observer = new ResizeObserver((entries) => setContainerWidth(entries[0].contentRect.width))
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [container])
+
+  // For an arbitrary point on the axis (a window edge, not a specific
+  // event) there's no free-text fallback — null means "no active
+  // calendar to format this with."
+  const formatWindowEdge = (minutes: number): string | null => {
+    if (activeCalendars.length === 0) return null
+    const cal = activeCalendars[0]
+    const parts = fromCanonicalMinutes(cal, minutes)
+    return parts ? formatCalendarDate(cal, parts) : null
+  }
+
   if (events === null || calendars === null) {
     return <div className="timeline-view timeline-empty">Loading…</div>
   }
@@ -165,6 +214,9 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
       </div>
     )
   }
+
+  const maxLane = placements.reduce((max, p) => Math.max(max, p.lane), 0)
+  const trackHeight = LANE_HEIGHT * (maxLane + 1) + BASE_CONNECTOR_HEIGHT + 24
 
   return (
     <div className="timeline-view pill-timeline-view">
@@ -209,34 +261,37 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
 
       <p className="right-panel-note pill-timeline-range">
         {activeCalendars.length === 0
-          ? 'Check a calendar above to see dates here — otherwise this shows only bare pill titles/counts.'
+          ? 'Check a calendar above to see dates here — otherwise this shows only bare pill titles.'
           : `Viewing: ${formatWindowEdge(currentWindow.start)} → ${formatWindowEdge(currentWindow.end)}`}
+        {' — scroll/two-finger-swipe to pan, pinch (or Ctrl+scroll) to zoom.'}
       </p>
 
-      <div className="pill-timeline-track" ref={setContainer}>
+      <div className="pill-timeline-track" ref={setContainer} style={{ height: trackHeight }}>
         {placements.map((p, i) => (
           <div key={i} className="pill-anchor" style={{ left: `${p.positionFraction * 100}%` }}>
-            {p.kind === 'cluster' ? (
-              <button className="pill pill-cluster" onClick={() => zoomIn(p.minutes)} title="Zoom in on this cluster">
-                {p.events.length} event{p.events.length === 1 ? '' : 's'} →
-              </button>
-            ) : (
-              <>
-                <button className="pill" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
-                  {p.event.title}
+            <button className="pill" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
+              {p.event.title}
+            </button>
+            <div className="pill-connector" style={{ height: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }} />
+            {expandedIndex === i && (
+              <div className="pill-expanded">
+                <div className="pill-expanded-date">{formatDate(p.event, p.minutes)}</div>
+                <div className="pill-expanded-title">{p.event.title}</div>
+                {p.event.summary && <div className="pill-expanded-summary">{p.event.summary}</div>}
+                <button className="sheet-open-ref-button" onClick={() => onOpenEvent(p.event.path)}>
+                  Open note ↗
                 </button>
-                {expandedIndex === i && (
-                  <div className="pill-expanded">
-                    <div className="pill-expanded-date">{formatDate(p.event, p.minutes)}</div>
-                    <div className="pill-expanded-title">{p.event.title}</div>
-                    {p.event.summary && <div className="pill-expanded-summary">{p.event.summary}</div>}
-                    <button className="sheet-open-ref-button" onClick={() => onOpenEvent(p.event.path)}>
-                      Open note ↗
-                    </button>
-                  </div>
-                )}
-              </>
+              </div>
             )}
+          </div>
+        ))}
+      </div>
+
+      <div className="pill-timeline-ticks">
+        {ticks.map((t, i) => (
+          <div key={i} className="pill-tick" style={{ left: `${t.positionFraction * 100}%` }}>
+            <div className="pill-tick-mark" />
+            <div className="pill-tick-label">{t.label}</div>
           </div>
         ))}
       </div>

@@ -293,14 +293,17 @@ button.active {
 
 .pill-timeline-track {
   position: relative;
-  height: 60px;
   border-bottom: 2px solid var(--border);
-  margin: 40px 0;
+  margin: 24px 0 0 0;
+  /* height is set inline per render — it depends on how many lanes are
+     actually in use, which varies with the data and current zoom/pan. */
+  cursor: grab;
+  touch-action: none;
 }
 
 .pill-anchor {
   position: absolute;
-  top: 0;
+  bottom: 0;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -321,14 +324,18 @@ button.active {
   background: var(--bg-hover);
 }
 
-.pill-cluster {
-  font-weight: 600;
-  background: var(--accent, var(--bg-hover));
+/* Connects a stacked (lane > 0) pill down to its real position on the
+   axis line — see placeEventsInLanes's doc comment for why events close
+   together stack onto separate rows instead of collapsing into a count. */
+.pill-connector {
+  width: 1px;
+  background: var(--border);
 }
 
 .pill-expanded {
   position: absolute;
-  top: 32px;
+  bottom: 100%;
+  margin-bottom: 4px;
   z-index: 10;
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -352,6 +359,33 @@ button.active {
 .pill-expanded-summary {
   font-size: 12px;
   margin-top: 4px;
+}
+
+.pill-timeline-ticks {
+  position: relative;
+  height: 28px;
+}
+
+.pill-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pill-tick-mark {
+  width: 1px;
+  height: 6px;
+  background: var(--border);
+}
+
+.pill-tick-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 .events-section {

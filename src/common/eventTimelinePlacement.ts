@@ -1,26 +1,24 @@
-// Pure axis/zoom/clustering math for the pill timeline view (build step 7
+// Pure axis/zoom/lane/tick math for the pill timeline view (build step 7
 // of docs/plans/2026-07-28-calendar-timeline-system.md). Deliberately does
-// NOT render anything or know about calendars/formatting — it only turns
-// "events at canonical-minute positions" + "a visible window" + "a pixel
-// width" into where each pill (or cluster of pills) should sit. Kept
-// generic over T (the caller's own event data) so this has zero dependency
-// on note types, React, or IPC.
+// NOT render anything or know about React/IPC — it only turns "events at
+// canonical-minute positions" + "a visible window" + "a pixel width" into
+// where each pill and axis tick should sit. `computeAxisTicks` DOES know
+// about calendars (it needs one to generate real date labels), everything
+// else here is calendar-agnostic.
 //
-// Design rationale for the zoom/clustering approach (the plan doc
-// explicitly calls this out as a real design question, not to hand-wave):
-// a fixed linear axis over a vault's ENTIRE event history would make a
-// single day-long event centuries ago an invisible sliver next to a
-// millennium-spanning gap. The fix used here is the same one real timeline
-// tools use — never render the whole range at once. The user views a
-// WINDOW (a span of canonical minutes) at a given zoom level, computed as
-// a fraction of the full data range (not an absolute constant, since a
-// vault's actual event spread could be a few years or several millennia),
-// and pans/zooms into whatever region they care about. At any single zoom
-// level the window is always a normal linear scale, so nothing is ever
-// squished to invisibility. Events still close enough together to overlap
-// visually at the CURRENT window/pixel width get merged into one cluster
-// pill (same idea as map marker-clustering) rather than drawn on top of
-// each other.
+// Design rationale for the zoom approach (the plan doc explicitly calls
+// this out as a real design question, not to hand-wave): a fixed linear
+// axis over a vault's ENTIRE event history would make a single day-long
+// event centuries ago an invisible sliver next to a millennium-spanning
+// gap. The fix used here is the same one real timeline tools use — never
+// render the whole range at once. The user views a WINDOW (a span of
+// canonical minutes) at a given zoom level, computed as a fraction of the
+// full data range (not an absolute constant, since a vault's actual event
+// spread could be a few years or several millennia), and pans/zooms into
+// whatever region they care about.
+
+import type { CalendarFrontmatter } from './noteTypes/calendar'
+import { fromCanonicalMinutes } from './calendarMath'
 
 export interface TimelineWindow {
   start: number // canonical minutes
@@ -40,13 +38,16 @@ export function computeFullWindow(canonicalMinutes: number[]): TimelineWindow {
   return { start: min - pad, end: max + pad }
 }
 
-// Each zoom level in is 3x narrower than the previous — arbitrary but
-// reasonable granularity (finer than halving, coarser than order-of-
-// magnitude jumps). Expressed as a ratio of the FULL window's span, not an
-// absolute minute count, so zoom levels always make sense regardless of
-// how wide a given vault's actual event history is.
+// Each whole zoom level in is 3x narrower than the previous — arbitrary
+// but reasonable granularity (finer than halving, coarser than order-of-
+// magnitude jumps). `zoomLevel` itself is a continuous real number (not
+// just integers) so wheel/pinch input can zoom smoothly — the toolbar's
+// +/- buttons just step it by a whole level at a time. Expressed as a
+// ratio of the FULL window's span, not an absolute minute count, so zoom
+// levels always make sense regardless of how wide a given vault's actual
+// event history is.
 const ZOOM_STEP = 3
-export const MAX_ZOOM_LEVEL = 8
+export const MAX_ZOOM_LEVEL = 14
 
 /** The window for a given zoom level (0 = full extent, higher = narrower),
  * centered on `center` (canonical minutes) — e.g. where the user clicked,
@@ -71,39 +72,39 @@ export function panWindow(window: TimelineWindow, fractionOfSpan: number): Timel
 export interface TimelineItem<T> {
   minutes: number
   data: T
+  // Estimated rendered pixel width of this item's pill, used only to
+  // decide lane stacking — no live DOM measurement happens in a pure
+  // function, so callers pass their own estimate (e.g. from title
+  // length). Defaults applied by placeEventsInLanes when omitted.
+  widthPx?: number
 }
 
-export interface PlacedEvent<T> {
-  kind: 'event'
+export interface LanePlacement<T> {
   event: T
   minutes: number
   positionFraction: number // 0..1 across the window
+  // 0 = sits directly on the axis; each increment stacks one row further
+  // away, for events too close together (in pixel terms, at the CURRENT
+  // window/pixel width) to render side by side without overlapping.
+  lane: number
 }
-
-export interface PlacedCluster<T> {
-  kind: 'cluster'
-  events: T[]
-  minutes: number // mean of the cluster's members, for its own position/label
-  positionFraction: number
-}
-
-export type TimelinePlacement<T> = PlacedEvent<T> | PlacedCluster<T>
 
 /**
- * Positions every item that falls within `window` at its proportional
- * pixel position across `pixelWidth`, then greedily merges consecutive
- * items whose pixel positions are closer than `minPillSpacingPx` into one
- * cluster pill — same "chain nearby points together" approach real point-
- * clustering algorithms use, so a dense run of events collapses into a
- * single cluster even though each individual adjacent PAIR is what's being
- * compared, not the cluster's total width.
+ * Positions every item within `window` at its proportional pixel position,
+ * then assigns each a LANE via the same greedy interval-scheduling
+ * algorithm calendar UIs use to stack same-day overlapping meetings side
+ * by side: sorted left to right, each item claims the first lane whose
+ * last-placed item doesn't visually overlap it (comparing estimated pixel
+ * footprints), else opens a new lane. Unlike a count-based cluster bubble,
+ * every event stays individually visible and clickable — it just moves
+ * up a row when the row below is occupied.
  */
-export function placeEvents<T>(
+export function placeEventsInLanes<T>(
   items: TimelineItem<T>[],
   window: TimelineWindow,
   pixelWidth: number,
-  minPillSpacingPx = 24
-): TimelinePlacement<T>[] {
+  defaultWidthPx = 100
+): LanePlacement<T>[] {
   const span = window.end - window.start
   if (span <= 0 || pixelWidth <= 0) return []
 
@@ -112,38 +113,124 @@ export function placeEvents<T>(
     .map((i) => ({ ...i, positionPx: ((i.minutes - window.start) / span) * pixelWidth }))
     .sort((a, b) => a.positionPx - b.positionPx)
 
-  const placements: TimelinePlacement<T>[] = []
-  let bucket: typeof visible = []
+  const laneEnds: number[] = [] // rightmost occupied pixel, per lane
+  const placements: LanePlacement<T>[] = []
 
-  const flush = (): void => {
-    if (bucket.length === 0) return
-    if (bucket.length === 1) {
-      const item = bucket[0]
-      placements.push({ kind: 'event', event: item.data, minutes: item.minutes, positionFraction: item.positionPx / pixelWidth })
-    } else {
-      const meanMinutes = bucket.reduce((sum, i) => sum + i.minutes, 0) / bucket.length
-      const meanPositionPx = bucket.reduce((sum, i) => sum + i.positionPx, 0) / bucket.length
-      placements.push({
-        kind: 'cluster',
-        events: bucket.map((i) => i.data),
-        minutes: meanMinutes,
-        positionFraction: meanPositionPx / pixelWidth
-      })
-    }
-    bucket = []
-  }
-
-  let lastPx: number | null = null
   for (const item of visible) {
-    if (lastPx !== null && item.positionPx - lastPx < minPillSpacingPx) {
-      bucket.push(item)
+    const halfWidth = (item.widthPx ?? defaultWidthPx) / 2
+    const left = item.positionPx - halfWidth
+    const right = item.positionPx + halfWidth
+
+    let lane = laneEnds.findIndex((end) => end <= left)
+    if (lane === -1) {
+      lane = laneEnds.length
+      laneEnds.push(right)
     } else {
-      flush()
-      bucket = [item]
+      laneEnds[lane] = right
     }
-    lastPx = item.positionPx
+
+    placements.push({ event: item.data, minutes: item.minutes, positionFraction: item.positionPx / pixelWidth, lane })
   }
-  flush()
 
   return placements
+}
+
+// ---------------------------------------------------------------------
+// Axis ticks — adaptive date labels along the bottom of the timeline,
+// spaced by whichever calendar-native unit (hour/day/week/month/quarter/
+// year/decade/...) best fits the current zoom level.
+// ---------------------------------------------------------------------
+
+type TickUnit = 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year' | 'multiYear'
+
+interface TickStep {
+  minutes: number
+  unit: TickUnit
+}
+
+// Approximate: month/year steps use this calendar's AVERAGE month/year
+// length in days rather than walking exact calendar boundaries (which
+// would need era-aware month/year arithmetic across the AM/AF direction
+// switch). Ticks are a visual reference, not stored data — landing a day
+// or two off "the real 1st of the month" at these zoom levels is
+// imperceptible, and this keeps the whole thing a simple, correct-enough
+// closed-form ladder instead of a second calendar-walking implementation.
+function tickLadder(calendar: CalendarFrontmatter): TickStep[] {
+  const minutesPerDay = calendar.hoursPerDay * calendar.minutesPerHour
+  const totalMonthDays = calendar.months.reduce((sum, m) => sum + m.days, 0)
+  const avgMonthDays = calendar.months.length > 0 ? totalMonthDays / calendar.months.length : 30
+  const yearDays = totalMonthDays > 0 ? totalMonthDays : 365
+
+  const multiYearSteps = [5, 10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000, 500000]
+
+  return [
+    { minutes: calendar.minutesPerHour, unit: 'hour' },
+    { minutes: calendar.minutesPerHour * 6, unit: 'hour' },
+    { minutes: minutesPerDay, unit: 'day' },
+    { minutes: minutesPerDay * 7, unit: 'week' },
+    { minutes: minutesPerDay * avgMonthDays, unit: 'month' },
+    { minutes: minutesPerDay * avgMonthDays * 3, unit: 'quarter' },
+    { minutes: minutesPerDay * yearDays, unit: 'year' },
+    ...multiYearSteps.map((n) => ({ minutes: minutesPerDay * yearDays * n, unit: 'multiYear' as const }))
+  ]
+}
+
+function formatTickLabel(calendar: CalendarFrontmatter, parts: NonNullable<ReturnType<typeof fromCanonicalMinutes>>, unit: TickUnit): string {
+  const era = calendar.eras.find((e) => e.id === parts.eraId)
+  const eraLabel = era ? era.abbreviation || era.name : ''
+  const month = calendar.months.find((m) => m.id === parts.monthId)
+  const yearLabel = `${parts.year}${eraLabel ? ` ${eraLabel}` : ''}`
+
+  switch (unit) {
+    case 'hour':
+      return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`
+    case 'day':
+    case 'week':
+      return `${parts.day} ${month?.name ?? ''}`
+    case 'month':
+    case 'quarter':
+      return `${month?.name ?? ''} ${yearLabel}`
+    case 'year':
+    case 'multiYear':
+    default:
+      return yearLabel
+  }
+}
+
+export interface AxisTick {
+  minutes: number
+  positionFraction: number
+  label: string
+}
+
+/**
+ * Ticks spaced at whichever calendar-native unit keeps the tick count near
+ * `targetTickCount` for the CURRENT window — zoomed all the way out over
+ * millennia gets century/millennium ticks, zoomed into a single day gets
+ * hour ticks, with every step in between. Returns [] if `calendar` is null
+ * (no active calendar to format labels with — same "nothing to show
+ * without one" fallback the rest of this view already uses).
+ */
+export function computeAxisTicks(calendar: CalendarFrontmatter | null, window: TimelineWindow, targetTickCount = 6): AxisTick[] {
+  if (!calendar) return []
+  const span = window.end - window.start
+  if (span <= 0) return []
+
+  const ladder = tickLadder(calendar)
+  let step = ladder[ladder.length - 1]
+  for (const candidate of ladder) {
+    if (span / candidate.minutes <= targetTickCount) {
+      step = candidate
+      break
+    }
+  }
+
+  const ticks: AxisTick[] = []
+  const firstTick = Math.ceil(window.start / step.minutes) * step.minutes
+  for (let m = firstTick; m <= window.end; m += step.minutes) {
+    const parts = fromCanonicalMinutes(calendar, m)
+    if (!parts) continue
+    ticks.push({ minutes: m, positionFraction: (m - window.start) / span, label: formatTickLabel(calendar, parts, step.unit) })
+  }
+  return ticks
 }

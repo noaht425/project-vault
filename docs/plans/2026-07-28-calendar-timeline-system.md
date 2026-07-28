@@ -596,3 +596,111 @@ setting.
   steps. Nothing further is queued unless the user has new requests
   (e.g. deeper zoom interactions, range/duration display, extending
   active-calendar formatting elsewhere).
+
+## Post-launch fixes and a real UX redesign (2026-07-28, after initial user testing)
+
+Real usage against the actual Cloud Workspace + the local vault's real
+data (once real calendar notes existed and the migration had something to
+match) surfaced three real bugs and a round of "this doesn't look/feel
+like a timeline yet" feedback. All fixed/rebuilt in this same session:
+
+**Bug 1 — pills never rendered at all (local).** The `ResizeObserver`
+effect used `useRef` + `useEffect(..., [])`: it fired once at mount, but
+the track `<div>` doesn't exist yet at mount (the first render shows
+"Loading…"), so the ref was still null and the effect never ran again
+once real content mounted. `containerWidth` stayed 0 forever, and the
+placement function intentionally returns `[]` whenever `pixelWidth <= 0`
+— so "no pills fit" was computed even with real placeable events. Fixed
+by switching to a callback ref (`useState<HTMLDivElement|null>` set via
+`ref={setContainer}`), which fires whenever the node actually attaches,
+regardless of which render pass that happens on. Same fix applied to
+both `EventsPillTimelineView.tsx` and `CloudEventsPillTimelineView.tsx`.
+
+**Bug 2 — Cloud Workspace Timeline stuck on "Loading…" forever.**
+`getWorkspaceSettings()` (step 6) failed — the `active_calendar_titles`
+Supabase migration hadn't been run yet — and that rejection propagated
+out of the `Promise.all(...)` uncaught, so `load()` never finished.
+Fixed with a `.catch(() => ({ activeCalendarNoteTitles: [] }))` on that
+specific call (falling back is always safe/correct, per step 6's own
+"empty = no active calendars" fallback), plus a top-level `try/catch`
+around the whole `load()` as a general safety net against any other
+future failure mode doing the same thing.
+
+**Bug 3 — Cloud Workspace never finds ANY calendar notes, even after
+"Import Local Vault" reports 0 failed.** Root cause was in
+project-vault-cloud's `GET /api/notes` (the shared title-search endpoint
+behind `searchTitles`, used by both `EventSheet.tsx`'s calendar/location
+pickers AND the pill timeline's "list every calendar note" call): it
+unconditionally returned `[]` for an empty query string, REGARDLESS of
+a `type` filter. `searchTitles('', 'calendar')` — "give me every
+calendar note" — always got back nothing. The local vault's own
+`searchTitles` (session.ts, plain SQL `LIKE '%%'`) never had this
+problem, since an empty pattern naturally matches everything — this was
+a local/cloud parity bug, not something new. Fixed in
+`project-vault-cloud/src/app/api/notes/route.ts`: only short-circuit to
+`[]` when there's NO type filter either (a genuinely-empty autocomplete
+box); an empty query WITH a type filter is a deliberate "everything of
+this type" request. This also silently fixes `EventSheet.tsx`'s
+location-field autocomplete on Cloud Workspace, which had the exact same
+bug and just went unnoticed (typing the exact title by hand still
+worked). Pushed to production after confirming with the user (commit
+`e56fc66`).
+
+**UX redesign** (user feedback: "doesn't look like an actual timeline,"
+wants trackpad scroll instead of only buttons, wants overlapping events
+stacked instead of collapsed into a bare number, wants dated tick marks
+along the axis):
+- **Clustering → lane-stacking.** Removed `placeEvents`/`TimelinePlacement`/
+  cluster-by-count entirely. New `placeEventsInLanes` in
+  `eventTimelinePlacement.ts` uses the same greedy interval-scheduling
+  algorithm calendar apps use to stack same-day overlapping meetings side
+  by side: sorted left to right, each event claims the first lane whose
+  last-placed item doesn't visually overlap it (by estimated pixel
+  footprint — title-length-based, since there's no live DOM measurement
+  in a pure function), else opens a new lane. Every event stays
+  individually visible/clickable; it just moves up a row instead of
+  vanishing into a count. Rendered with a `.pill-connector` line from
+  each stacked pill down to its real axis position.
+- **Adaptive date ticks.** New `computeAxisTicks(calendar, window)` —
+  picks whichever calendar-native unit (hour/day/week/month/quarter/
+  year/5/10/50/100/500/1000/10000/... years) keeps the tick count near 6
+  for the CURRENT window, so zoomed out over millennia gets
+  century/millennium ticks and zoomed into a day gets hour ticks.
+  Deliberate approximation: month/year step SIZES use the calendar's
+  AVERAGE month/year length (not full era-aware calendar-walking across
+  the AM/AF direction switch) — ticks are a visual reference, not stored
+  data, so landing a day or two off the exact 1st of a month at these
+  zoom levels is imperceptible, and this avoids a second calendar-walking
+  implementation alongside `calendarMath.ts`'s exact one.
+- **Trackpad/wheel pan+zoom.** A native (non-passive) `wheel` listener on
+  the track container, attached via the same callback-ref pattern
+  bug 1's fix uses. Plain scroll (trackpad two-finger swipe, or a mouse
+  wheel) pans; `ctrlKey` (how Chromium/Electron reports trackpad pinch,
+  also true Ctrl+scroll) zooms continuously. `zoomLevel` changed from an
+  integer to a continuous real number — `windowForZoom`'s math already
+  supported fractional levels with no change needed, only the wheel
+  handler needed to feed it small deltas instead of always ±1. The
+  toolbar's Zoom in/out buttons still step by a whole level, for
+  discoverability/accessibility alongside the new gesture. The listener
+  reads current window/center/width from a plain ref updated every
+  render (not a dependency-tracked effect), since the listener itself is
+  attached once per container node and would otherwise close over stale
+  values from whichever render first attached it.
+- A "Viewing: X → Y" range label (added just before this redesign, kept)
+  now sits above the track; ticks along the bottom replace it as the
+  primary way to read the time axis, though the summary line still helps
+  at a glance.
+- Tests: `tests/eventTimelinePlacement.test.ts` fully rewritten for
+  `placeEventsInLanes` (lane assignment, lane reuse once freed up,
+  per-item width override) and `computeAxisTicks` (unit selection at
+  different zoom spans, position ordering, in-bounds guarantee) — 24
+  tests. Full suite: 364/364 passing, both `tsc` configs clean.
+- **Still not done / v2 candidates**: continuous zoom exists now via
+  wheel, but pan is still fraction-of-window-per-event rather than
+  literally "grab and drag" — a click-drag-to-pan gesture (in addition to
+  wheel) would feel even more native. Tick label collision (two adjacent
+  ticks' text overlapping at some zoom levels/window widths) isn't
+  explicitly guarded against — worth watching for with real dense data.
+  No lane-count cap exists (a pathological case with many dozens of
+  overlapping events would stack very tall) — not addressed since it
+  wasn't reported as an actual problem.

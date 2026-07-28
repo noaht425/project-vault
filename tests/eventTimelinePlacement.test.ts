@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { computeFullWindow, windowForZoom, panWindow, placeEvents, MAX_ZOOM_LEVEL } from '../src/common/eventTimelinePlacement'
+import {
+  computeFullWindow,
+  windowForZoom,
+  panWindow,
+  placeEventsInLanes,
+  computeAxisTicks,
+  MAX_ZOOM_LEVEL
+} from '../src/common/eventTimelinePlacement'
+import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../src/common/noteTypes/calendar'
 
 describe('computeFullWindow', () => {
   it('pads 5% on each side of the min/max', () => {
@@ -43,6 +51,15 @@ describe('windowForZoom', () => {
     expect(spans[3]).toBeLessThan(spans[2])
   })
 
+  it('supports fractional zoom levels for smooth wheel/pinch zoom', () => {
+    const full = { start: 0, end: 1_000_000 }
+    const at1 = windowForZoom(full, 1, 500_000).end - windowForZoom(full, 1, 500_000).start
+    const at1_5 = windowForZoom(full, 1.5, 500_000).end - windowForZoom(full, 1.5, 500_000).start
+    const at2 = windowForZoom(full, 2, 500_000).end - windowForZoom(full, 2, 500_000).start
+    expect(at1_5).toBeLessThan(at1)
+    expect(at1_5).toBeGreaterThan(at2)
+  })
+
   it('centers the window on the requested point', () => {
     const full = { start: 0, end: 1_000_000 }
     const zoomed = windowForZoom(full, 2, 500_000)
@@ -69,16 +86,16 @@ describe('panWindow', () => {
   })
 })
 
-describe('placeEvents', () => {
+describe('placeEventsInLanes', () => {
   const window = { start: 0, end: 1000 }
 
-  it('places a single event at its proportional position', () => {
-    const placements = placeEvents([{ minutes: 500, data: 'a' }], window, 1000)
-    expect(placements).toEqual([{ kind: 'event', event: 'a', minutes: 500, positionFraction: 0.5 }])
+  it('places a single event at its proportional position on lane 0', () => {
+    const placements = placeEventsInLanes([{ minutes: 500, data: 'a' }], window, 1000)
+    expect(placements).toEqual([{ event: 'a', minutes: 500, positionFraction: 0.5, lane: 0 }])
   })
 
   it('excludes events outside the window', () => {
-    const placements = placeEvents(
+    const placements = placeEventsInLanes(
       [
         { minutes: -100, data: 'before' },
         { minutes: 500, data: 'inside' },
@@ -88,57 +105,143 @@ describe('placeEvents', () => {
       1000
     )
     expect(placements).toHaveLength(1)
-    expect(placements[0]).toMatchObject({ kind: 'event', event: 'inside' })
+    expect(placements[0].event).toBe('inside')
   })
 
-  it('keeps far-apart events as separate pills', () => {
-    const placements = placeEvents(
+  it('keeps far-apart events all on lane 0', () => {
+    const placements = placeEventsInLanes(
       [
         { minutes: 100, data: 'a' },
         { minutes: 900, data: 'b' }
       ],
       window,
-      1000,
-      24
+      1000
     )
     expect(placements).toHaveLength(2)
-    expect(placements.every((p) => p.kind === 'event')).toBe(true)
+    expect(placements.every((p) => p.lane === 0)).toBe(true)
   })
 
-  it('merges events closer than minPillSpacingPx into one cluster', () => {
-    // At pixelWidth 1000 over a 1000-minute window, 1 minute = 1px. Two
-    // events 5 minutes apart are well inside a 24px spacing threshold.
-    const placements = placeEvents(
+  it('stacks overlapping events onto separate lanes instead of merging them', () => {
+    // At pixelWidth 1000 over a 1000-minute window, 1 minute = 1px — two
+    // events 5 minutes (5px) apart, with a 100px default width, overlap.
+    const placements = placeEventsInLanes(
       [
         { minutes: 500, data: 'a' },
         { minutes: 505, data: 'b' }
       ],
       window,
-      1000,
-      24
+      1000
     )
-    expect(placements).toHaveLength(1)
-    expect(placements[0].kind).toBe('cluster')
-    if (placements[0].kind === 'cluster') {
-      expect(placements[0].events).toEqual(['a', 'b'])
-      expect(placements[0].minutes).toBeCloseTo(502.5)
-    }
+    expect(placements).toHaveLength(2)
+    const lanes = placements.map((p) => p.lane).sort()
+    expect(lanes).toEqual([0, 1])
   })
 
-  it('chains a dense run of events into one cluster even though the whole run spans more than the spacing threshold', () => {
-    const items = [0, 20, 40, 60, 80].map((minutes, i) => ({ minutes, data: `e${i}` }))
-    const placements = placeEvents(items, window, 1000, 24)
-    expect(placements).toHaveLength(1)
-    expect(placements[0].kind).toBe('cluster')
-    if (placements[0].kind === 'cluster') expect(placements[0].events).toHaveLength(5)
+  it('reuses a lane once it frees up further along the axis', () => {
+    // a and b overlap (lane 0, 1); c is far enough past a that lane 0 is
+    // free again by the time c is placed.
+    const placements = placeEventsInLanes(
+      [
+        { minutes: 500, data: 'a', widthPx: 100 },
+        { minutes: 505, data: 'b', widthPx: 100 },
+        { minutes: 700, data: 'c', widthPx: 100 }
+      ],
+      window,
+      1000
+    )
+    const byEvent = new Map(placements.map((p) => [p.event, p.lane]))
+    expect(byEvent.get('c')).toBe(0)
+  })
+
+  it('respects a per-item widthPx estimate over the default', () => {
+    // Wide enough that even 200 minutes apart still overlaps.
+    const placements = placeEventsInLanes(
+      [
+        { minutes: 300, data: 'a', widthPx: 500 },
+        { minutes: 500, data: 'b', widthPx: 500 }
+      ],
+      window,
+      1000
+    )
+    const lanes = placements.map((p) => p.lane).sort()
+    expect(lanes).toEqual([0, 1])
   })
 
   it('returns an empty array for a zero-width window or zero pixel width', () => {
-    expect(placeEvents([{ minutes: 5, data: 'a' }], { start: 10, end: 10 }, 1000)).toEqual([])
-    expect(placeEvents([{ minutes: 5, data: 'a' }], window, 0)).toEqual([])
+    expect(placeEventsInLanes([{ minutes: 5, data: 'a' }], { start: 10, end: 10 }, 1000)).toEqual([])
+    expect(placeEventsInLanes([{ minutes: 5, data: 'a' }], window, 0)).toEqual([])
   })
 
   it('MAX_ZOOM_LEVEL is a sane positive bound', () => {
     expect(MAX_ZOOM_LEVEL).toBeGreaterThan(0)
+  })
+})
+
+describe('computeAxisTicks', () => {
+  function mainCalendar(): CalendarFrontmatter {
+    return calendarFrontmatterSchema.parse({
+      type: 'calendar',
+      eras: [
+        { id: 'am', name: 'Age of the Many', abbreviation: 'AM', direction: 'up' },
+        { id: 'af', name: 'Age of the Few', abbreviation: 'AF', direction: 'down' }
+      ],
+      months: [
+        { id: 'aucaela', name: 'Aucaela', days: 100 },
+        { id: 'auctera', name: 'Auctera', days: 100 },
+        { id: 'morcaela', name: 'Morcaela', days: 100 },
+        { id: 'mortera', name: 'Mortera', days: 100 }
+      ]
+    })
+  }
+
+  it('returns no ticks without a calendar', () => {
+    expect(computeAxisTicks(null, { start: 0, end: 1000 })).toEqual([])
+  })
+
+  it('returns no ticks for a zero-width window', () => {
+    expect(computeAxisTicks(mainCalendar(), { start: 10, end: 10 })).toEqual([])
+  })
+
+  it('uses year-level ticks for a multi-century window', () => {
+    const cal = mainCalendar()
+    const minutesPerDay = 24 * 60
+    const minutesPerYear = 400 * minutesPerDay
+    const window = { start: 0, end: minutesPerYear * 300 }
+    const ticks = computeAxisTicks(cal, window, 6)
+    expect(ticks.length).toBeGreaterThan(0)
+    expect(ticks.length).toBeLessThanOrEqual(10)
+    // Labels at this zoom level should be bare year+era, no month/day.
+    expect(ticks[0].label).toMatch(/^-?\d+ A[MF]$/)
+  })
+
+  it('uses hour-level ticks for a single-day window', () => {
+    const cal = mainCalendar()
+    const minutesPerDay = 24 * 60
+    const window = { start: 0, end: minutesPerDay }
+    const ticks = computeAxisTicks(cal, window, 6)
+    expect(ticks.length).toBeGreaterThan(0)
+    expect(ticks.every((t) => /^\d{2}:\d{2}$/.test(t.label))).toBe(true)
+  })
+
+  it('produces ticks in ascending position order within the window', () => {
+    const cal = mainCalendar()
+    const window = { start: 0, end: 400 * 24 * 60 * 50 }
+    const ticks = computeAxisTicks(cal, window, 6)
+    for (let i = 1; i < ticks.length; i++) {
+      expect(ticks[i].minutes).toBeGreaterThan(ticks[i - 1].minutes)
+      expect(ticks[i].positionFraction).toBeGreaterThan(ticks[i - 1].positionFraction)
+    }
+  })
+
+  it('keeps every tick within the window bounds', () => {
+    const cal = mainCalendar()
+    const window = { start: 12345, end: 12345 + 400 * 24 * 60 * 20 }
+    const ticks = computeAxisTicks(cal, window, 6)
+    for (const t of ticks) {
+      expect(t.minutes).toBeGreaterThanOrEqual(window.start)
+      expect(t.minutes).toBeLessThanOrEqual(window.end)
+      expect(t.positionFraction).toBeGreaterThanOrEqual(0)
+      expect(t.positionFraction).toBeLessThanOrEqual(1)
+    }
   })
 })
