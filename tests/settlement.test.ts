@@ -33,12 +33,12 @@ describe('defaultSettlementFrontmatter', () => {
     expect(defaultDistrictsForSize('not-a-real-size')).toEqual(defaultDistrictsForSize('village'))
   })
 
-  it('seeds Temple/Entertainment/University/Docks districts at city+ (Temple also at town), each boosting a real building type', () => {
+  it('seeds Temple/Entertainment/University/Docks/Wealthy districts at city+ (Temple also at town), each boosting a real building type', () => {
     const buildingTypeIds = new Set(defaultBuildingTypes().map((t) => t.id))
     for (const sizeId of ['city', 'metropolis']) {
       const districts = defaultDistrictsForSize(sizeId)
       const byName = new Map(districts.map((d) => [d.name, d]))
-      for (const name of ['Temple District', 'Entertainment District', 'University District', 'Docks District']) {
+      for (const name of ['Temple District', 'Entertainment District', 'University District', 'Docks District', 'Wealthy District']) {
         const district = byName.get(name)
         expect(district, `${name} missing at ${sizeId}`).toBeDefined()
         expect(district!.buildingTypeBoosts.length).toBeGreaterThan(0)
@@ -48,6 +48,27 @@ describe('defaultSettlementFrontmatter', () => {
       }
     }
     expect(defaultDistrictsForSize('town').some((d) => d.name === 'Temple District')).toBe(true)
+  })
+
+  it('boosts Manor specifically in Wealthy District (harder than in plain Residential District)', () => {
+    const districts = defaultDistrictsForSize('city')
+    const wealthy = districts.find((d) => d.name === 'Wealthy District')!
+    const residential = districts.find((d) => d.name === 'Residential District')!
+    const manorBoostIn = (d: typeof wealthy): number => d.buildingTypeBoosts.find((b) => b.buildingTypeId === 'manor')?.multiplier ?? 1
+    expect(manorBoostIn(wealthy)).toBeGreaterThan(manorBoostIn(residential))
+  })
+
+  it('gives every Residential District/Quarter an actual boost toward residence building types (regression: used to be unboosted)', () => {
+    for (const sizeId of SETTLEMENT_SIZE_IDS) {
+      const districts = defaultDistrictsForSize(sizeId)
+      const residential = districts.find((d) => d.name.startsWith('Residential'))
+      if (!residential) continue
+      for (const id of ['house', 'tenement', 'manor', 'farmstead']) {
+        const boost = residential.buildingTypeBoosts.find((b) => b.buildingTypeId === id)
+        expect(boost, `Residential district at ${sizeId} has no boost for ${id}`).toBeDefined()
+        expect(boost!.multiplier).toBeGreaterThan(1)
+      }
+    }
   })
 
   it('seeds the new civic building types (theater, school, university, library) referenced by the new districts', () => {

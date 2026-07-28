@@ -324,43 +324,65 @@ const docksBoosts: SpecialtyBoost[] = [
   { buildingTypeId: 'warehouse', multiplier: 2 },
   { buildingTypeId: 'tavern', multiplier: 1.3 }
 ]
+// Confirmed bug fix (user): "Residential District" had no boosts at all
+// before this — a house was exactly as likely to land there as anywhere
+// else, which defeats the point of naming it "Residential." Boosts every
+// residence type equally; Wealthy District (below) gives Manor a stronger
+// pull specifically, so manors skew toward Wealthy over plain Residential
+// without excluding either.
+const residentialBoosts: SpecialtyBoost[] = [
+  { buildingTypeId: 'house', multiplier: 2 },
+  { buildingTypeId: 'tenement', multiplier: 2 },
+  { buildingTypeId: 'manor', multiplier: 2 },
+  { buildingTypeId: 'farmstead', multiplier: 2 }
+]
+const wealthyBoosts: SpecialtyBoost[] = [
+  { buildingTypeId: 'manor', multiplier: 3 },
+  { buildingTypeId: 'library', multiplier: 2 },
+  { buildingTypeId: 'jeweler', multiplier: 1.5 },
+  { buildingTypeId: 'tailor', multiplier: 1.5 },
+  { buildingTypeId: 'bakery', multiplier: 1.5 },
+  { buildingTypeId: 'magic-item-shop', multiplier: 1.3 }
+]
 const noBoosts: SpecialtyBoost[] = []
 
 const DISTRICTS_BY_SIZE: Record<string, District[]> = {
   hamlet: [{ id: 'main', name: 'Village Center', buildingTypeBoosts: noBoosts }],
   village: [
     { id: 'market', name: 'Market Square', buildingTypeBoosts: marketBoosts },
-    { id: 'residential', name: 'Residential Quarter', buildingTypeBoosts: noBoosts }
+    { id: 'residential', name: 'Residential Quarter', buildingTypeBoosts: residentialBoosts }
   ],
   town: [
     { id: 'market', name: 'Market District', buildingTypeBoosts: marketBoosts },
-    { id: 'residential', name: 'Residential District', buildingTypeBoosts: noBoosts },
+    { id: 'residential', name: 'Residential District', buildingTypeBoosts: residentialBoosts },
     { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts },
     { id: 'temple', name: 'Temple District', buildingTypeBoosts: templeBoosts }
   ],
   city: [
     { id: 'north-market', name: 'North Market District', buildingTypeBoosts: marketBoosts },
     { id: 'south-market', name: 'South Market District', buildingTypeBoosts: marketBoosts },
-    { id: 'residential', name: 'Residential District', buildingTypeBoosts: noBoosts },
+    { id: 'residential', name: 'Residential District', buildingTypeBoosts: residentialBoosts },
     { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts },
     { id: 'craft', name: 'Craft District', buildingTypeBoosts: craftBoosts },
     { id: 'temple', name: 'Temple District', buildingTypeBoosts: templeBoosts },
     { id: 'entertainment', name: 'Entertainment District', buildingTypeBoosts: entertainmentBoosts },
     { id: 'university', name: 'University District', buildingTypeBoosts: universityBoosts },
-    { id: 'docks', name: 'Docks District', buildingTypeBoosts: docksBoosts }
+    { id: 'docks', name: 'Docks District', buildingTypeBoosts: docksBoosts },
+    { id: 'wealthy', name: 'Wealthy District', buildingTypeBoosts: wealthyBoosts }
   ],
   metropolis: [
     { id: 'north-market', name: 'North Market District', buildingTypeBoosts: marketBoosts },
     { id: 'south-market', name: 'South Market District', buildingTypeBoosts: marketBoosts },
     { id: 'east-market', name: 'East Market District', buildingTypeBoosts: marketBoosts },
-    { id: 'residential', name: 'Residential District', buildingTypeBoosts: noBoosts },
+    { id: 'residential', name: 'Residential District', buildingTypeBoosts: residentialBoosts },
     { id: 'government', name: 'Government District', buildingTypeBoosts: governmentBoosts },
     { id: 'craft', name: 'Craft District', buildingTypeBoosts: craftBoosts },
     { id: 'old-town', name: 'Old Town', buildingTypeBoosts: noBoosts },
     { id: 'temple', name: 'Temple District', buildingTypeBoosts: templeBoosts },
     { id: 'entertainment', name: 'Entertainment District', buildingTypeBoosts: entertainmentBoosts },
     { id: 'university', name: 'University District', buildingTypeBoosts: universityBoosts },
-    { id: 'docks', name: 'Docks District', buildingTypeBoosts: docksBoosts }
+    { id: 'docks', name: 'Docks District', buildingTypeBoosts: docksBoosts },
+    { id: 'wealthy', name: 'Wealthy District', buildingTypeBoosts: wealthyBoosts }
   ]
 }
 
