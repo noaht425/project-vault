@@ -199,6 +199,39 @@ into `SheetView.tsx`'s dispatch switch so a calendar note doesn't render
 blank — the real Overview/Months/Week/Days/Years-Eras/Moons tabbed editor
 is still step 2, not yet built. Tests in `tests/calendar.test.ts`.
 
+**Step 2 done (2026-07-28, same session):** the full 7-tab editor is
+built, replacing the placeholder — `CalendarSheet.tsx` now dispatches to
+`CalendarOverviewTab`/`CalendarMonthsTab`/`CalendarWeekTab`/
+`CalendarDaysTab`/`CalendarYearsErasTab`/`CalendarMoonsTab`/
+`CalendarSettingsTab` (all in `src/renderer/src/components/sheets/`),
+same button-row tab pattern as `SettlementSheet.tsx`. Notes:
+- Months/Week tabs got up/down move buttons (new `src/common/arrayMove.ts`
+  helper, tested in `tests/arrayMove.test.ts`) since order is semantically
+  load-bearing there (day-of-year/day-of-week math) — unlike settlement.ts's
+  list editors, which never needed reordering.
+- Added one schema field not in the original step-1 draft:
+  `defaultEraId: string | null` on `calendarFrontmatterSchema`, edited via
+  the new Settings tab — which era a bare/unsuffixed year belongs to.
+  This directly generalizes `worldDate.ts`'s existing hardcoded "no AM/AF
+  suffix defaults to AM" behavior to a calendar with any number of eras.
+  Not explicitly confirmed with the user (a reasonable, low-risk,
+  additive call, not a re-litigation of anything already confirmed) —
+  flagging here in case a future session (or the user) wants to revisit
+  it once the reference screenshots are available.
+- Years & Eras tab combines era list editing AND the leap-year rule editor
+  in one tab (matches the reference site's single hyphenated "Years-Eras"
+  tab name, confirmed from the doc's own tab list — not a merge decision
+  made independently).
+- Full verification: `npx tsc -p tsconfig.web.json --noEmit` and
+  `npx tsc -p tsconfig.node.json --noEmit` both clean (node config's 33
+  pre-existing errors in `settlementGenerator.test.ts`/
+  `settlementPromotion.test.ts` confirmed present on `main` before this
+  work, unrelated); `npm test` — 301/301 passing. Could NOT visually
+  verify the editor renders correctly in the actual Electron app (no
+  desktop screenshot access in this environment) — worth the user
+  actually opening a Calendar note and clicking through all 7 tabs before
+  trusting this is production-ready.
+
 Schema shape, confirmed with the user at kickoff:
 - `eras: CalendarEra[]` — `{ id, name, abbreviation, direction: 'up'|'down' }`.
 - `leapYearRule: LeapYearRule | null` — Gregorian-style nested interval/
@@ -233,7 +266,10 @@ Schema shape, confirmed with the user at kickoff:
   irregular hour segments, named moon phases — both explicitly considered
   and left out this round since the user didn't flag them, but worth a
   second look with the real screenshots in hand).
-- Next session should start at step 2 (calendar editor UI) or step 3
-  (canonical-timestamp formatter/parser) — both are unblocked now that the
-  schema exists; step 3 has no UI dependency on step 2, so it could go
-  first if that's a better sequencing call.
+- Next session should start at step 3 (canonical-timestamp formatter/
+  parser) — steps 1 and 2 are both done now. Step 3 is flagged in the
+  build order above as "the trickiest pure-logic piece, budget real
+  time" — don't rush it.
+- The Settings tab's `defaultEraId` field (see Step 2 notes above) hasn't
+  been shown to the user yet — worth a quick confirmation it's the right
+  call before more is built on top of it.

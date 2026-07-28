@@ -12,6 +12,7 @@ describe('defaultCalendarFrontmatter', () => {
     expect(fm.moons).toEqual([])
     expect(fm.hoursPerDay).toBe(24)
     expect(fm.minutesPerHour).toBe(60)
+    expect(fm.defaultEraId).toBeNull()
   })
 })
 

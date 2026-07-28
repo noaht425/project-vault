@@ -84,7 +84,13 @@ export const calendarFrontmatterSchema = z
     hoursPerDay: z.coerce.number().catch(24),
     minutesPerHour: z.coerce.number().catch(60),
     // Moons tab.
-    moons: z.array(calendarMoonSchema).catch([])
+    moons: z.array(calendarMoonSchema).catch([]),
+    // Settings tab. Which era a bare year with no written suffix belongs to
+    // — generalizes worldDate.ts's existing hardcoded "no AM/AF suffix
+    // defaults to AM" behavior (see that file's header comment) to a
+    // calendar with any number of eras, not just two. Null = no eras
+    // defined yet, or none chosen as the default.
+    defaultEraId: z.string().nullable().catch(null)
   })
   .passthrough()
 
