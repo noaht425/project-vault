@@ -44,21 +44,29 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
 
   useEffect(() => {
     const load = async (): Promise<void> => {
-      const [allEvents, calendarMatches, vaultSettings] = await Promise.all([
-        window.vaultApi.listEvents(),
-        noteRefApi.searchTitles('', 'calendar'),
-        window.vaultApi.getSettings()
-      ])
-      setEvents(allEvents)
-      setSettings(vaultSettings)
-      const defs = await Promise.all(
-        calendarMatches.map(async (m) => {
-          const fm = await noteRefApi.readFrontmatterByTitle(m.title, 'calendar')
-          const parsed = fm ? calendarFrontmatterSchema.safeParse(fm) : null
-          return parsed?.success ? { title: m.title, frontmatter: parsed.data } : null
-        })
-      )
-      setCalendars(defs.filter((d): d is { title: string; frontmatter: CalendarFrontmatter } => d !== null))
+      try {
+        const [allEvents, calendarMatches, vaultSettings] = await Promise.all([
+          window.vaultApi.listEvents(),
+          noteRefApi.searchTitles('', 'calendar'),
+          window.vaultApi.getSettings()
+        ])
+        setEvents(allEvents)
+        setSettings(vaultSettings)
+        const defs = await Promise.all(
+          calendarMatches.map(async (m) => {
+            const fm = await noteRefApi.readFrontmatterByTitle(m.title, 'calendar')
+            const parsed = fm ? calendarFrontmatterSchema.safeParse(fm) : null
+            return parsed?.success ? { title: m.title, frontmatter: parsed.data } : null
+          })
+        )
+        setCalendars(defs.filter((d): d is { title: string; frontmatter: CalendarFrontmatter } => d !== null))
+      } catch (err) {
+        // Never leave this view stuck on "Loading…" forever over a
+        // transient IPC failure — fall back to empty rather than hang.
+        console.error('Failed to load pill timeline data:', err)
+        setEvents((prev) => prev ?? [])
+        setCalendars((prev) => prev ?? [])
+      }
     }
     void load()
     const off = window.vaultApi.onTreeUpdated(() => void load())
@@ -115,6 +123,18 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
       })
       .filter((label): label is string => label !== null)
     return labels.length > 0 ? labels.join(' / ') : event.date || 'Undated'
+  }
+
+  // For an arbitrary point on the axis (a window edge, not a specific
+  // event) there's no free-text fallback to fall back to — null means
+  // "no active calendar to format this with," and the caller shows a
+  // hint to activate one instead of a raw, meaningless canonical-minute
+  // number.
+  const formatWindowEdge = (minutes: number): string | null => {
+    if (activeCalendars.length === 0) return null
+    const cal = activeCalendars[0]
+    const parts = fromCanonicalMinutes(cal, minutes)
+    return parts ? formatCalendarDate(cal, parts) : null
   }
 
   const toggleActiveCalendar = (title: string, active: boolean): void => {
@@ -187,12 +207,18 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
         )}
       </div>
 
+      <p className="right-panel-note pill-timeline-range">
+        {activeCalendars.length === 0
+          ? 'Check a calendar above to see dates here — otherwise this shows only bare pill titles/counts.'
+          : `Viewing: ${formatWindowEdge(currentWindow.start)} → ${formatWindowEdge(currentWindow.end)}`}
+      </p>
+
       <div className="pill-timeline-track" ref={setContainer}>
         {placements.map((p, i) => (
           <div key={i} className="pill-anchor" style={{ left: `${p.positionFraction * 100}%` }}>
             {p.kind === 'cluster' ? (
               <button className="pill pill-cluster" onClick={() => zoomIn(p.minutes)} title="Zoom in on this cluster">
-                {p.events.length}
+                {p.events.length} event{p.events.length === 1 ? '' : 's'} →
               </button>
             ) : (
               <>

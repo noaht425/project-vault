@@ -38,21 +38,36 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
 
   useEffect(() => {
     const load = async (): Promise<void> => {
-      const [allEvents, calendarMatches, workspaceSettings] = await Promise.all([
-        window.cloudApi.listEvents(),
-        noteRefApi.searchTitles('', 'calendar'),
-        window.cloudApi.getWorkspaceSettings()
-      ])
-      setEvents(allEvents)
-      setSettings(workspaceSettings)
-      const defs = await Promise.all(
-        calendarMatches.map(async (m) => {
-          const fm = await noteRefApi.readFrontmatterByTitle(m.title, 'calendar')
-          const parsed = fm ? calendarFrontmatterSchema.safeParse(fm) : null
-          return parsed?.success ? { title: m.title, frontmatter: parsed.data } : null
-        })
-      )
-      setCalendars(defs.filter((d): d is { title: string; frontmatter: CalendarFrontmatter } => d !== null))
+      try {
+        const [allEvents, calendarMatches, workspaceSettings] = await Promise.all([
+          window.cloudApi.listEvents(),
+          noteRefApi.searchTitles('', 'calendar'),
+          // Falls back to "no active calendars" rather than letting a
+          // failure here (e.g. the active_calendar_titles migration not
+          // having been run yet against this Supabase project — see
+          // docs/plans/2026-07-28-calendar-timeline-system.md's step 6
+          // notes) reject the whole Promise.all and leave this view stuck
+          // on "Loading…" forever, since nothing else here depends on it.
+          window.cloudApi.getWorkspaceSettings().catch(() => ({ activeCalendarNoteTitles: [] }))
+        ])
+        setEvents(allEvents)
+        setSettings(workspaceSettings)
+        const defs = await Promise.all(
+          calendarMatches.map(async (m) => {
+            const fm = await noteRefApi.readFrontmatterByTitle(m.title, 'calendar')
+            const parsed = fm ? calendarFrontmatterSchema.safeParse(fm) : null
+            return parsed?.success ? { title: m.title, frontmatter: parsed.data } : null
+          })
+        )
+        setCalendars(defs.filter((d): d is { title: string; frontmatter: CalendarFrontmatter } => d !== null))
+      } catch (err) {
+        // Any other failure (e.g. listEvents/searchTitles itself) still
+        // shouldn't leave this view stuck on "Loading…" forever — fall
+        // back to empty rather than hang indefinitely.
+        console.error('Failed to load pill timeline data:', err)
+        setEvents((prev) => prev ?? [])
+        setCalendars((prev) => prev ?? [])
+      }
     }
     void load()
     const off = window.cloudApi.onTreeUpdated(() => void load())
@@ -109,6 +124,16 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
       })
       .filter((label): label is string => label !== null)
     return labels.length > 0 ? labels.join(' / ') : event.date || 'Undated'
+  }
+
+  // For an arbitrary point on the axis (a window edge, not a specific
+  // event) there's no free-text fallback — null means "no active
+  // calendar to format this with."
+  const formatWindowEdge = (minutes: number): string | null => {
+    if (activeCalendars.length === 0) return null
+    const cal = activeCalendars[0]
+    const parts = fromCanonicalMinutes(cal, minutes)
+    return parts ? formatCalendarDate(cal, parts) : null
   }
 
   const toggleActiveCalendar = (title: string, active: boolean): void => {
@@ -181,12 +206,18 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
         )}
       </div>
 
+      <p className="right-panel-note pill-timeline-range">
+        {activeCalendars.length === 0
+          ? 'Check a calendar above to see dates here — otherwise this shows only bare pill titles/counts.'
+          : `Viewing: ${formatWindowEdge(currentWindow.start)} → ${formatWindowEdge(currentWindow.end)}`}
+      </p>
+
       <div className="pill-timeline-track" ref={setContainer}>
         {placements.map((p, i) => (
           <div key={i} className="pill-anchor" style={{ left: `${p.positionFraction * 100}%` }}>
             {p.kind === 'cluster' ? (
               <button className="pill pill-cluster" onClick={() => zoomIn(p.minutes)} title="Zoom in on this cluster">
-                {p.events.length}
+                {p.events.length} event{p.events.length === 1 ? '' : 's'} →
               </button>
             ) : (
               <>

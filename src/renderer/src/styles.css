@@ -284,6 +284,10 @@ button.active {
 .pill-timeline-toolbar {
   display: flex;
   gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pill-timeline-range {
   margin-bottom: 24px;
 }
 
