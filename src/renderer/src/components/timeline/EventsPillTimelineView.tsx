@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { EventSummary, VaultSettings } from '../../../../common/types'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../../../../common/noteTypes/calendar'
 import { toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate } from '../../../../common/calendarMath'
@@ -34,7 +34,13 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
   const [center, setCenter] = useState<number | null>(null)
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   const [containerWidth, setContainerWidth] = useState(0)
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  // A callback ref, not a plain useRef + effect-on-mount — the track div
+  // only exists once `events`/`calendars` finish loading (the initial
+  // render shows the "Loading…" branch instead), so an effect with `[]`
+  // deps would fire once against a still-null ref and never run again.
+  // A callback ref fires exactly when the node actually attaches,
+  // whichever render pass that happens on.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const load = async (): Promise<void> => {
@@ -61,12 +67,11 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
   }, [])
 
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
+    if (!container) return
     const observer = new ResizeObserver((entries) => setContainerWidth(entries[0].contentRect.width))
-    observer.observe(el)
+    observer.observe(container)
     return () => observer.disconnect()
-  }, [])
+  }, [container])
 
   const calendarByTitle = useMemo(() => new Map((calendars ?? []).map((c) => [c.title, c.frontmatter])), [calendars])
 
@@ -182,7 +187,7 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
         )}
       </div>
 
-      <div className="pill-timeline-track" ref={containerRef}>
+      <div className="pill-timeline-track" ref={setContainer}>
         {placements.map((p, i) => (
           <div key={i} className="pill-anchor" style={{ left: `${p.positionFraction * 100}%` }}>
             {p.kind === 'cluster' ? (
