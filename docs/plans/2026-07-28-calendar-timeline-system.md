@@ -440,12 +440,11 @@ marker file/mechanism needed.
   Cloud repo: `npm run build` (Next.js + full TypeScript check) and
   `npm run lint` both clean, `/api/migrate-dates` confirmed registered
   in the build's route list.
-- **NOT YET PUSHED to project-vault-cloud** as of writing this — that
-  repo's `main` has GitHub-auto-deploy-to-production wired up (push =
-  immediate live Vercel deploy), a bigger-consequence action than this
-  session's other pushes, so it's being confirmed with the user
-  separately before pushing rather than bundled into the usual
-  commit/push rhythm.
+- **Pushed to project-vault-cloud** (commit `9f0d30b`) after separately
+  confirming with the user, since that repo's `main` auto-deploys to
+  production on push (a bigger-consequence action than this session's
+  other pushes) — the new endpoint should be live and running
+  automatically on the next Cloud Workspace sign-in.
 - **Still open**: no live end-to-end test against a real Supabase
   workspace was run (would require real auth/credentials) — only unit
   tests of the pure matching logic and a clean `next build` typecheck.
