@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   BUILDING_CATEGORIES,
   SETTLEMENT_SIZE_IDS,
@@ -6,7 +7,7 @@ import {
   type SettlementFrontmatter
 } from '../../../../common/noteTypes/settlement'
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement } from '../../../../common/settlementGenerator'
-import { BASELINE_RACES, NAME_INSPIRATION_SOURCES } from '../../../../common/settlementNames'
+import { BASELINE_RACES, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 
 // All the generation-input editors, mirroring GenerationOptions field for
@@ -22,6 +23,8 @@ export function SettlementSetupTab({
   data: SettlementFrontmatter
   updateFrontmatter: (patch: Record<string, unknown>) => void
 }): React.JSX.Element {
+  const [lastGenerated, setLastGenerated] = useState<string | null>(null)
+
   const updateBuildingType = (id: string, patch: Record<string, unknown>): void =>
     updateFrontmatter({ buildingTypes: data.buildingTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)) })
 
@@ -57,6 +60,7 @@ export function SettlementSetupTab({
       () => crypto.randomUUID()
     )
     updateFrontmatter({ buildings: result.buildings, residents: result.residents })
+    setLastGenerated(`Generated ${result.residents.length.toLocaleString()} residents across ${result.buildings.length.toLocaleString()} buildings.`)
   }
 
   return (
@@ -126,18 +130,70 @@ export function SettlementSetupTab({
 
       <div style={{ marginTop: 12 }}>
         <strong>Districts</strong>
+        <p className="right-panel-note">
+          Each district can optionally boost which building types get placed there — a "Religious District" only
+          skews toward temples/shrines if you check them below. Soft bias, not exclusive: a boosted district gets
+          MOST of that type, not all of it.
+        </p>
         {data.districts.map((d) => (
-          <div key={d.id} style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
-            <input
-              style={{ flex: 1 }}
-              value={d.name}
-              onChange={(e) => updateFrontmatter({ districts: data.districts.map((x) => (x.id === d.id ? { ...x, name: e.target.value } : x)) })}
-            />
-            <button onClick={() => updateFrontmatter({ districts: data.districts.filter((x) => x.id !== d.id) })}>✕</button>
+          <div key={d.id} style={{ marginTop: 6 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                style={{ flex: 1 }}
+                value={d.name}
+                onChange={(e) => updateFrontmatter({ districts: data.districts.map((x) => (x.id === d.id ? { ...x, name: e.target.value } : x)) })}
+              />
+              <button onClick={() => updateFrontmatter({ districts: data.districts.filter((x) => x.id !== d.id) })}>✕</button>
+            </div>
+            <details style={{ marginTop: 2 }}>
+              <summary style={{ fontSize: 12, cursor: 'pointer' }}>
+                Boosts ({d.buildingTypeBoosts.length})
+              </summary>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, paddingLeft: 8 }}>
+                {data.buildingTypes.map((bt) => {
+                  const boost = d.buildingTypeBoosts.find((b) => b.buildingTypeId === bt.id)
+                  const setBoosts = (boosts: SettlementFrontmatter['districts'][number]['buildingTypeBoosts']): void =>
+                    updateFrontmatter({ districts: data.districts.map((x) => (x.id === d.id ? { ...x, buildingTypeBoosts: boosts } : x)) })
+                  return (
+                    <label key={bt.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <input
+                        type="checkbox"
+                        checked={!!boost}
+                        onChange={(e) =>
+                          setBoosts(
+                            e.target.checked
+                              ? [...d.buildingTypeBoosts, { buildingTypeId: bt.id, multiplier: 2 }]
+                              : d.buildingTypeBoosts.filter((b) => b.buildingTypeId !== bt.id)
+                          )
+                        }
+                      />
+                      {bt.name}
+                      {boost && (
+                        <input
+                          type="number"
+                          style={{ width: 42 }}
+                          step={0.5}
+                          value={boost.multiplier}
+                          onChange={(e) =>
+                            setBoosts(
+                              d.buildingTypeBoosts.map((b) => (b.buildingTypeId === bt.id ? { ...b, multiplier: Number(e.target.value) } : b))
+                            )
+                          }
+                        />
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
+            </details>
           </div>
         ))}
         <div className="sheet-row" style={{ marginTop: 4 }}>
-          <button onClick={() => updateFrontmatter({ districts: [...data.districts, { id: crypto.randomUUID(), name: 'New District' }] })}>
+          <button
+            onClick={() =>
+              updateFrontmatter({ districts: [...data.districts, { id: crypto.randomUUID(), name: 'New District', buildingTypeBoosts: [] }] })
+            }
+          >
             + Add district
           </button>
           <button
@@ -344,6 +400,7 @@ export function SettlementSetupTab({
         <button className="sheet-open-ref-button" onClick={handleGenerate}>
           Generate
         </button>
+        {lastGenerated && <p className="right-panel-note">{lastGenerated}</p>}
       </div>
     </div>
   )
@@ -420,7 +477,7 @@ function RaceCard({
         <select value={row.race} onChange={(e) => handleRaceIdChange(e.target.value)}>
           {BASELINE_RACES.map((id) => (
             <option key={id} value={id}>
-              {id.charAt(0).toUpperCase() + id.slice(1)}
+              {raceLabel(id)}
             </option>
           ))}
           {data.customRaces

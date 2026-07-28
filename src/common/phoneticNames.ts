@@ -59,6 +59,20 @@ export const SYLLABLE_BANK: PhoneticSyllable[] = [
   { text: 'Ug', position: 'start', tags: ['plosive', 'back-of-mouth', 'short-vowel'] },
   { text: 'Hra', position: 'start', tags: ['fricative', 'guttural', 'back-of-mouth', 'short-vowel'] },
   { text: 'Cha', position: 'start', tags: ['affricate', 'front-of-mouth', 'short-vowel'] },
+  // Added for the draconic/fey/aquatic/insectoid profiles below (see
+  // PHONETIC_PROFILES) — the original 2-profile bank had zero
+  // guttural+long-vowel or affricate-at-middle/end syllables, which would
+  // have made those profiles indistinguishable from harsh-guttural or
+  // generically sibilant instead of genuinely their own sound. Verified via
+  // a throwaway sample-output test before landing (see phoneticNames.test.ts
+  // for the permanent distinctness tests that replaced it).
+  { text: 'Khaa', position: 'start', tags: ['plosive', 'guttural', 'back-of-mouth', 'long-vowel'] }, // draconic
+  { text: 'Vraa', position: 'start', tags: ['plosive', 'guttural', 'back-of-mouth', 'long-vowel'] }, // draconic
+  { text: 'Lae', position: 'start', tags: ['liquid', 'front-of-mouth', 'long-vowel'] }, // fey
+  { text: 'Nyo', position: 'start', tags: ['nasal', 'liquid', 'front-of-mouth', 'long-vowel'] }, // fey
+  { text: 'Zhae', position: 'start', tags: ['sibilant', 'liquid', 'front-of-mouth', 'long-vowel'] }, // aquatic
+  { text: 'Tzi', position: 'start', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
+  { text: 'Vael', position: 'start', tags: ['fricative', 'liquid', 'front-of-mouth', 'long-vowel'] }, // celestial
   // middle
   { text: 'wen', position: 'middle', tags: ['nasal', 'front-of-mouth', 'short-vowel'] },
   { text: 'riel', position: 'middle', tags: ['liquid', 'front-of-mouth', 'long-vowel'] },
@@ -78,6 +92,11 @@ export const SYLLABLE_BANK: PhoneticSyllable[] = [
   { text: 'vor', position: 'middle', tags: ['fricative', 'back-of-mouth', 'short-vowel'] },
   { text: 'essa', position: 'middle', tags: ['fricative', 'sibilant', 'front-of-mouth', 'short-vowel'] },
   { text: 'aeli', position: 'middle', tags: ['liquid', 'front-of-mouth', 'long-vowel'] },
+  { text: 'graa', position: 'middle', tags: ['plosive', 'guttural', 'back-of-mouth', 'long-vowel'] }, // draconic
+  { text: 'lyoo', position: 'middle', tags: ['liquid', 'nasal', 'front-of-mouth', 'long-vowel'] }, // fey
+  { text: 'shaal', position: 'middle', tags: ['sibilant', 'liquid', 'front-of-mouth', 'long-vowel'] }, // aquatic
+  { text: 'tza', position: 'middle', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
+  { text: 'chik', position: 'middle', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
   // end
   { text: 'wyn', position: 'end', tags: ['nasal', 'front-of-mouth', 'short-vowel'] },
   { text: 'iel', position: 'end', tags: ['liquid', 'front-of-mouth', 'long-vowel'] },
@@ -96,12 +115,23 @@ export const SYLLABLE_BANK: PhoneticSyllable[] = [
   { text: 'gnar', position: 'end', tags: ['plosive', 'back-of-mouth', 'short-vowel'] },
   { text: 'zog', position: 'end', tags: ['plosive', 'back-of-mouth', 'short-vowel'] },
   { text: 'vyn', position: 'end', tags: ['fricative', 'nasal', 'front-of-mouth', 'short-vowel'] },
-  { text: 'aelle', position: 'end', tags: ['liquid', 'front-of-mouth', 'long-vowel'] }
+  { text: 'aelle', position: 'end', tags: ['liquid', 'front-of-mouth', 'long-vowel'] },
+  { text: 'graun', position: 'end', tags: ['plosive', 'guttural', 'back-of-mouth', 'long-vowel'] }, // draconic
+  { text: 'loon', position: 'end', tags: ['liquid', 'nasal', 'front-of-mouth', 'long-vowel'] }, // fey
+  { text: 'zhoo', position: 'end', tags: ['sibilant', 'liquid', 'front-of-mouth', 'long-vowel'] }, // aquatic
+  { text: 'tik', position: 'end', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
+  { text: 'chiss', position: 'end', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] } // insectoid
 ]
 
-// Proof-of-concept pair chosen to sound clearly different from each other —
-// matches the user's own example ("elves lean on f/s/sh sounds") against an
-// opposite, harsher profile. Iterate/add more once these are reviewed.
+// Originally a proof-of-concept pair (elvish-leaning vs. harsh-guttural)
+// chosen to sound clearly different from each other — the user confirmed
+// the mechanism works and asked for more. The 6 below (draconic through
+// insectoid) were each built as a distinct tag-weight emphasis so they read
+// as their own sound rather than a re-shuffle of the original 2 or of each
+// other — see the syllable bank additions above (search "// draconic" etc.)
+// added specifically to back these up, since several of these emphases
+// (guttural+long-vowel, affricate at middle/end) had zero matching
+// syllables in the original ~54-entry bank.
 export const PHONETIC_PROFILES: PhoneticProfile[] = [
   {
     id: 'elvish-leaning',
@@ -139,6 +169,126 @@ export const PHONETIC_PROFILES: PhoneticProfile[] = [
       sibilant: 0.3,
       'front-of-mouth': 0.3,
       'long-vowel': 0.2
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'draconic',
+    name: 'Draconic (weighty, drawn-out)',
+    description: 'Favors plosive/guttural sounds like harsh-guttural, but LONG vowels instead of short — weighty and drawn-out rather than clipped.',
+    tagWeights: {
+      plosive: 4,
+      guttural: 4,
+      'back-of-mouth': 3,
+      'long-vowel': 3,
+      nasal: 1,
+      liquid: 0.5,
+      fricative: 0.5,
+      sibilant: 0.3,
+      affricate: 0.5,
+      'front-of-mouth': 0.3,
+      'short-vowel': 0.3
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'fey-whimsical',
+    name: 'Fey / Whimsical (light, airy, sing-song)',
+    description: 'Favors nasal/liquid sounds, front-of-mouth articulation, and long vowels — light and airy rather than grounded.',
+    tagWeights: {
+      nasal: 4,
+      liquid: 4,
+      'front-of-mouth': 3,
+      'long-vowel': 3,
+      fricative: 1,
+      sibilant: 1,
+      affricate: 0.3,
+      plosive: 0.3,
+      guttural: 0.1,
+      'back-of-mouth': 0.3,
+      'short-vowel': 0.8
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'aquatic',
+    name: 'Aquatic (flowing)',
+    description: 'Favors sibilant/liquid sounds and long vowels — flowing, like water over stone.',
+    tagWeights: {
+      sibilant: 4,
+      liquid: 4,
+      'long-vowel': 3,
+      fricative: 2,
+      nasal: 1,
+      'front-of-mouth': 1.5,
+      affricate: 0.3,
+      plosive: 0.3,
+      guttural: 0.2,
+      'back-of-mouth': 0.5,
+      'short-vowel': 0.8
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'stony-giant-kin',
+    name: 'Stony / Giant-kin (blunt, heavy)',
+    description: 'Favors plosive/nasal sounds, back-of-mouth articulation, and short vowels — blunt and heavy. For a custom giant-flavored race (Goliath already has its own name-list bank).',
+    tagWeights: {
+      plosive: 4,
+      nasal: 4,
+      'back-of-mouth': 3,
+      'short-vowel': 3,
+      guttural: 1,
+      liquid: 0.5,
+      fricative: 0.5,
+      sibilant: 0.3,
+      affricate: 0.3,
+      'front-of-mouth': 0.3,
+      'long-vowel': 0.5
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'celestial-ethereal',
+    name: 'Celestial / Ethereal (soft, open)',
+    description: 'Favors fricative/liquid sounds, long vowels, and front-of-mouth articulation — softer and more open than elvish-leaning, without leaning on sibilants.',
+    tagWeights: {
+      fricative: 3,
+      liquid: 4,
+      'long-vowel': 4,
+      'front-of-mouth': 3,
+      nasal: 1.5,
+      sibilant: 1,
+      affricate: 0.3,
+      plosive: 0.3,
+      guttural: 0.1,
+      'back-of-mouth': 0.3,
+      'short-vowel': 0.8
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'insectoid-alien',
+    name: 'Insectoid / Alien (clicking, buzzing)',
+    description: 'Favors affricate/sibilant sounds and short vowels — clicking and buzzing rather than spoken.',
+    tagWeights: {
+      affricate: 4,
+      sibilant: 4,
+      'short-vowel': 3,
+      fricative: 1.5,
+      plosive: 1,
+      nasal: 0.5,
+      liquid: 0.3,
+      'front-of-mouth': 1,
+      'back-of-mouth': 1,
+      guttural: 0.3,
+      'long-vowel': 0.3
     },
     syllableMin: 2,
     syllableMax: 3
@@ -198,7 +348,13 @@ function isPronounceable(word: string): boolean {
 // fine in most combinations and only occasionally seams badly with its
 // neighbor, so retrying the combination (not the syllable choice) is the
 // right level to fix this at.
-const MAX_SYNTHESIS_ATTEMPTS = 8
+// Bumped from 8 to 20 when the syllable bank grew for the profile-expansion
+// pass (phoneticNames.ts's PHONETIC_PROFILES) — more syllables per position
+// means more possible seams, so a slightly unlucky rng draw could exhaust 8
+// attempts more often than it used to (surfaced by the "Draaelle" case: Dra
+// + aelle, both pre-existing syllables, seaming into a 3-vowel run). More
+// attempts costs nothing but a few extra rng() calls in the rare case.
+const MAX_SYNTHESIS_ATTEMPTS = 20
 
 function synthesizeWord(profile: PhoneticProfile, rng: () => number): string {
   let fallback = ''

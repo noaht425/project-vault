@@ -26,6 +26,9 @@ export function buildPromotedNpcFrontmatter(resident: SettlementResident, distri
     `${resident.race || 'Unknown race'}, age ${resident.age}${resident.gender ? `, ${resident.gender}` : ''}.`,
     districtName ? `Lives in ${districtName}.` : '',
     wealthTierName ? `${wealthTierName} class.` : '',
+    resident.jobTitle ? `${resident.jobTitle}.` : '',
+    !resident.notable && resident.employmentStatus === 'unemployed' ? 'Unemployed.' : '',
+    resident.homeless ? 'Homeless.' : '',
     resident.religion ? `Follows ${resident.religion}.` : ''
   ]
     .filter(Boolean)
@@ -55,7 +58,9 @@ export function buildPromotedLocationFrontmatter(
     summary: [buildingTypeName || 'Building', districtName ? `in ${districtName}` : ''].filter(Boolean).join(' ')
   }
 
-  const body = wealthTierName ? `${wealthTierName}-tier establishment.` : ''
+  const tierLine = wealthTierName ? `${wealthTierName}-tier establishment.` : ''
+  const inventory = building.inventory ?? []
+  const inventoryLine = inventory.length > 0 ? `In stock: ${inventory.join(', ')}.` : ''
 
-  return { frontmatter, body }
+  return { frontmatter, body: [tierLine, inventoryLine].filter(Boolean).join('\n\n') }
 }

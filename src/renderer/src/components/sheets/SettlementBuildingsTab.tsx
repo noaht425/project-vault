@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { SettlementBuilding, SettlementFrontmatter } from '../../../../common/noteTypes/settlement'
 import { buildPromotedLocationFrontmatter } from '../../../../common/settlementPromotion'
 import type { NoteRefApi } from '../../lib/noteRefApi'
@@ -63,6 +63,7 @@ export function SettlementBuildingsTab({
   const [typeFilter, setTypeFilter] = useState('')
   const [wealthFilter, setWealthFilter] = useState('')
   const [districtFilter, setDistrictFilter] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [promotingId, setPromotingId] = useState<string | null>(null)
   const [promoteError, setPromoteError] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
@@ -86,7 +87,10 @@ export function SettlementBuildingsTab({
     ? [...filtered].sort((a, b) => {
         const va = getSortValue(a, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
         const vb = getSortValue(b, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
-        const cmp = va < vb ? -1 : va > vb ? 1 : 0
+        const cmp =
+          typeof va === 'string' && typeof vb === 'string'
+            ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
+            : va < vb ? -1 : va > vb ? 1 : 0
         return sortDir === 'asc' ? cmp : -cmp
       })
     : filtered
@@ -193,23 +197,54 @@ export function SettlementBuildingsTab({
               </tr>
             </thead>
             <tbody>
-              {pageItems.map((b) => (
-                <tr key={b.id}>
-                  <td>{b.name}</td>
-                  <td>{buildingTypeById.get(b.buildingTypeId)?.name ?? b.buildingTypeId}</td>
-                  <td>{wealthTierNameById.get(b.wealthTierId) ?? ''}</td>
-                  <td>{districtNameById.get(b.districtId) ?? ''}</td>
-                  <td>
-                    {b.linkedNoteTitle ? (
-                      <button onClick={() => void noteRefApi.openByTitle(b.linkedNoteTitle!, 'location')}>Open note →</button>
-                    ) : (
-                      <button disabled={promotingId === b.id} onClick={() => void promote(b)}>
-                        {promotingId === b.id ? 'Promoting…' : 'Promote to Location'}
-                      </button>
+              {pageItems.map((b) => {
+                const residentsHere = data.residents.filter((r) => r.homeBuildingId === b.id || r.professionBuildingId === b.id)
+                return (
+                  <Fragment key={b.id}>
+                    <tr onClick={() => setExpandedId(expandedId === b.id ? null : b.id)} style={{ cursor: 'pointer' }}>
+                      <td>{b.name}</td>
+                      <td>{buildingTypeById.get(b.buildingTypeId)?.name ?? b.buildingTypeId}</td>
+                      <td>{wealthTierNameById.get(b.wealthTierId) ?? ''}</td>
+                      <td>{districtNameById.get(b.districtId) ?? ''}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {b.linkedNoteTitle ? (
+                          <button onClick={() => void noteRefApi.openByTitle(b.linkedNoteTitle!, 'location')}>Open note →</button>
+                        ) : (
+                          <button disabled={promotingId === b.id} onClick={() => void promote(b)}>
+                            {promotingId === b.id ? 'Promoting…' : 'Promote to Location'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {expandedId === b.id && (
+                      <tr>
+                        <td colSpan={5} style={{ background: 'rgba(127,127,127,0.08)', padding: 8 }}>
+                          {residentsHere.length === 0 ? (
+                            <div className="right-panel-note">No residents live or work here.</div>
+                          ) : (
+                            residentsHere.map((r) => {
+                              const roles: string[] = []
+                              if (r.homeBuildingId === b.id) roles.push('lives here')
+                              if (r.professionBuildingId === b.id) roles.push(r.jobTitle ? r.jobTitle.toLowerCase() : 'works here')
+                              return (
+                                <div key={r.id}>
+                                  {r.name} <span className="right-panel-note">({roles.join(', ')})</span>
+                                </div>
+                              )
+                            })
+                          )}
+                          {b.inventory.length > 0 && (
+                            <div style={{ marginTop: residentsHere.length > 0 ? 8 : 0 }}>
+                              <strong>In stock</strong>
+                              <div className="right-panel-note">{b.inventory.join(', ')}</div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
           {totalPages > 1 && (

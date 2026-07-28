@@ -209,6 +209,111 @@ function pickProficiencies(buildingType: BuildingTypeDef | undefined, rng: () =>
   return picked
 }
 
+// Age-gated employment for STUB residents (notables are always "employed" —
+// see the notable-generation loop below). The user was explicit that a
+// child having a job should be a hard 0%, not just unlikely; everything
+// else is a simple piecewise-linear ramp/plateau/decline shape, tunable
+// here without hunting through the algorithm:
+// 0% at adulthood -> ramps up to a plateau by adulthood + (oldAge-adulthood)
+// * EMPLOYMENT_RAMP_FRACTION -> holds the plateau until oldAge -> ramps back
+// down to a low-but-nonzero floor by maxAge (some people do work into old
+// age).
+const EMPLOYMENT_RAMP_FRACTION = 0.25
+const EMPLOYMENT_PLATEAU_RATE = 0.75
+const EMPLOYMENT_ELDERLY_FLOOR = 0.12
+
+function employmentProbability(age: number, stage: RaceLifeStage): number {
+  if (age < stage.adulthood) return 0
+  const rampEnd = stage.adulthood + (stage.oldAge - stage.adulthood) * EMPLOYMENT_RAMP_FRACTION
+  if (rampEnd > stage.adulthood && age < rampEnd) {
+    return EMPLOYMENT_PLATEAU_RATE * ((age - stage.adulthood) / (rampEnd - stage.adulthood))
+  }
+  if (age <= stage.oldAge) return EMPLOYMENT_PLATEAU_RATE
+  if (stage.maxAge <= stage.oldAge) return EMPLOYMENT_ELDERLY_FLOOR
+  const t = Math.min(1, (age - stage.oldAge) / (stage.maxAge - stage.oldAge))
+  return EMPLOYMENT_PLATEAU_RATE + (EMPLOYMENT_ELDERLY_FLOOR - EMPLOYMENT_PLATEAU_RATE) * t
+}
+
+const GENERIC_JOB_TITLES = ['Laborer', 'Hand', 'Worker']
+
+/** A stub's job title comes from their workplace's jobTitlePool — falls back to a generic title for a building type with none configured, same fallback spirit used elsewhere in this file rather than leaving it blank. */
+function pickJobTitle(buildingType: BuildingTypeDef | undefined, rng: () => number): string {
+  const pool = buildingType?.jobTitlePool ?? []
+  if (pool.length > 0) return pool[Math.floor(rng() * pool.length)]
+  return GENERIC_JOB_TITLES[Math.floor(rng() * GENERIC_JOB_TITLES.length)]
+}
+
+// Homelessness is a deliberate state (see noteTypes/settlement.ts's
+// `homeless` field comment), independent of wealth tier — only rolled for
+// unemployed adults already in the settlement's lowest wealth tier (the
+// last entry in `wealthTiers`, same "list order = rank" convention the UI
+// already relies on for wealth-tier sorting). A tunable rate, not derived
+// from anything more precise.
+const HOMELESS_RATE = 0.08
+
+// Target stock count for a shop/tavern/religious building's inventory, by
+// settlement size — round numbers, not derived from anything more precise.
+// Only building types with a non-empty itemPool generate inventory at all
+// (see buildInventory below); civic/residence types are skipped entirely
+// regardless of size.
+const STOCK_COUNT_BY_SIZE: Record<string, { min: number; max: number }> = {
+  hamlet: { min: 2, max: 4 },
+  village: { min: 4, max: 6 },
+  town: { min: 6, max: 9 },
+  city: { min: 9, max: 13 },
+  metropolis: { min: 13, max: 18 }
+}
+
+// Magic Item Shop draws from a much larger single pool (~375 items, see its
+// itemPool in noteTypes/settlement.ts) than a mundane shop's 5-25 items, so
+// the default stock counts above would barely sample it — confirmed with
+// the user: a shop should pull a bigger selection (around 30 for a typical
+// size), scaling with settlement size same as everything else here.
+const STOCK_COUNT_OVERRIDE_BY_TYPE_ID: Record<string, Record<string, { min: number; max: number }>> = {
+  'magic-item-shop': {
+    town: { min: 15, max: 20 },
+    city: { min: 22, max: 28 },
+    metropolis: { min: 28, max: 36 }
+  }
+}
+
+/**
+ * Picks a building's actual stock from its type's itemPool — weighted by
+ * `sizeGateMultiplier` (reusing the exact same function that gates whole
+ * building types by size) so a hamlet's shop mostly draws common items with
+ * an occasional rare one slipping in, while a metropolis version skews
+ * toward the pool's fancier end. Pick-without-replacement, same pattern as
+ * `pickProficiencies`; capped at the pool's actual size.
+ */
+function buildInventory(buildingType: BuildingTypeDef, sizeId: string, rng: () => number): string[] {
+  const pool = buildingType.itemPool ?? []
+  if (pool.length === 0) return []
+  const sizeTable = STOCK_COUNT_OVERRIDE_BY_TYPE_ID[buildingType.id] ?? STOCK_COUNT_BY_SIZE
+  const range = sizeTable[sizeId] ?? STOCK_COUNT_BY_SIZE.village
+  const targetCount = Math.min(pool.length, randomInt(range.min, range.max, rng))
+
+  const remaining = [...pool]
+  const picked: string[] = []
+  while (remaining.length > 0 && picked.length < targetCount) {
+    const weights = remaining.map((item) => sizeGateMultiplier(sizeId, item.minSizeId))
+    const total = weights.reduce((sum, w) => sum + w, 0)
+    let index = remaining.length - 1
+    if (total > 0) {
+      let roll = rng() * total
+      index = 0
+      for (; index < remaining.length; index++) {
+        roll -= weights[index]
+        if (roll <= 0) break
+      }
+      index = Math.min(index, remaining.length - 1)
+    } else {
+      index = Math.floor(rng() * remaining.length)
+    }
+    picked.push(remaining.splice(index, 1)[0].name)
+  }
+  return picked
+}
+
 const FALLBACK_LIFE_STAGE: RaceLifeStage = { race: 'human', adulthood: 18, oldAge: 70, maxAge: 90 }
 
 /** Falls back to the table's own 'human' row, then a hardcoded default, for any race with no life-stage entry — same fallback spirit as settlementNames.ts's resolveNameBank. */
@@ -309,7 +414,7 @@ export function generateSettlement(
   const keptBuildings = existing.buildings.filter((b) => b.linkedNoteTitle)
   const keptResidents = existing.residents.filter((r) => r.linkedNoteTitle)
 
-  const districts = options.districts.length > 0 ? options.districts : [{ id: 'main', name: 'Main District' }]
+  const districts = options.districts.length > 0 ? options.districts : [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }]
   const wealthTiers = options.wealthTiers
   const customRaces = options.customRaces ?? []
   const inspirationSources = options.inspirationSources ?? []
@@ -332,6 +437,28 @@ export function generateSettlement(
     const district = districts[districtCursor % districts.length]
     districtCursor++
     return district.id
+  }
+
+  // Weights every district's odds of getting THIS specific building type by
+  // its buildingTypeBoosts (see districtSchema) — a district themed toward
+  // temples should get MOST of them, not ALL, so every district still
+  // starts from a baseline weight of 1 (round-robin-equivalent) and a
+  // matching boost multiplies on top, same "soft bias, never a hard
+  // exclusion" shape as sizeGateMultiplier/specialtyMultiplier above. A
+  // district with no matching boost is exactly as likely as any other
+  // unboosted district, which is the round-robin-shaped fallback the design
+  // doc asked for, just expressed as weighted-random (consistent with every
+  // other pick in this generator) instead of a literal alternating cursor.
+  const pickDistrictIdForBuildingType = (buildingTypeId: string): string => {
+    const weights = districts.map((d) => (d.buildingTypeBoosts ?? []).find((b) => b.buildingTypeId === buildingTypeId)?.multiplier ?? 1)
+    const total = weights.reduce((sum, w) => sum + Math.max(0, w), 0)
+    if (total <= 0) return nextDistrictId()
+    let roll = rng() * total
+    for (let i = 0; i < districts.length; i++) {
+      roll -= Math.max(0, weights[i])
+      if (roll <= 0) return districts[i].id
+    }
+    return districts[districts.length - 1].id
   }
 
   const pickWealthTierId = (): string => pickByPercent(wealthTiers, rng)?.id ?? ''
@@ -362,8 +489,9 @@ export function generateSettlement(
       id: idFactory(),
       name: buildingType.id, // placeholder, fixed up to include the count below once every instance of this type is known
       buildingTypeId: buildingType.id,
+      inventory: buildInventory(buildingType, sizeId, rng),
       wealthTierId,
-      districtId: nextDistrictId(),
+      districtId: pickDistrictIdForBuildingType(buildingType.id),
       linkedNoteTitle: null
     })
   }
@@ -423,6 +551,11 @@ export function generateSettlement(
 
   const residenceBuildings = buildings.filter((b) => residenceTypes.some((t) => t.id === b.buildingTypeId))
   const staffedBuildingTypeById = new Map(staffedTypes.map((t) => [t.id, t]))
+  const staffedBuildings = buildings.filter((b) => staffedBuildingTypeById.get(b.buildingTypeId)?.staffed)
+  // Lowest wealth tier by list position — same "list order = rank"
+  // convention the People/Buildings tabs already rely on for wealth-tier
+  // sorting (see wealthTierRankById in those files).
+  const lowestWealthTierId = wealthTiers.length > 0 ? wealthTiers[wealthTiers.length - 1].id : ''
 
   const residents: SettlementResident[] = []
 
@@ -441,6 +574,12 @@ export function generateSettlement(
       age: randomAdultAge(resolveLifeStage(race, raceLifeStages), rng),
       gender,
       professionBuildingId: building.id,
+      // A notable definitionally runs the place they're staffed at (see
+      // BuildingTypeDef.staffed) — always "Owner" in v1 rather than drawn
+      // from a pool, since every staffed building has exactly one notable.
+      jobTitle: 'Owner',
+      employmentStatus: 'employed',
+      homeless: false,
       homeBuildingId: null,
       wealthTierId: building.wealthTierId,
       districtId: building.districtId,
@@ -475,17 +614,36 @@ export function generateSettlement(
   for (let i = 0; i < remainingPopulation; i++) {
     const race = pickRace()
     const gender = pickGender()
+    const lifeStage = resolveLifeStage(race, raceLifeStages)
+    const age = randomLifespanAge(lifeStage, rng)
     const homeBuildingId = nextHomeBuildingId(i)
     const home = homeBuildingId ? residenceBuildings.find((b) => b.id === homeBuildingId) : undefined
+    const wealthTierId = home?.wealthTierId ?? pickWealthTierId()
+
+    const employed = staffedBuildings.length > 0 && rng() < employmentProbability(age, lifeStage)
+    const workplace = employed ? staffedBuildings[Math.floor(rng() * staffedBuildings.length)] : undefined
+    const professionBuildingId = workplace?.id ?? null
+    const jobTitle = workplace ? pickJobTitle(staffedBuildingTypeById.get(workplace.buildingTypeId), rng) : ''
+
+    // Homelessness only rolled for unemployed adults already in the
+    // lowest wealth tier — see HOMELESS_RATE's comment. A homeless
+    // resident's homeBuildingId is forced null even if nextHomeBuildingId
+    // assigned one, since "homeless" should mean homeless.
+    const isAdult = age >= lifeStage.adulthood
+    const homeless = !employed && isAdult && wealthTierId === lowestWealthTierId && rng() < HOMELESS_RATE
+
     residents.push({
       id: idFactory(),
       name: nameFor(race, gender),
       race,
-      age: randomLifespanAge(resolveLifeStage(race, raceLifeStages), rng),
+      age,
       gender,
-      professionBuildingId: null,
-      homeBuildingId,
-      wealthTierId: home?.wealthTierId ?? pickWealthTierId(),
+      professionBuildingId,
+      jobTitle,
+      employmentStatus: employed ? 'employed' : 'unemployed',
+      homeless,
+      homeBuildingId: homeless ? null : homeBuildingId,
+      wealthTierId,
       districtId: home?.districtId ?? nextDistrictId(),
       religion: pickReligion(),
       notable: false,

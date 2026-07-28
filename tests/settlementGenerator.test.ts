@@ -5,6 +5,7 @@ import {
   defaultRaceLifeStages,
   defaultWealthTiers,
   type BuildingTypeDef,
+  type District,
   type RaceLifeStage,
   type SettlementBuilding,
   type SettlementResident,
@@ -518,5 +519,182 @@ describe('race life stages', () => {
       expect(stage.adulthood).toBeLessThan(stage.oldAge)
       expect(stage.oldAge).toBeLessThan(stage.maxAge)
     }
+  })
+})
+
+describe('stub employment', () => {
+  it('never employs a stub below their race\'s adulthood age — a hard 0%, not just unlikely', () => {
+    const options: GenerationOptions = {
+      population: 4000,
+      sizeId: 'city',
+      districts: [{ id: 'main', name: 'Main District' }],
+      raceDistribution: [{ race: 'human', percent: 100 }],
+      wealthTiers: defaultWealthTiers(),
+      religionDistribution: [{ religion: 'None', percent: 100 }],
+      buildingTypes: defaultBuildingTypes(),
+      raceLifeStages: [{ race: 'human', adulthood: 18, oldAge: 70, maxAge: 90 }]
+    }
+    const result = generateSettlement(options, undefined, seededRng(51), sequenceIds('r'))
+    const children = result.residents.filter((r) => !r.notable && r.age < 18)
+    expect(children.length).toBeGreaterThan(10)
+    expect(children.every((r) => r.employmentStatus === 'unemployed' && r.professionBuildingId === null && r.jobTitle === '')).toBe(true)
+  })
+
+  it('employs prime-working-age stubs at a meaningfully higher rate than stubs right at the elderly end', () => {
+    const options: GenerationOptions = {
+      population: 6000,
+      sizeId: 'city',
+      districts: [{ id: 'main', name: 'Main District' }],
+      raceDistribution: [{ race: 'human', percent: 100 }],
+      wealthTiers: defaultWealthTiers(),
+      religionDistribution: [{ religion: 'None', percent: 100 }],
+      buildingTypes: defaultBuildingTypes(),
+      raceLifeStages: [{ race: 'human', adulthood: 18, oldAge: 70, maxAge: 90 }]
+    }
+    const result = generateSettlement(options, undefined, seededRng(52), sequenceIds('r'))
+    const stubs = result.residents.filter((r) => !r.notable)
+    const primeAge = stubs.filter((r) => r.age >= 30 && r.age <= 60)
+    const nearMax = stubs.filter((r) => r.age >= 85 && r.age <= 90)
+    expect(primeAge.length).toBeGreaterThan(20)
+    expect(nearMax.length).toBeGreaterThan(5)
+
+    const primeRate = primeAge.filter((r) => r.employmentStatus === 'employed').length / primeAge.length
+    const nearMaxRate = nearMax.filter((r) => r.employmentStatus === 'employed').length / nearMax.length
+    expect(primeRate).toBeGreaterThan(nearMaxRate)
+  })
+
+  it('gives every notable an "Owner" job title and "employed" status', () => {
+    const result = generateSettlement(baseOptions({ sizeId: 'town', population: 2000 }), undefined, seededRng(53), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    expect(notables.length).toBeGreaterThan(5)
+    expect(notables.every((r) => r.jobTitle === 'Owner' && r.employmentStatus === 'employed' && !r.homeless)).toBe(true)
+  })
+
+  it('only marks homeless stubs as unemployed adults in the lowest wealth tier, never a notable', () => {
+    const result = generateSettlement(baseOptions({ sizeId: 'town', population: 3000 }), undefined, seededRng(54), sequenceIds('r'))
+    const homeless = result.residents.filter((r) => r.homeless)
+    expect(homeless.length).toBeGreaterThan(0)
+    expect(homeless.every((r) => !r.notable && r.employmentStatus === 'unemployed' && r.homeBuildingId === null)).toBe(true)
+    expect(homeless.every((r) => r.wealthTierId === 'lower')).toBe(true)
+  })
+})
+
+describe('building inventory', () => {
+  it('generates no inventory for civic/residence building types, which never carry an itemPool', () => {
+    const result = generateSettlement(baseOptions({ sizeId: 'town', population: 2000 }), undefined, seededRng(61), sequenceIds('r'))
+    const civicOrResidence = result.buildings.filter((b) => {
+      const type = defaultBuildingTypes().find((t) => t.id === b.buildingTypeId)
+      return type?.category === 'residence' || type?.category === 'civic'
+    })
+    expect(civicOrResidence.length).toBeGreaterThan(0)
+    expect(civicOrResidence.every((b) => b.inventory.length === 0)).toBe(true)
+  })
+
+  it('generates no inventory for a building type with an explicitly empty itemPool', () => {
+    const buildingTypes: BuildingTypeDef[] = [
+      { id: 'no-items-shop', name: 'No Items Shop', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
+    ]
+    const result = generateSettlement(
+      { population: 200, sizeId: 'village', districts: [{ id: 'main', name: 'Main District' }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      undefined,
+      seededRng(64),
+      sequenceIds('r')
+    )
+    expect(result.buildings.length).toBeGreaterThan(0)
+    expect(result.buildings.every((b) => b.inventory.length === 0)).toBe(true)
+  })
+
+  it('picks stock without replacement, scaling roughly with settlement size, and never exceeds the pool size', () => {
+    const itemPool = [
+      { name: 'Common Item A', minSizeId: 'hamlet' },
+      { name: 'Common Item B', minSizeId: 'hamlet' },
+      { name: 'Uncommon Item', minSizeId: 'village' },
+      { name: 'Rare Item', minSizeId: 'town' },
+      { name: 'Very Rare Item', minSizeId: 'city' }
+    ]
+    const buildingTypes: BuildingTypeDef[] = [
+      {
+        id: 'test-shop',
+        name: 'Test Shop',
+        category: 'shop',
+        defaultWealthTierId: '',
+        staffed: true,
+        weight: 1,
+        minSizeId: 'hamlet',
+        primaryAbility: '',
+        secondaryAbility: '',
+        proficiencyPool: [],
+        jobTitlePool: [],
+        itemPool
+      }
+    ]
+
+    const hamletResult = generateSettlement(
+      { population: 40, sizeId: 'hamlet', districts: [{ id: 'main', name: 'Main District' }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      undefined,
+      seededRng(62),
+      sequenceIds('r')
+    )
+    const metropolisResult = generateSettlement(
+      { population: 40000, sizeId: 'metropolis', districts: [{ id: 'main', name: 'Main District' }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      undefined,
+      seededRng(63),
+      sequenceIds('r')
+    )
+
+    for (const building of [...hamletResult.buildings, ...metropolisResult.buildings]) {
+      expect(building.inventory.length).toBeLessThanOrEqual(itemPool.length)
+      expect(new Set(building.inventory).size).toBe(building.inventory.length) // no duplicates
+    }
+
+    const hamletAvg = hamletResult.buildings.reduce((sum, b) => sum + b.inventory.length, 0) / hamletResult.buildings.length
+    const metropolisAvg = metropolisResult.buildings.reduce((sum, b) => sum + b.inventory.length, 0) / metropolisResult.buildings.length
+    expect(metropolisAvg).toBeGreaterThan(hamletAvg)
+  })
+})
+
+describe('district theming', () => {
+  const buildingTypes: BuildingTypeDef[] = [
+    { id: 'temple', name: 'Temple', category: 'religious', defaultWealthTierId: '', staffed: true, weight: 3, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
+  ]
+
+  it('places most, but not all, of a boosted building type in the district that boosts it', () => {
+    const districts: District[] = [
+      { id: 'religious-quarter', name: 'Religious Quarter', buildingTypeBoosts: [{ buildingTypeId: 'temple', multiplier: 20 }] },
+      { id: 'other', name: 'Other District', buildingTypeBoosts: [] }
+    ]
+    const result = generateSettlement(
+      { population: 8000, sizeId: 'city', districts, raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      undefined,
+      seededRng(71),
+      sequenceIds('r')
+    )
+    const temples = result.buildings.filter((b) => b.buildingTypeId === 'temple')
+    expect(temples.length).toBeGreaterThan(20)
+    const inQuarter = temples.filter((b) => b.districtId === 'religious-quarter').length
+    // Most, not all — a heavily-boosted district still shouldn't get every
+    // single instance (same "never a hard exclusion" philosophy tested
+    // elsewhere for sizeGateMultiplier).
+    expect(inQuarter / temples.length).toBeGreaterThan(0.7)
+    expect(inQuarter).toBeLessThan(temples.length)
+  })
+
+  it('spreads an unboosted building type roughly evenly across districts with no relevant boost', () => {
+    const districts: District[] = [
+      { id: 'a', name: 'District A', buildingTypeBoosts: [] },
+      { id: 'b', name: 'District B', buildingTypeBoosts: [] }
+    ]
+    const result = generateSettlement(
+      { population: 8000, sizeId: 'city', districts, raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      undefined,
+      seededRng(72),
+      sequenceIds('r')
+    )
+    const temples = result.buildings.filter((b) => b.buildingTypeId === 'temple')
+    expect(temples.length).toBeGreaterThan(20)
+    const inA = temples.filter((b) => b.districtId === 'a').length
+    const fraction = inA / temples.length
+    expect(fraction).toBeGreaterThan(0.35)
+    expect(fraction).toBeLessThan(0.65)
   })
 })

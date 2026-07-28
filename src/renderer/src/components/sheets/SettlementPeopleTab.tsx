@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import type { SettlementFrontmatter, SettlementResident } from '../../../../common/noteTypes/settlement'
 import { buildPromotedNpcFrontmatter } from '../../../../common/settlementPromotion'
+import { raceLabel } from '../../../../common/settlementNames'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
 type SortKey = 'name' | 'race' | 'age' | 'gender' | 'wealth' | 'district' | 'notable' | 'profession'
@@ -18,13 +19,14 @@ function getSortValue(
   key: SortKey,
   wealthTierRankById: Map<string, number>,
   districtNameById: Map<string, string>,
-  buildingNameById: Map<string, string>
+  buildingNameById: Map<string, string>,
+  customRaces: SettlementFrontmatter['customRaces']
 ): string | number {
   switch (key) {
     case 'name':
       return r.name.toLowerCase()
     case 'race':
-      return r.race.toLowerCase()
+      return raceLabel(r.race, customRaces).toLowerCase()
     case 'age':
       return r.age
     case 'gender':
@@ -102,9 +104,12 @@ export function SettlementPeopleTab({
 
   const sorted = sortKey
     ? [...filtered].sort((a, b) => {
-        const va = getSortValue(a, sortKey, wealthTierRankById, districtNameById, buildingNameById)
-        const vb = getSortValue(b, sortKey, wealthTierRankById, districtNameById, buildingNameById)
-        const cmp = va < vb ? -1 : va > vb ? 1 : 0
+        const va = getSortValue(a, sortKey, wealthTierRankById, districtNameById, buildingNameById, data.customRaces)
+        const vb = getSortValue(b, sortKey, wealthTierRankById, districtNameById, buildingNameById, data.customRaces)
+        const cmp =
+          typeof va === 'string' && typeof vb === 'string'
+            ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
+            : va < vb ? -1 : va > vb ? 1 : 0
         return sortDir === 'asc' ? cmp : -cmp
       })
     : filtered
@@ -163,7 +168,7 @@ export function SettlementPeopleTab({
           <option value="">All races</option>
           {races.map((r) => (
             <option key={r} value={r}>
-              {r}
+              {raceLabel(r, data.customRaces)}
             </option>
           ))}
         </select>
@@ -227,7 +232,7 @@ export function SettlementPeopleTab({
                 <SortableHeader label="Wealth" sortKeyValue="wealth" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="District" sortKeyValue="district" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Notable" sortKeyValue="notable" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                <SortableHeader label="Profession" sortKeyValue="profession" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Workplace" sortKeyValue="profession" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -236,7 +241,7 @@ export function SettlementPeopleTab({
                 <Fragment key={r.id}>
                   <tr onClick={() => setExpandedId(expandedId === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
                     <td>{r.name}</td>
-                    <td>{r.race}</td>
+                    <td>{raceLabel(r.race, data.customRaces)}</td>
                     <td>{r.age}</td>
                     <td>{r.gender}</td>
                     <td>{wealthTierNameById.get(r.wealthTierId) ?? ''}</td>
@@ -256,6 +261,7 @@ export function SettlementPeopleTab({
                   {expandedId === r.id && (
                     <tr>
                       <td colSpan={9} style={{ background: 'rgba(127,127,127,0.08)', padding: 8 }}>
+                        {r.jobTitle && <div>{r.jobTitle}</div>}
                         {r.notable ? (
                           <>
                             <div>{r.personalityLine}</div>
@@ -278,6 +284,8 @@ export function SettlementPeopleTab({
                           <div>{r.flavorTag}</div>
                         )}
                         <div className="right-panel-note" style={{ marginTop: 4 }}>
+                          {r.employmentStatus === 'unemployed' && !r.notable ? 'Unemployed. ' : ''}
+                          {r.homeless ? 'Homeless. ' : ''}
                           {r.religion ? `Follows ${r.religion}.` : ''}
                         </div>
                       </td>
