@@ -394,6 +394,39 @@ export const NAME_INSPIRATION_SOURCES: NameBank[] = [
     ]
   },
   {
+    id: 'british-isles',
+    name: 'British Isles (English / Irish / Welsh / Scottish)',
+    firstNamesMale: [
+      common('Edward'), common('Sean'), common('Rhys'), common('Angus'), common('Liam'),
+      normal('William'), normal('Henry'), normal('Arthur'), normal('Percy'),
+      normal('Declan'), normal('Cormac'), normal('Fionn'), normal('Ronan'),
+      normal('Dylan'), normal('Gareth'), normal('Owen'),
+      normal('Hamish'), normal('Callum'),
+      rare('Eoin'), rare('Gruffydd'), rare('Fergus')
+    ],
+    firstNamesFemale: [
+      common('Eleanor'), common('Niamh'), common('Carys'), common('Fiona'), common('Charlotte'),
+      normal('Beatrice'), normal('Edith'), normal('Margaret'), normal('Alice'),
+      normal('Aoife'), normal('Saoirse'), normal('Roisin'), normal('Maeve'),
+      normal('Bronwen'), normal('Gwendolyn'), normal('Rhiannon'),
+      normal('Isla'), normal('Elspeth'),
+      rare('Angharad'), rare('Catriona'), rare('Orla')
+    ],
+    firstNamesNeutral: [
+      common('Rowan'), common('Robin'),
+      normal('Kerry'), normal('Shay'), normal('Bryn'), normal('Ashby'), normal('Reagan'),
+      rare('Blair')
+    ],
+    lastNames: [
+      common('Baker'), common('Byrne'), common('Vaughan'), common('Fraser'), common('Turner'),
+      normal('Fletcher'), normal('Whitfield'), normal('Hartley'), normal('Sutton'),
+      normal('Doyle'), normal('Kavanagh'), normal('Malone'), normal('Brennan'),
+      normal('Pritchard'), normal('Llewellyn'), normal('Bevan'),
+      normal('Mackenzie'), normal('Cameron'), normal('Sinclair'),
+      rare('Ashworth'), rare('Flynn'), rare('Probert'), rare('Buchanan'), rare('Douglas')
+    ]
+  },
+  {
     id: 'eastern-european',
     name: 'Eastern European',
     firstNamesMale: [

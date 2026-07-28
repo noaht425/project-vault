@@ -62,6 +62,7 @@ describe('NAME_INSPIRATION_SOURCES', () => {
   const EXPECTED_SOURCE_IDS = [
     'nordic',
     'romantic',
+    'british-isles',
     'eastern-european',
     'east-asian',
     'south-asian',
@@ -71,7 +72,7 @@ describe('NAME_INSPIRATION_SOURCES', () => {
     'south-african'
   ]
 
-  it('has exactly the 9 confirmed real-world regional sources (no Native American entry — see file comment)', () => {
+  it('has exactly the 10 confirmed real-world regional sources (no Native American entry — see file comment)', () => {
     expect(NAME_INSPIRATION_SOURCES.map((s) => s.id).sort()).toEqual([...EXPECTED_SOURCE_IDS].sort())
   })
 
@@ -114,7 +115,7 @@ describe('resolveNameBank', () => {
         lastNames: [{ name: 'Dubois', weight: 1 }]
       }
     ]
-    const customRaces = [{ id: 'gnome', name: 'Gnome', inspirationSourceIds: ['germanic', 'french'], phoneticProfileId: null }]
+    const customRaces = [{ id: 'gnome', name: 'Gnome', inspirationSourceIds: ['germanic', 'french'], phoneticProfileIds: [] }]
     const bank = resolveNameBank('gnome', customRaces, sources)
     expect(bank.firstNamesMale.map((w) => w.name)).toEqual(['Heinrich', 'Étienne'])
     expect(bank.firstNamesFemale.map((w) => w.name)).toEqual(['Greta', 'Camille'])
@@ -122,7 +123,7 @@ describe('resolveNameBank', () => {
   })
 
   it('pools real inspiration sources (Nordic + Central African) for a custom race', () => {
-    const customRaces = [{ id: 'wanderer-folk', name: 'Wanderer-folk', inspirationSourceIds: ['nordic', 'central-african'], phoneticProfileId: null }]
+    const customRaces = [{ id: 'wanderer-folk', name: 'Wanderer-folk', inspirationSourceIds: ['nordic', 'central-african'], phoneticProfileIds: [] }]
     const bank = resolveNameBank('wanderer-folk', customRaces, NAME_INSPIRATION_SOURCES)
     const nordic = NAME_INSPIRATION_SOURCES.find((s) => s.id === 'nordic')!
     const centralAfrican = NAME_INSPIRATION_SOURCES.find((s) => s.id === 'central-african')!
@@ -132,7 +133,7 @@ describe('resolveNameBank', () => {
   })
 
   it('falls back to a generic bank for an unconfigured custom race', () => {
-    const customRaces = [{ id: 'gnome', name: 'Gnome', inspirationSourceIds: [], phoneticProfileId: null }]
+    const customRaces = [{ id: 'gnome', name: 'Gnome', inspirationSourceIds: [], phoneticProfileIds: [] }]
     const bank = resolveNameBank('gnome', customRaces, [])
     expect(bank.id).toBe('generic')
   })

@@ -61,15 +61,20 @@ export type ReligionShare = z.infer<typeof religionShareSchema>
 // user switching modes in a form doesn't lose the other mode's data):
 // - inspirationSourceIds: pools one or more real-world regional NameBanks
 //   (NAME_INSPIRATION_SOURCES) into one flat list to pick from.
-// - phoneticProfileId: synthesizes names on the fly from tagged syllables
-//   (see phoneticNames.ts) matching an invented sound profile instead of
-//   picking from any pre-written list — settlementGenerator.ts checks this
-//   FIRST, falling back to inspirationSourceIds pooling if unset.
+// - phoneticProfileIds: synthesizes names on the fly from tagged syllables
+//   (see phoneticNames.ts) matching one or more invented sound profiles
+//   instead of picking from any pre-written list — settlementGenerator.ts
+//   checks this FIRST, falling back to inspirationSourceIds pooling if
+//   empty. Multi-select, same shape as inspirationSourceIds: each generated
+//   name picks ONE profile at random from the selected set (not a blend of
+//   all of them), so a race built from e.g. draconic + aquatic profiles
+//   produces a population with SOME cleanly-draconic names and SOME
+//   cleanly-aquatic ones, rather than one washed-out in-between sound.
 export const customRaceDefSchema = z.object({
   id: z.string(),
   name: z.string(),
   inspirationSourceIds: z.array(z.string()).catch([]),
-  phoneticProfileId: z.string().nullable().catch(null)
+  phoneticProfileIds: z.array(z.string()).catch([])
 })
 export type CustomRaceDef = z.infer<typeof customRaceDefSchema>
 
@@ -151,7 +156,19 @@ export const buildingTypeDefSchema = z.object({
   // ever generate, regardless of weight/population (e.g. a city has ONE
   // Town Hall, not seventeen). Optional/undefined = unlimited, same as
   // every other building type's existing behavior.
-  maxInstances: z.number().nullable().optional()
+  maxInstances: z.number().nullable().optional(),
+  // Soft cap, as a percent (0-100) of the total staffed-building budget
+  // (population / POPULATION_PER_STAFFED_BUILDING) this type can ever
+  // claim, regardless of how high its weight is set. Unlike maxInstances
+  // this scales with settlement size instead of being a fixed count — a
+  // Temple weighted way up should still be capped as a SHARE of the town,
+  // not frozen at some absolute number that's wrong for both a village and
+  // a metropolis. Overflow past the cap is dropped, not redistributed to
+  // other types — same tradeoff maxInstances already makes (a slightly
+  // smaller total staffed-building count beats runaway overrepresentation
+  // of one type). Optional/undefined = unlimited, same as every other soft
+  // gate's default.
+  maxSharePercent: z.coerce.number().nullable().optional()
 })
 export type BuildingTypeDef = z.infer<typeof buildingTypeDefSchema>
 

@@ -23,17 +23,21 @@ describe('SYLLABLE_BANK', () => {
 })
 
 describe('PHONETIC_PROFILES', () => {
-  it('ships the 2 proof-of-concept profiles plus the 6 expansion profiles (8 total)', () => {
+  it('ships the 2 proof-of-concept profiles plus the 6 expansion profiles plus the 4 round-4 profiles (12 total)', () => {
     expect(PHONETIC_PROFILES.map((p) => p.id).sort()).toEqual([
+      'animalistic',
       'aquatic',
       'celestial-ethereal',
+      'demonic',
       'draconic',
       'elvish-leaning',
       'fey-whimsical',
+      'fire',
+      'birdlike',
       'harsh-guttural',
       'insectoid-alien',
       'stony-giant-kin'
-    ])
+    ].sort())
   })
 })
 
@@ -233,5 +237,88 @@ describe('generateSyntheticName', () => {
     const fey = PHONETIC_PROFILES.find((p) => p.id === 'fey-whimsical')!
     expect(countMatches(insectoid, insectoidMarkers)).toBeGreaterThan(countMatches(elvish, insectoidMarkers))
     expect(countMatches(insectoid, insectoidMarkers)).toBeGreaterThan(countMatches(fey, insectoidMarkers))
+  })
+
+  it('animalistic favors nasal+guttural sounds together far more than harsh-guttural, which is plosive-heavy not nasal-heavy', () => {
+    // A generic char-class marker (e.g. /[mn]/ or /ng|mn/) saturates at this
+    // bank size — plosive/nasal letters show up incidentally across many
+    // unrelated syllables' spellings, and syllable-seam concatenation can
+    // coincidentally produce "ng"/"mn" regardless of profile. Matching
+    // animalistic's own dedicated syllable spellings directly (same
+    // approach the insectoid-alien test above uses) is the reliable marker.
+    const nasalGutturalMarker = /ngar|nagh|mrag|rhag|mnar/i
+    const countMatches = (profile: PhoneticProfile, pattern: RegExp): number => {
+      const rng = seededRng(21)
+      let count = 0
+      for (let i = 0; i < 300; i++) {
+        if (pattern.test(generateSyntheticName(profile, rng))) count++
+      }
+      return count
+    }
+    const animalistic = PHONETIC_PROFILES.find((p) => p.id === 'animalistic')!
+    const harsh = PHONETIC_PROFILES.find((p) => p.id === 'harsh-guttural')!
+    expect(countMatches(animalistic, nasalGutturalMarker)).toBeGreaterThan(countMatches(harsh, nasalGutturalMarker))
+  })
+
+  it('fire favors plosive sounds far more than insectoid-alien, despite both leaning affricate/sibilant', () => {
+    // A generic plosive char class (/[kgbdpt]/) saturates near 100% for
+    // BOTH profiles at this bank size — plosive letters show up incidentally
+    // in plenty of non-plosive-tagged syllable spellings too (e.g.
+    // insectoid's own "tik"/"chik" spellings contain a 'k'). Matching fire's
+    // own dedicated syllable spellings directly (same approach the
+    // insectoid-alien test above uses for itself) is the reliable marker.
+    const fireMarkers = /tzak|krix|zhak|skrag|grix|tzik/i
+    const countMatches = (profile: PhoneticProfile, pattern: RegExp): number => {
+      const rng = seededRng(22)
+      let count = 0
+      for (let i = 0; i < 300; i++) {
+        if (pattern.test(generateSyntheticName(profile, rng))) count++
+      }
+      return count
+    }
+    const fire = PHONETIC_PROFILES.find((p) => p.id === 'fire')!
+    const insectoid = PHONETIC_PROFILES.find((p) => p.id === 'insectoid-alien')!
+    expect(countMatches(fire, fireMarkers)).toBeGreaterThan(countMatches(insectoid, fireMarkers))
+  })
+
+  it('birdlike favors short vowels far more than fey-whimsical, despite both leaning liquid — quick chirps vs long airy sing-song', () => {
+    // Both profiles lean heavily on liquid sounds (so a generic liquid check
+    // wouldn't discriminate them) — birdlike was built specifically to
+    // differ from fey-whimsical on vowel LENGTH, same "aa/au" long-vowel
+    // marker the draconic-vs-harsh-guttural test above uses. fey-whimsical
+    // should show this marker far more; birdlike should show it far less.
+    const longVowelMarkers = /aa|au/i
+    const countMatches = (profile: PhoneticProfile, pattern: RegExp): number => {
+      const rng = seededRng(23)
+      let count = 0
+      for (let i = 0; i < 300; i++) {
+        if (pattern.test(generateSyntheticName(profile, rng))) count++
+      }
+      return count
+    }
+    const birdlike = PHONETIC_PROFILES.find((p) => p.id === 'birdlike')!
+    const fey = PHONETIC_PROFILES.find((p) => p.id === 'fey-whimsical')!
+    expect(countMatches(fey, longVowelMarkers)).toBeGreaterThan(countMatches(birdlike, longVowelMarkers))
+  })
+
+  it('demonic favors fricative sounds far more than draconic, which is plosive-dominant not fricative-dominant, despite both leaning guttural/long-vowel', () => {
+    // Both profiles lean on guttural + long vowels (so a generic guttural/
+    // long-vowel check wouldn't discriminate them) — demonic was built to
+    // swap draconic's plosive dominance for fricative dominance, for a
+    // raspy/growling resonance instead of draconic's weighty/clipped one.
+    const fricativeChars = /[fsvz]|th|sh/i
+    const plosiveChars = /[kgbdpt]/i
+    const countMatches = (profile: PhoneticProfile, pattern: RegExp): number => {
+      const rng = seededRng(24)
+      let count = 0
+      for (let i = 0; i < 300; i++) {
+        if (pattern.test(generateSyntheticName(profile, rng))) count++
+      }
+      return count
+    }
+    const demonic = PHONETIC_PROFILES.find((p) => p.id === 'demonic')!
+    const draconic = PHONETIC_PROFILES.find((p) => p.id === 'draconic')!
+    expect(countMatches(demonic, fricativeChars)).toBeGreaterThan(countMatches(draconic, fricativeChars))
+    expect(countMatches(draconic, plosiveChars)).toBeGreaterThan(countMatches(demonic, plosiveChars))
   })
 })

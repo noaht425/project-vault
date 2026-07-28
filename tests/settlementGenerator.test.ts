@@ -216,7 +216,7 @@ describe('phonetic-profile custom races', () => {
   it('synthesizes resident names from the phonetic profile instead of a name-list pool', () => {
     const options = baseOptions({
       raceDistribution: [{ race: 'sylvani', percent: 100 }],
-      customRaces: [{ id: 'sylvani', name: 'Sylvani', inspirationSourceIds: [], phoneticProfileId: 'elvish-leaning' }]
+      customRaces: [{ id: 'sylvani', name: 'Sylvani', inspirationSourceIds: [], phoneticProfileIds: ['elvish-leaning'] }]
     })
     const result = generateSettlement(options, undefined, seededRng(11), sequenceIds('r'))
     // A synthesized name should never collide with the baseline human bank's
@@ -225,6 +225,35 @@ describe('phonetic-profile custom races', () => {
     // resolveNameBank's generic fallback.
     const lastNames = result.residents.map((r) => r.name.split(' ')[1])
     expect(lastNames.some((n) => n === 'Ashford' || n === 'Blackwell')).toBe(false)
+  })
+
+  it('with 2 phonetic profiles selected, picks ONE per name (not a blend) so both characteristic sounds show up across a population', () => {
+    // Elvish-leaning favors fricative/sibilant sounds, harsh-guttural favors
+    // plosive/guttural sounds (same markers tests/phoneticNames.test.ts uses
+    // to tell the two proof-of-concept profiles apart). A large population
+    // drawing from both should show a healthy share of EACH sound, not one
+    // profile dominating (which would indicate a bug in the random pick) and
+    // not every name sounding like a blended in-between of both (which would
+    // indicate the implementation blends tagWeights instead of picking one
+    // profile per name, contrary to what was confirmed with the user).
+    const fricativeChars = /[fsvz]|th|sh/i
+    const plosiveChars = /[kgbdpt]/i
+    const options = baseOptions({
+      population: 4000,
+      sizeId: 'city',
+      raceDistribution: [{ race: 'sylvani', percent: 100 }],
+      customRaces: [{ id: 'sylvani', name: 'Sylvani', inspirationSourceIds: [], phoneticProfileIds: ['elvish-leaning', 'harsh-guttural'] }]
+    })
+    const result = generateSettlement(options, undefined, seededRng(23), sequenceIds('r'))
+    const names = result.residents.map((r) => r.name)
+    expect(names.length).toBeGreaterThan(100)
+
+    const fricativeCount = names.filter((n) => fricativeChars.test(n)).length
+    const plosiveCount = names.filter((n) => plosiveChars.test(n)).length
+    // Both sounds should show up in a substantial share of names — neither
+    // profile silently starved out by the other.
+    expect(fricativeCount / names.length).toBeGreaterThan(0.15)
+    expect(plosiveCount / names.length).toBeGreaterThan(0.15)
   })
 })
 
@@ -654,6 +683,22 @@ describe('stub employment', () => {
     const result = generateSettlement(baseOptions({ sizeId: 'metropolis', population: 60000, buildingTypes }), undefined, seededRng(57), sequenceIds('r'))
     const townHalls = result.buildings.filter((b) => b.buildingTypeId === 'town-hall')
     expect(townHalls.length).toBe(1)
+  })
+
+  it('never lets a maxSharePercent-capped building type exceed its share of the staffed budget, even at a runaway weight', () => {
+    const buildingTypes: BuildingTypeDef[] = [
+      { id: 'temple', name: 'Temple', category: 'religious', defaultWealthTierId: '', staffed: true, weight: 500, minSizeId: 'hamlet', maxSharePercent: 10, primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], notableTitle: 'High Priest', itemPool: [] },
+      { id: 'general-store', name: 'General Store', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] },
+      { id: 'house', name: 'House', category: 'residence', defaultWealthTierId: '', staffed: false, weight: 40, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
+    ]
+    // Weight 500 vs. General Store's 1 would, uncapped, make Temple nearly
+    // the entire staffed budget (the reported bug: 121 Temples out of ~500
+    // staffed slots from a much smaller weight bump than this).
+    const result = generateSettlement(baseOptions({ sizeId: 'city', population: 20000, buildingTypes }), undefined, seededRng(58), sequenceIds('r'))
+    const staffedBudget = Math.round(20000 / 40)
+    const temples = result.buildings.filter((b) => b.buildingTypeId === 'temple')
+    expect(temples.length).toBeLessThanOrEqual(Math.floor((staffedBudget * 10) / 100))
+    expect(temples.length).toBeGreaterThan(0)
   })
 
   it('only marks homeless stubs as unemployed adults in the lowest wealth tier, never a notable', () => {

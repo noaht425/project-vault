@@ -406,7 +406,7 @@ export interface GenerationOptions {
   customRaces?: CustomRaceDef[]
   inspirationSources?: NameBank[]
   // Defaults to PHONETIC_PROFILES when omitted — a custom race's
-  // phoneticProfileId looks itself up in here.
+  // phoneticProfileIds look themselves up in here.
   phoneticProfiles?: PhoneticProfile[]
   wealthTiers: WealthTier[]
   religionDistribution: ReligionShare[]
@@ -502,14 +502,16 @@ export function generateSettlement(
   const pickRace = (): string => pickByPercent(options.raceDistribution, rng)?.race ?? 'human'
   const pickReligion = (): string => pickByPercent(options.religionDistribution, rng)?.religion ?? ''
   const pickGender = (): string => pickByPercent(GENDER_DISTRIBUTION, rng)?.gender ?? 'Male'
-  // A custom race with a phoneticProfileId set is synthesized from tagged
+  // A custom race with phoneticProfileIds set is synthesized from tagged
   // syllables (see phoneticNames.ts) instead of picking from a name-list
   // pool — checked first, per CustomRaceDef's "either/or, not both" design.
+  // Multiple selected profiles: each NAME picks one profile at random from
+  // the set (not a blend) so every individual name stays internally
+  // consistent while the race's population as a whole shows a mix.
   const nameFor = (race: string, gender: string): string => {
     const customRace = customRaces.find((r) => r.id === race)
-    const profile = customRace?.phoneticProfileId
-      ? phoneticProfiles.find((p) => p.id === customRace.phoneticProfileId)
-      : undefined
+    const matchingProfiles = phoneticProfiles.filter((p) => customRace?.phoneticProfileIds.includes(p.id))
+    const profile = matchingProfiles.length > 0 ? matchingProfiles[Math.floor(rng() * matchingProfiles.length)] : undefined
     if (profile) return generateSyntheticName(profile, rng)
     return generateName(resolveNameBank(race, customRaces, inspirationSources), gender, rng)
   }
@@ -576,7 +578,17 @@ export function generateSettlement(
     // to a capped type simply isn't redistributed elsewhere; a slightly
     // smaller total staffed-building count is a fine tradeoff for never
     // generating seventeen Town Halls.
-    const count = type.maxInstances != null ? Math.min(staffedCounts[i], type.maxInstances) : staffedCounts[i]
+    let count = type.maxInstances != null ? Math.min(staffedCounts[i], type.maxInstances) : staffedCounts[i]
+    // maxSharePercent is the same "don't redistribute, just drop the
+    // overflow" tradeoff, but as a percent of the whole staffed budget
+    // instead of a fixed count — so a weight cranked way up can still tilt
+    // generation hard toward a type without that type running away to
+    // dominate the settlement (e.g. a "religious city" bumping Temple's
+    // weight shouldn't be able to make Temple count exceed some sane share
+    // of all staffed buildings, no matter how high the weight goes).
+    if (type.maxSharePercent != null) {
+      count = Math.min(count, Math.floor((staffedBudget * type.maxSharePercent) / 100))
+    }
     for (let n = 0; n < count; n++) buildOneBuilding(type, wealthTierId)
   })
 

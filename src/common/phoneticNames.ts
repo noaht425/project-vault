@@ -73,6 +73,39 @@ export const SYLLABLE_BANK: PhoneticSyllable[] = [
   { text: 'Zhae', position: 'start', tags: ['sibilant', 'liquid', 'front-of-mouth', 'long-vowel'] }, // aquatic
   { text: 'Tzi', position: 'start', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
   { text: 'Vael', position: 'start', tags: ['fricative', 'liquid', 'front-of-mouth', 'long-vowel'] }, // celestial
+  // Added for the round-4 profile expansion (animalistic, fire, birdlike,
+  // demonic — see PHONETIC_PROFILES below). Same reasoning as the batch
+  // above: each of these 4 tag-weight emphases had zero (or near-zero)
+  // matching syllables in the bank as it stood, which would have made the
+  // new profile sound like a re-shuffle of an existing one instead of its
+  // own texture. Sampled with the throwaway-test pattern before landing.
+  { text: 'Ngar', position: 'start', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'Mrag', position: 'start', tags: ['nasal', 'liquid', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'Rhag', position: 'start', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'Nagh', position: 'start', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  // Tagged plosive-only, NOT affricate/sibilant/guttural — insectoid-alien
+  // weights affricate(4) and sibilant(4) higher than fire does (3.5/3), so a
+  // fire syllable tagged either would actually favor insectoid over fire.
+  // Plosive is the one tag fire clearly out-weights insectoid on (3 vs 1),
+  // so that's what fire's OWN dedicated syllables carry; fire's affricate/
+  // sibilant weight still gets its hiss/crackle flavor by drawing from the
+  // shared insectoid-tagged syllables above, same "reuse the existing bank
+  // for secondary color" pattern draconic/harsh-guttural use for guttural.
+  { text: 'Tzak', position: 'start', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'Krix', position: 'start', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'Zhak', position: 'start', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'Skrag', position: 'start', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'Chir', position: 'start', tags: ['sibilant', 'liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'Twil', position: 'start', tags: ['liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'Sri', position: 'start', tags: ['sibilant', 'liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'Fwit', position: 'start', tags: ['fricative', 'liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  // Only Vraul carries 'liquid' (a deliberate single growl-flavored variant)
+  // — liquid is birdlike's own top weight, so the rest of this batch avoids
+  // it to keep from leaking into birdlike's pool (same fix as above).
+  { text: 'Vraul', position: 'start', tags: ['fricative', 'liquid', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'Zhaul', position: 'start', tags: ['fricative', 'sibilant', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'Ghaul', position: 'start', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'Fraug', position: 'start', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
   // middle
   { text: 'wen', position: 'middle', tags: ['nasal', 'front-of-mouth', 'short-vowel'] },
   { text: 'riel', position: 'middle', tags: ['liquid', 'front-of-mouth', 'long-vowel'] },
@@ -97,6 +130,22 @@ export const SYLLABLE_BANK: PhoneticSyllable[] = [
   { text: 'shaal', position: 'middle', tags: ['sibilant', 'liquid', 'front-of-mouth', 'long-vowel'] }, // aquatic
   { text: 'tza', position: 'middle', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
   { text: 'chik', position: 'middle', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
+  { text: 'ngar', position: 'middle', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'mrag', position: 'middle', tags: ['nasal', 'liquid', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'grum', position: 'middle', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'nagh', position: 'middle', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'tzak', position: 'middle', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'krix', position: 'middle', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'zhak', position: 'middle', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'skrag', position: 'middle', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'chir', position: 'middle', tags: ['sibilant', 'liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'twil', position: 'middle', tags: ['liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'sri', position: 'middle', tags: ['sibilant', 'liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'fwit', position: 'middle', tags: ['fricative', 'liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'vraul', position: 'middle', tags: ['fricative', 'liquid', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'zhaul', position: 'middle', tags: ['fricative', 'sibilant', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'ghaul', position: 'middle', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'fraug', position: 'middle', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
   // end
   { text: 'wyn', position: 'end', tags: ['nasal', 'front-of-mouth', 'short-vowel'] },
   { text: 'iel', position: 'end', tags: ['liquid', 'front-of-mouth', 'long-vowel'] },
@@ -120,7 +169,23 @@ export const SYLLABLE_BANK: PhoneticSyllable[] = [
   { text: 'loon', position: 'end', tags: ['liquid', 'nasal', 'front-of-mouth', 'long-vowel'] }, // fey
   { text: 'zhoo', position: 'end', tags: ['sibilant', 'liquid', 'front-of-mouth', 'long-vowel'] }, // aquatic
   { text: 'tik', position: 'end', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
-  { text: 'chiss', position: 'end', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] } // insectoid
+  { text: 'chiss', position: 'end', tags: ['affricate', 'sibilant', 'front-of-mouth', 'short-vowel'] }, // insectoid
+  { text: 'nog', position: 'end', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'ragh', position: 'end', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'mnar', position: 'end', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'ang', position: 'end', tags: ['nasal', 'guttural', 'back-of-mouth', 'short-vowel'] }, // animalistic
+  { text: 'grix', position: 'end', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'tzik', position: 'end', tags: ['plosive', 'short-vowel'] }, // fire
+  { text: 'zhak', position: 'end', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'skrag', position: 'end', tags: ['plosive', 'back-of-mouth', 'short-vowel'] }, // fire
+  { text: 'chit', position: 'end', tags: ['sibilant', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'wril', position: 'end', tags: ['liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'sik', position: 'end', tags: ['sibilant', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'lir', position: 'end', tags: ['liquid', 'front-of-mouth', 'short-vowel'] }, // birdlike
+  { text: 'raugh', position: 'end', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'zhaun', position: 'end', tags: ['fricative', 'sibilant', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'ghraun', position: 'end', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] }, // demonic
+  { text: 'fraun', position: 'end', tags: ['fricative', 'guttural', 'back-of-mouth', 'long-vowel'] } // demonic
 ]
 
 // Originally a proof-of-concept pair (elvish-leaning vs. harsh-guttural)
@@ -289,6 +354,87 @@ export const PHONETIC_PROFILES: PhoneticProfile[] = [
       'back-of-mouth': 1,
       guttural: 0.3,
       'long-vowel': 0.3
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  // Round-4 expansion (4 more, on top of the 2 proof-of-concept + 6 above).
+  {
+    id: 'animalistic',
+    name: 'Animalistic / Feral (mammal)',
+    description: 'Favors nasal/guttural sounds together and short vowels — growly and breathy rather than articulate. Mammal-flavored; see birdlike for an avian counterpart.',
+    tagWeights: {
+      nasal: 4,
+      guttural: 4,
+      'back-of-mouth': 2.5,
+      'short-vowel': 3,
+      liquid: 1.5,
+      plosive: 1,
+      fricative: 1,
+      affricate: 0.5,
+      sibilant: 0.3,
+      'front-of-mouth': 0.5,
+      'long-vowel': 0.3
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'fire',
+    name: 'Fire / Ashen / Infernal (crackling, hissing, popping)',
+    description: 'Favors sibilant/affricate sounds like insectoid-alien, but with plosive AND guttural weight on top — popping and crackling rather than purely clicking.',
+    tagWeights: {
+      affricate: 3.5,
+      sibilant: 3,
+      plosive: 3,
+      guttural: 2,
+      'short-vowel': 3,
+      fricative: 1.5,
+      'back-of-mouth': 1.5,
+      nasal: 0.3,
+      liquid: 0.3,
+      'front-of-mouth': 0.5,
+      'long-vowel': 0.3
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'birdlike',
+    name: 'Birdlike / Avian (chirping, trilling)',
+    description: 'Favors liquid/sibilant sounds, front-of-mouth articulation, and short vowels — quick chirps and trills rather than fey-whimsical\'s long airy sing-song.',
+    tagWeights: {
+      liquid: 3.5,
+      sibilant: 2.5,
+      'front-of-mouth': 3,
+      'short-vowel': 3.5,
+      nasal: 1,
+      fricative: 1,
+      affricate: 0.4,
+      plosive: 0.4,
+      guttural: 0.1,
+      'back-of-mouth': 0.3,
+      'long-vowel': 0.4
+    },
+    syllableMin: 2,
+    syllableMax: 3
+  },
+  {
+    id: 'demonic',
+    name: 'Demonic / Devilish (infernal authority)',
+    description: 'Favors fricative/guttural sounds and long vowels — a deep, resonant growl rather than draconic\'s plosive-heavy weight or fire\'s short crackling pop.',
+    tagWeights: {
+      guttural: 4,
+      fricative: 3.5,
+      'long-vowel': 3,
+      'back-of-mouth': 2.5,
+      liquid: 1.5,
+      nasal: 1,
+      sibilant: 1,
+      plosive: 1,
+      affricate: 0.5,
+      'front-of-mouth': 0.5,
+      'short-vowel': 0.5
     },
     syllableMin: 2,
     syllableMax: 3

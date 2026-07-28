@@ -317,7 +317,10 @@ export function SettlementSetupTab({
           <strong>Weight</strong> is how often this type shows up relative to other types in the same category — a
           House at weight 40 vs. a Manor at weight 5 means far more houses get built. <strong>Min. size</strong> is a
           soft floor: below that settlement size this type is heavily deprioritized (not forbidden) — a Hamlet can
-          still roll a Guildhall, just rarely.
+          still roll a Guildhall, just rarely. <strong>Max %</strong> is an optional hard ceiling on how much of the
+          whole staffed-building budget this type can ever claim, no matter how high its weight is — leave blank for
+          unlimited. Useful when you want a type to show up MUCH more often (e.g. cranking Temple's weight way up for
+          a religious city) without it swallowing the entire settlement.
         </p>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
@@ -328,6 +331,7 @@ export function SettlementSetupTab({
               <th>Staffed</th>
               <th>Weight</th>
               <th>Min. size</th>
+              <th>Max %</th>
               <th></th>
             </tr>
           </thead>
@@ -375,6 +379,15 @@ export function SettlementSetupTab({
                       </option>
                     ))}
                   </select>
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    style={{ width: 55 }}
+                    placeholder="none"
+                    value={bt.maxSharePercent ?? ''}
+                    onChange={(e) => updateBuildingType(bt.id, { maxSharePercent: e.target.value === '' ? null : Number(e.target.value) })}
+                  />
                 </td>
                 <td>
                   <button onClick={() => updateFrontmatter({ buildingTypes: data.buildingTypes.filter((x) => x.id !== bt.id) })}>✕</button>
@@ -441,7 +454,7 @@ function RaceCard({
     if (newRaceId === '__new_custom__') {
       const newId = crypto.randomUUID()
       updateFrontmatter({
-        customRaces: [...data.customRaces, { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileId: null }],
+        customRaces: [...data.customRaces, { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileIds: [] }],
         raceDistribution: data.raceDistribution.map((x, xi) => (xi === index ? { ...x, race: newId } : x)),
         raceLifeStages: renameLifeStage(newId)
       })
@@ -541,19 +554,23 @@ function RaceCard({
         <div style={{ marginTop: 6 }}>
           <div className="sheet-row">
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-              <input type="radio" checked={!customRace.phoneticProfileId} onChange={() => updateCustomRaceField({ phoneticProfileId: null })} />
+              <input
+                type="radio"
+                checked={customRace.phoneticProfileIds.length === 0}
+                onChange={() => updateCustomRaceField({ phoneticProfileIds: [] })}
+              />
               Real-world inspiration sources
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
               <input
                 type="radio"
-                checked={!!customRace.phoneticProfileId}
-                onChange={() => updateCustomRaceField({ phoneticProfileId: PHONETIC_PROFILES[0].id, inspirationSourceIds: [] })}
+                checked={customRace.phoneticProfileIds.length > 0}
+                onChange={() => updateCustomRaceField({ phoneticProfileIds: [PHONETIC_PROFILES[0].id], inspirationSourceIds: [] })}
               />
-              Phonetic profile
+              Phonetic profile(s)
             </label>
           </div>
-          {!customRace.phoneticProfileId ? (
+          {customRace.phoneticProfileIds.length === 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
               {NAME_INSPIRATION_SOURCES.map((source) => (
                 <label key={source.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -573,17 +590,24 @@ function RaceCard({
               ))}
             </div>
           ) : (
-            <select
-              style={{ marginTop: 4 }}
-              value={customRace.phoneticProfileId}
-              onChange={(e) => updateCustomRaceField({ phoneticProfileId: e.target.value })}
-            >
-              {PHONETIC_PROFILES.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+              {PHONETIC_PROFILES.map((profile) => (
+                <label key={profile.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input
+                    type="checkbox"
+                    checked={customRace.phoneticProfileIds.includes(profile.id)}
+                    onChange={(e) =>
+                      updateCustomRaceField({
+                        phoneticProfileIds: e.target.checked
+                          ? [...customRace.phoneticProfileIds, profile.id]
+                          : customRace.phoneticProfileIds.filter((id) => id !== profile.id)
+                      })
+                    }
+                  />
+                  {profile.name}
+                </label>
               ))}
-            </select>
+            </div>
           )}
         </div>
       )}
