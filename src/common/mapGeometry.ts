@@ -225,9 +225,16 @@ export interface TripResult {
   segments: TripSegmentResult[]
 }
 
+// path is 2+ points — either the two endpoint pins of a straight-line trip,
+// or a longer hand-drawn route (see MapCanvas's 'draw-trip' mode) for a
+// journey that doesn't take the direct line, e.g. walking to a dock, taking
+// a boat across, then walking again on the far shore. Each leg between
+// consecutive path points is split and resolved independently and the
+// results concatenated — a route that alternates land/water several times
+// picks up the matching travel mode each time it crosses a landmass
+// boundary, with no need to tag each leg by hand.
 export function calculateTrip(
-  p1: Point,
-  p2: Point,
+  path: Point[],
   zones: MapZone[],
   lines: MapLine[],
   terrainTypes: TerrainType[],
@@ -235,38 +242,52 @@ export function calculateTrip(
   landmasses: MapLandmass[],
   waterTerrainTypeId: string | null,
   scale: MapScale,
-  travelMode: TravelMode
+  landTravelMode: TravelMode,
+  waterTravelMode: TravelMode
 ): TripResult {
   // A crossed segment's terrainTypeId may resolve against either pool —
   // zones only ever reference terrainTypes, but a line-derived corridor
   // (see lineToCorridorZones) carries the line's lineTypeId in that same
   // field, so both pools need to be searchable here.
   const multiplierById = new Map([...terrainTypes, ...lineTypes].map((t) => [t.id, t.speedMultiplier]))
-  const zoneSegments = splitLineByZones(p1, p2, zonesIncludingLines(zones, lines), landmasses)
+  const allZones = zonesIncludingLines(zones, lines)
 
+  let totalPixelDistance = 0
   let totalRealDistance = 0
   let totalTime = 0
-  const segments: TripSegmentResult[] = zoneSegments.map((seg) => {
-    const realDistance = pixelsToReal(seg.pixelLength, scale)
-    // An explicitly painted zone/line always wins, regardless of land or
-    // water. Otherwise land defaults to 1x (unchanged from before landmasses
-    // existed), and water defaults to the map's chosen water terrain type —
-    // or 1x too, if none has been picked yet, so drawing a landmass boundary
-    // without setting a water terrain is a visual no-op rather than a
-    // silent slowdown.
-    const multiplier =
-      seg.terrainTypeId !== null
-        ? (multiplierById.get(seg.terrainTypeId) ?? 1)
-        : seg.isLand || waterTerrainTypeId === null
-          ? 1
-          : (multiplierById.get(waterTerrainTypeId) ?? 1)
-    const effectiveSpeed = travelMode.speed * multiplier
-    const time = effectiveSpeed === 0 ? Infinity : realDistance / effectiveSpeed
+  const segments: TripSegmentResult[] = []
 
-    totalRealDistance += realDistance
-    totalTime += time
-    return { terrainTypeId: seg.terrainTypeId, isLand: seg.isLand, realDistance, time }
-  })
+  for (let i = 0; i < path.length - 1; i++) {
+    const p1 = path[i]
+    const p2 = path[i + 1]
+    totalPixelDistance += segmentDistance(p1, p2)
 
-  return { totalPixelDistance: segmentDistance(p1, p2), totalRealDistance, totalTime, segments }
+    for (const seg of splitLineByZones(p1, p2, allZones, landmasses)) {
+      const realDistance = pixelsToReal(seg.pixelLength, scale)
+      // Which travel mode's base speed applies is decided purely by land vs
+      // water — an explicitly painted zone/line's multiplier still always
+      // wins over the unpainted default, but it scales whichever of the two
+      // base speeds is in effect for that stretch of ground, same as a
+      // "Road" zone scales walking speed today. Otherwise land defaults to
+      // 1x (unchanged from before landmasses existed), and water defaults to
+      // the map's chosen water terrain type — or 1x too, if none has been
+      // picked yet, so drawing a landmass boundary without setting a water
+      // terrain is a visual no-op rather than a silent slowdown.
+      const travelMode = seg.isLand ? landTravelMode : waterTravelMode
+      const multiplier =
+        seg.terrainTypeId !== null
+          ? (multiplierById.get(seg.terrainTypeId) ?? 1)
+          : seg.isLand || waterTerrainTypeId === null
+            ? 1
+            : (multiplierById.get(waterTerrainTypeId) ?? 1)
+      const effectiveSpeed = travelMode.speed * multiplier
+      const time = effectiveSpeed === 0 ? Infinity : realDistance / effectiveSpeed
+
+      totalRealDistance += realDistance
+      totalTime += time
+      segments.push({ terrainTypeId: seg.terrainTypeId, isLand: seg.isLand, realDistance, time })
+    }
+  }
+
+  return { totalPixelDistance, totalRealDistance, totalTime, segments }
 }

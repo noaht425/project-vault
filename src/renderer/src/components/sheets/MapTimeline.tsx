@@ -141,7 +141,18 @@ export function MapTimeline({
             const prev = i > 0 ? revealed[i - 1] : null
             const trip =
               prev && scale && travelMode && prev.pin.id !== entry.pin.id
-                ? calculateTrip(prev.pin, entry.pin, zones, lines, terrainTypes, lineTypes, landmasses, waterTerrainTypeId, scale, travelMode)
+                ? calculateTrip(
+                    [prev.pin, entry.pin],
+                    zones,
+                    lines,
+                    terrainTypes,
+                    lineTypes,
+                    landmasses,
+                    waterTerrainTypeId,
+                    scale,
+                    travelMode,
+                    travelMode // Timeline keeps one mode selector for simplicity — no separate water mode here (yet).
+                  )
                 : null
             return (
               <div key={`${entry.event.path}-${i}`}>

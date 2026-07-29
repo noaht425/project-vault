@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { segmentDistance, type Point } from '../../../../common/mapGeometry'
 import { pinDisplayLabel, type LineType, type MapLandmass, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
 
-export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'place-pin'
+export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
 
 interface ViewBox {
   x: number
@@ -52,12 +52,18 @@ export interface MapCanvasProps {
   onZoneDrawn: (points: Point[]) => void
   onLineDrawn: (points: Point[]) => void
   onLandmassDrawn: (points: Point[]) => void
+  onTripDrawn: (points: Point[]) => void
   onPinPlaced: (point: Point) => void
   onPinClick: (pin: MapPin) => void
   // Pin ids to ring in an accent color — used by the Timeline section to
   // show which locations have a revealed event as the slider moves.
   // Optional since only that one caller needs it.
   highlightedPinIds?: Set<string>
+  // The Trip Calculator's currently active route (straight pin-to-pin, or a
+  // hand-drawn multi-leg path) — rendered as an overlay regardless of the
+  // current drawing mode, so it stays visible while you keep working the map.
+  // Null when nothing's being shown.
+  tripPath?: Point[] | null
 }
 
 export function MapCanvas({
@@ -75,15 +81,18 @@ export function MapCanvas({
   onZoneDrawn,
   onLineDrawn,
   onLandmassDrawn,
+  onTripDrawn,
   onPinPlaced,
   onPinClick,
-  highlightedPinIds
+  highlightedPinIds,
+  tripPath
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
   const [zoneDraft, setZoneDraft] = useState<Point[]>([])
   const [lineDraft, setLineDraft] = useState<Point[]>([])
   const [landmassDraft, setLandmassDraft] = useState<Point[]>([])
+  const [tripDraft, setTripDraft] = useState<Point[]>([])
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
   // The window-level mousemove/mouseup listeners below are only rebound
@@ -114,6 +123,7 @@ export function MapCanvas({
     setZoneDraft([])
     setLineDraft([])
     setLandmassDraft([])
+    setTripDraft([])
   }, [mode])
 
   useEffect(() => {
@@ -139,11 +149,18 @@ export function MapCanvas({
         } else if (e.key === 'Escape') {
           setLandmassDraft([])
         }
+      } else if (mode === 'draw-trip') {
+        if (e.key === 'Enter' && tripDraft.length >= 2) {
+          onTripDrawn(tripDraft)
+          setTripDraft([])
+        } else if (e.key === 'Escape') {
+          setTripDraft([])
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn, landmassDraft, onLandmassDrawn])
+  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn, landmassDraft, onLandmassDrawn, tripDraft, onTripDrawn])
 
   const clientToSvgPoint = (clientX: number, clientY: number): Point | null => {
     const rect = svgRef.current?.getBoundingClientRect()
@@ -170,6 +187,8 @@ export function MapCanvas({
       setLineDraft((pts) => [...pts, point])
     } else if (mode === 'paint-landmass') {
       setLandmassDraft((pts) => [...pts, point])
+    } else if (mode === 'draw-trip') {
+      setTripDraft((pts) => [...pts, point])
     } else if (mode === 'place-pin') {
       onPinPlaced(point)
     }
@@ -234,7 +253,7 @@ export function MapCanvas({
     // values from the dep list — only re-binding on the values above (same
     // as CloudGraphView's identical pattern) avoids tearing down and
     // rebuilding these window listeners on every pan tick.
-  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft, landmassDraft])
+  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft, landmassDraft, tripDraft])
 
   return (
     <svg
@@ -327,8 +346,46 @@ export function MapCanvas({
         </g>
       )}
 
+      {mode === 'draw-trip' && tripDraft.length > 0 && (
+        <g>
+          <polyline points={tripDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+          <polyline points={tripDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+          {tripDraft.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+          ))}
+        </g>
+      )}
+
       {mode === 'calibrate' && calibrationStart && (
         <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
+      )}
+
+      {tripPath && tripPath.length > 1 && (
+        <g>
+          {/* The active trip route — a straight pin-to-pin preview or a
+              hand-drawn multi-leg path, either way rendered the same way so
+              there's one visual language for "this is the route being timed"
+              regardless of how it was produced. High-contrast gold against
+              the black outline reads over any terrain color underneath. */}
+          <polyline
+            points={tripPath.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke="#000"
+            strokeWidth={6}
+            strokeLinecap="round"
+          />
+          <polyline
+            points={tripPath.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke="#ffd60a"
+            strokeWidth={3}
+            strokeDasharray="10,6"
+            strokeLinecap="round"
+          />
+          {tripPath.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={5} fill="#ffd60a" stroke="#000" strokeWidth={1.5} />
+          ))}
+        </g>
       )}
 
       <g>

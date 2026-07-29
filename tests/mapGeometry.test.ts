@@ -183,9 +183,10 @@ describe('calculateTrip', () => {
   ]
   const scale = { pixelDistance: 100, realDistance: 10, unit: 'miles' }
   const walking: TravelMode = { id: 'walk', name: 'Walking', speed: 2, timeUnitLabel: 'hours' }
+  const sailing: TravelMode = { id: 'sail', name: 'Sailing', speed: 4, timeUnitLabel: 'hours' }
 
   it('sums per-segment distance and time across crossed terrain, weighted by speed multiplier', () => {
-    const trip = calculateTrip({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES, [], terrainTypes, lineTypes, [], null, scale, walking)
+    const trip = calculateTrip([{ x: 50, y: 50 }, { x: 150, y: 50 }], ZONES, [], terrainTypes, lineTypes, [], null, scale, walking, walking)
 
     expect(trip.totalPixelDistance).toBe(100)
     expect(trip.totalRealDistance).toBe(10) // 100px * (10mi / 100px)
@@ -199,29 +200,62 @@ describe('calculateTrip', () => {
 
   it('produces Infinity total time when a crossed terrain is impassable (0 speed multiplier)', () => {
     const impassableForest = [{ ...terrainTypes[0], speedMultiplier: 0 }, terrainTypes[1]]
-    const trip = calculateTrip({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES, [], impassableForest, lineTypes, [], null, scale, walking)
+    const trip = calculateTrip(
+      [{ x: 50, y: 50 }, { x: 150, y: 50 }],
+      ZONES,
+      [],
+      impassableForest,
+      lineTypes,
+      [],
+      null,
+      scale,
+      walking,
+      walking
+    )
 
     expect(trip.segments[0].time).toBe(Infinity)
     expect(trip.totalTime).toBe(Infinity)
   })
 
   it('treats unpainted ground as a normal (1x) multiplier', () => {
-    const trip = calculateTrip({ x: 300, y: 300 }, { x: 400, y: 300 }, ZONES, [], terrainTypes, lineTypes, [], null, scale, walking)
+    const trip = calculateTrip([{ x: 300, y: 300 }, { x: 400, y: 300 }], ZONES, [], terrainTypes, lineTypes, [], null, scale, walking, walking)
 
     expect(trip.segments).toEqual([{ terrainTypeId: null, isLand: true, realDistance: 10, time: 5 }]) // 10mi at 2mph
   })
 
   it('speeds up a route that runs along a road line for its whole length', () => {
-    const noRoad = calculateTrip({ x: 10, y: 50 }, { x: 190, y: 50 }, [], [], terrainTypes, lineTypes, [], null, scale, walking)
-    const withRoad = calculateTrip({ x: 10, y: 50 }, { x: 190, y: 50 }, [], [ROAD_LINE], terrainTypes, lineTypes, [], null, scale, walking)
+    const noRoad = calculateTrip([{ x: 10, y: 50 }, { x: 190, y: 50 }], [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const withRoad = calculateTrip(
+      [{ x: 10, y: 50 }, { x: 190, y: 50 }],
+      [],
+      [ROAD_LINE],
+      terrainTypes,
+      lineTypes,
+      [],
+      null,
+      scale,
+      walking,
+      walking
+    )
 
     expect(withRoad.totalRealDistance).toBe(noRoad.totalRealDistance) // same ground covered...
     expect(withRoad.totalTime).toBeLessThan(noRoad.totalTime) // ...but faster, thanks to the road
   })
 
   it('slows down a route that crosses a river line', () => {
-    const noRiver = calculateTrip({ x: 0, y: 100 }, { x: 200, y: 100 }, [], [], terrainTypes, lineTypes, [], null, scale, walking)
-    const withRiver = calculateTrip({ x: 0, y: 100 }, { x: 200, y: 100 }, [], [RIVER_LINE], terrainTypes, lineTypes, [], null, scale, walking)
+    const noRiver = calculateTrip([{ x: 0, y: 100 }, { x: 200, y: 100 }], [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const withRiver = calculateTrip(
+      [{ x: 0, y: 100 }, { x: 200, y: 100 }],
+      [],
+      [RIVER_LINE],
+      terrainTypes,
+      lineTypes,
+      [],
+      null,
+      scale,
+      walking,
+      walking
+    )
 
     expect(withRiver.totalRealDistance).toBe(noRiver.totalRealDistance)
     expect(withRiver.totalTime).toBeGreaterThan(noRiver.totalTime)
@@ -229,17 +263,27 @@ describe('calculateTrip', () => {
 
   it('treats unpainted ground outside a landmass as normal (1x) speed until a water terrain is set', () => {
     // 150,50 sits outside CONTINENT (x=[0,100]) and outside every zone/line.
-    const trip = calculateTrip({ x: 120, y: 50 }, { x: 180, y: 50 }, [], [], terrainTypes, lineTypes, [CONTINENT], null, scale, walking)
+    const trip = calculateTrip(
+      [{ x: 120, y: 50 }, { x: 180, y: 50 }],
+      [],
+      [],
+      terrainTypes,
+      lineTypes,
+      [CONTINENT],
+      null,
+      scale,
+      walking,
+      walking
+    )
 
-    expect(trip.segments).toEqual([{ terrainTypeId: null, isLand: false, realDistance: 6, time: 3 }]) // 6mi at 2mph
+    expect(trip.segments).toEqual([{ terrainTypeId: null, isLand: false, realDistance: 6, time: 3 }]) // 6mi at 2mph (same mode both sides here)
   })
 
   it('applies the chosen water terrain multiplier outside a landmass, and normal speed inside it', () => {
     const oceanTerrainTypes: TerrainType[] = [...terrainTypes, { id: 'ocean', name: 'Ocean', color: '#3c8fe0', speedMultiplier: 0.25 }]
     // Route crosses straight out of CONTINENT (land, x<100) into open water (x>100).
     const trip = calculateTrip(
-      { x: 50, y: 50 },
-      { x: 150, y: 50 },
+      [{ x: 50, y: 50 }, { x: 150, y: 50 }],
       [],
       [],
       oceanTerrainTypes,
@@ -247,6 +291,7 @@ describe('calculateTrip', () => {
       [CONTINENT],
       'ocean',
       scale,
+      walking,
       walking
     )
 
@@ -264,8 +309,7 @@ describe('calculateTrip', () => {
     // the impassable ocean default.
     const oceanTerrainTypes: TerrainType[] = [...terrainTypes, { id: 'ocean', name: 'Ocean', color: '#3c8fe0', speedMultiplier: 0 }]
     const trip = calculateTrip(
-      { x: 110, y: 50 },
-      { x: 190, y: 50 },
+      [{ x: 110, y: 50 }, { x: 190, y: 50 }],
       ZONES,
       [],
       oceanTerrainTypes,
@@ -273,10 +317,67 @@ describe('calculateTrip', () => {
       [CONTINENT],
       'ocean',
       scale,
+      walking,
       walking
     )
 
     expect(trip.totalTime).not.toBe(Infinity)
     expect(trip.segments).toEqual([{ terrainTypeId: 'meadow', isLand: false, realDistance: 8, time: 8 / 3 }])
+  })
+
+  it('switches from the land mode to the water mode when an unpainted route crosses a landmass boundary', () => {
+    // Same crossing as the "applies the chosen water terrain multiplier"
+    // case above, but using distinct land/water travel modes (walking vs.
+    // sailing) instead of a water terrain multiplier — the mode swap alone
+    // should account for the speed change.
+    const trip = calculateTrip(
+      [{ x: 50, y: 50 }, { x: 150, y: 50 }],
+      [],
+      [],
+      terrainTypes,
+      lineTypes,
+      [CONTINENT],
+      null,
+      scale,
+      walking,
+      sailing
+    )
+
+    // land half: 5mi at 2mph (walking) -> 2.5h; water half: 5mi at 4mph (sailing) -> 1.25h
+    expect(trip.segments).toEqual([
+      { terrainTypeId: null, isLand: true, realDistance: 5, time: 2.5 },
+      { terrainTypeId: null, isLand: false, realDistance: 5, time: 1.25 }
+    ])
+    expect(trip.totalTime).toBeCloseTo(3.75, 10)
+  })
+
+  it('walks a multi-leg hand-drawn path (walk -> boat -> walk) and concatenates every leg', () => {
+    // A second landmass on the far side of the water gap so the drawn path
+    // re-enters land at the end, mirroring a real "walk to the dock, sail
+    // across, walk inland again" route.
+    const farShore: MapLandmass = {
+      id: 'landmass-far-shore',
+      name: 'Far Shore',
+      points: [
+        { x: 180, y: 0 },
+        { x: 260, y: 0 },
+        { x: 260, y: 100 },
+        { x: 180, y: 100 }
+      ]
+    }
+    const path = [
+      { x: 50, y: 50 }, // inside CONTINENT
+      { x: 150, y: 50 }, // open water, between the two landmasses
+      { x: 220, y: 50 } // inside farShore
+    ]
+    const trip = calculateTrip(path, [], [], terrainTypes, lineTypes, [CONTINENT, farShore], null, scale, walking, sailing)
+
+    // Leg 1 (land, 50->150px = 10mi at 2mph): splits at x=100 (CONTINENT's edge) into
+    // 5mi land (2.5h) + 5mi water (1.25h). Leg 2 (150->220px = 7mi) splits at x=180
+    // (farShore's edge) into 3mi water (0.75h) + 4mi land (2h).
+    expect(trip.totalPixelDistance).toBe(170)
+    expect(trip.segments.map((s) => s.isLand)).toEqual([true, false, false, true])
+    expect(trip.segments.map((s) => s.realDistance)).toEqual([5, 5, 3, 4])
+    expect(trip.totalTime).toBeCloseTo(2.5 + 1.25 + 0.75 + 2, 10)
   })
 })

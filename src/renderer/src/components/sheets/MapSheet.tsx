@@ -68,6 +68,15 @@ export function MapSheet({
   // above it, can ring the pins for whatever events are currently revealed.
   const [highlightedPinIds, setHighlightedPinIds] = useState<Set<string>>(new Set())
 
+  // Lifted up from the Trip Calculator section (below) for the same reason —
+  // MapCanvas renders above it but owns the actual overlay drawing.
+  // drawnTripPath is the raw hand-drawn route (see MapCanvas's 'draw-trip'
+  // mode); tripOverlayPath is whichever path (drawn or straight pin-to-pin)
+  // is currently shown on the map, which the calculator can toggle
+  // independently of whether a route has been drawn.
+  const [drawnTripPath, setDrawnTripPath] = useState<Point[] | null>(null)
+  const [tripOverlayPath, setTripOverlayPath] = useState<Point[] | null>(null)
+
   // Only for the line form's crossing-time preview below — travel modes
   // are otherwise entirely TravelModesEditor's/MapTripCalculator's concern.
   const travelModesNoteId = useTravelModesStore((s) => s.noteId)
@@ -320,6 +329,12 @@ export function MapSheet({
               every landmass is treated as water.
             </p>
           )}
+          {mode === 'draw-trip' && (
+            <p className="right-panel-note">
+              Click to trace the actual route you'd travel — it doesn't need to be straight, and doesn't need to start/end on a pin
+              (e.g. walk to a dock, cross the water, walk again). Press Enter to finish (2+ points), Escape to cancel.
+            </p>
+          )}
           {mode === 'place-pin' && !pendingPinPoint && <p className="right-panel-note">Click a spot on the map to place a pin.</p>}
 
           <div style={{ position: 'relative', height: 480, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -338,6 +353,11 @@ export function MapSheet({
               onZoneDrawn={setPendingZonePoints}
               onLineDrawn={setPendingLinePoints}
               onLandmassDrawn={setPendingLandmassPoints}
+              onTripDrawn={(points) => {
+                setDrawnTripPath(points)
+                setTripOverlayPath(points) // drawing a route implies showing it — no reason to hide what you just traced
+                setMode('view')
+              }}
               onPinPlaced={(point) => {
                 setPendingPinPoint(point)
                 setPinQuery('')
@@ -345,6 +365,7 @@ export function MapSheet({
               }}
               onPinClick={(pin) => pin.locationTitle && void noteRefApi.openByTitle(pin.locationTitle, 'location')}
               highlightedPinIds={highlightedPinIds}
+              tripPath={tripOverlayPath}
             />
           </div>
 
@@ -686,6 +707,13 @@ export function MapSheet({
           landmasses={data.landmasses}
           waterTerrainTypeId={data.waterTerrainTypeId}
           scale={data.scale}
+          drawnPath={drawnTripPath}
+          onClearDrawnPath={() => {
+            setDrawnTripPath(null)
+            setTripOverlayPath(null)
+          }}
+          onStartDrawing={() => setMode('draw-trip')}
+          onShowPathChange={setTripOverlayPath}
         />
       </details>
 
