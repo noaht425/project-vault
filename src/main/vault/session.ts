@@ -41,6 +41,17 @@ import type {
 // a vault might contain.
 const VAULT_SETTINGS_FILENAME = '.project-vault-settings.json'
 
+// searchTitles powers every autocomplete/datalist picker in the app
+// (Location/Calendar fields, the Settlement religion picker, Family Tree's
+// person picker, ...). A picker with no type filter — Family Tree's, e.g.,
+// which spans every note in the vault — can easily have more than a couple
+// dozen candidates; a low cap combined with `ORDER BY title` silently hides
+// anything alphabetically past the cutoff (confirmed bug: a PC named
+// starting with a later letter never appeared while an earlier-alphabet one
+// did). High enough that it's effectively "no vault will ever hit this" for
+// a single-user campaign tool, while still bounding a pathological case.
+const SEARCH_TITLES_LIMIT = 500
+
 function defaultVaultSettings(): VaultSettings {
   return { activeCalendarNoteTitles: [] }
 }
@@ -311,10 +322,10 @@ export class VaultSession {
     const db = this.requireDb()
     const rows = type
       ? (db
-          .prepare('SELECT path, title FROM notes WHERE title LIKE ? AND type = ? ORDER BY title LIMIT 20')
+          .prepare(`SELECT path, title FROM notes WHERE title LIKE ? AND type = ? ORDER BY title LIMIT ${SEARCH_TITLES_LIMIT}`)
           .all(`%${query}%`, type) as { path: string; title: string }[])
       : (db
-          .prepare('SELECT path, title FROM notes WHERE title LIKE ? ORDER BY title LIMIT 20')
+          .prepare(`SELECT path, title FROM notes WHERE title LIKE ? ORDER BY title LIMIT ${SEARCH_TITLES_LIMIT}`)
           .all(`%${query}%`) as { path: string; title: string }[])
     return rows
   }
