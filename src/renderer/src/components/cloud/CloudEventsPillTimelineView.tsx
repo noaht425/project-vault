@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CloudEventSummary, CloudWorkspaceSettings } from '../../../../common/cloudTypes'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../../../../common/noteTypes/calendar'
-import { toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate } from '../../../../common/calendarMath'
+import { toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate, computeMoonPhase } from '../../../../common/calendarMath'
 import {
   computeFullWindow,
   windowForZoom,
@@ -149,6 +149,21 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
       })
       .filter((label): label is string => label !== null)
     return labels.length > 0 ? labels.join(' / ') : event.date || 'Undated'
+  }
+
+  // Every active calendar's own moons (a calendar with none contributes
+  // nothing) — cycleDays/phaseOffsetDays are calendar-agnostic (see
+  // calendarMoonSchema's comment), so a moon shared conceptually across
+  // calendars would just need re-declaring per calendar, same as everything
+  // else calendar-scoped in this app.
+  const formatMoonPhases = (minutes: number): string | null => {
+    const labels = activeCalendars.flatMap((cal) =>
+      cal.moons.map((moon) => {
+        const phase = computeMoonPhase(cal, moon, minutes)
+        return `${phase.emoji} ${moon.name}: ${phase.name}`
+      })
+    )
+    return labels.length > 0 ? labels.join(' · ') : null
   }
 
   const toggleActiveCalendar = (title: string, active: boolean): void => {
@@ -307,6 +322,7 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
                   {p.event.structuredDate?.annualRecurrence && ' (recurs annually)'}
                 </div>
                 <div className="pill-expanded-title">{p.event.name}</div>
+                {formatMoonPhases(p.minutes) && <div className="pill-expanded-moons">{formatMoonPhases(p.minutes)}</div>}
                 {p.event.summary && <div className="pill-expanded-summary">{p.event.summary}</div>}
                 <button className="sheet-open-ref-button" onClick={() => onOpenEvent(p.event.id)}>
                   Open note ↗

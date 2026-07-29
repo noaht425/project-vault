@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
+import { z } from 'zod'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { eventFrontmatterSchema, type EventStructuredDate } from '../../../../common/noteTypes/event'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../../../../common/noteTypes/calendar'
+import { climateFrontmatterSchema, type ClimateFrontmatter } from '../../../../common/noteTypes/climate'
+import { computeMoonPhase, toCanonicalMinutes } from '../../../../common/calendarMath'
+import { computeWeatherForDate } from '../../../../common/weatherGeneration'
 import type { NoteRefApi } from '../../lib/noteRefApi'
+
+// A minimal shape for reading just `climateNoteTitle` off whatever note
+// `data.location` points at — it could be a `location` or `settlement` note
+// (either can carry a climate reference), and this sheet doesn't otherwise
+// need either one's full schema, just this one field.
+const placeClimateRefSchema = z.object({ climateNoteTitle: z.string().nullable().catch(null) }).passthrough()
 
 export function EventSheet({
   content,
@@ -22,6 +32,12 @@ export function EventSheet({
   // default — this sheet needs the frontmatter to populate the era/month
   // dropdowns. Refetched whenever structuredDate.calendarNoteTitle changes.
   const [calendarDef, setCalendarDef] = useState<CalendarFrontmatter | null>(null)
+  // Two-hop lookup — data.location (a location or settlement note's title)
+  // -> that note's own optional climateNoteTitle -> the actual climate
+  // note's frontmatter. Same cross-note lookup mechanism as calendarDef
+  // above, just chained once since a climate isn't referenced directly by
+  // the event, only indirectly through wherever it happens.
+  const [climateDef, setClimateDef] = useState<ClimateFrontmatter | null>(null)
 
   useEffect(() => {
     void noteRefApi.searchTitles('', 'location').then((matches) => setLocationOptions(matches.map((m) => m.title)))
@@ -41,6 +57,31 @@ export function EventSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.structuredDate?.calendarNoteTitle])
 
+  useEffect(() => {
+    const locationTitle = data.location?.trim()
+    if (!locationTitle) {
+      setClimateDef(null)
+      return
+    }
+    let cancelled = false
+    // No type filter — the location field can point at either a `location`
+    // or `settlement` note, either of which can carry climateNoteTitle.
+    void noteRefApi.readFrontmatterByTitle(locationTitle).then(async (placeFm) => {
+      if (cancelled) return
+      const climateTitle = placeFm ? placeClimateRefSchema.parse(placeFm).climateNoteTitle : null
+      if (!climateTitle) {
+        setClimateDef(null)
+        return
+      }
+      const climateFm = await noteRefApi.readFrontmatterByTitle(climateTitle, 'climate')
+      if (!cancelled) setClimateDef(climateFm ? climateFrontmatterSchema.parse(climateFm) : null)
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.location])
+
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))
   }
@@ -52,6 +93,12 @@ export function EventSheet({
     if (!data.location?.trim()) return
     await noteRefApi.openByTitle(data.location.trim(), 'location')
   }
+
+  // Shared by both the moon-phase and weather displays below — computed
+  // once here rather than duplicating the calendarDef/structuredDate
+  // null-check in two separate inline blocks.
+  const structuredMinutes = calendarDef && data.structuredDate ? toCanonicalMinutes(calendarDef, data.structuredDate) : null
+  const weather = climateDef && calendarDef && structuredMinutes !== null ? computeWeatherForDate(climateDef, calendarDef, structuredMinutes) : null
 
   return (
     <div className="sheet-view">
@@ -175,6 +222,21 @@ export function EventSheet({
                     events already span on the pill Timeline — no separate end date needed.
                   </p>
                 )}
+                {calendarDef.moons.length > 0 && structuredMinutes !== null && (
+                  <p className="right-panel-note" style={{ flexBasis: '100%' }}>
+                    {calendarDef.moons
+                      .map((moon) => {
+                        const phase = computeMoonPhase(calendarDef, moon, structuredMinutes)
+                        return `${phase.emoji} ${moon.name}: ${phase.name}`
+                      })
+                      .join(' · ')}
+                  </p>
+                )}
+                {weather && (
+                  <p className="right-panel-note" style={{ flexBasis: '100%' }}>
+                    Weather ({weather.seasonName}): {weather.condition.name}
+                  </p>
+                )}
               </>
             ) : (
               data.structuredDate.calendarNoteTitle && (
@@ -190,7 +252,10 @@ export function EventSheet({
           Location
           {/* Optional — a location note's title, matching a Map note's pins.
               Set this to place the event on that map's Timeline (see
-              MapSheet's Timeline section). Most events won't need it. */}
+              MapSheet's Timeline section). Also drives the generated
+              Weather line above (once both this and a structured date are
+              set) if the referenced location/settlement has a climate.
+              Most events won't need it. */}
           <input
             list="event-location-options"
             value={data.location ?? ''}

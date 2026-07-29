@@ -23,7 +23,7 @@
 // `eras` order is used when going canonical-minutes -> calendar date. This
 // is a deliberate, simple tie-break, not an oversight.
 
-import type { CalendarFrontmatter, CalendarEra, LeapYearRule } from './noteTypes/calendar'
+import type { CalendarFrontmatter, CalendarEra, CalendarMoon, LeapYearRule } from './noteTypes/calendar'
 
 export interface CalendarDateParts {
   eraId: string
@@ -204,6 +204,58 @@ export function fromCanonicalMinutes(calendar: CalendarFrontmatter, totalMinutes
   const day = dayOfYear0 - offsets[monthIndex] + 1
 
   return { eraId: era.id, year, monthId: calendar.months[monthIndex].id, day, hour, minute }
+}
+
+export type MoonPhaseName =
+  | 'New'
+  | 'Waxing Crescent'
+  | 'First Quarter'
+  | 'Waxing Gibbous'
+  | 'Full'
+  | 'Waning Gibbous'
+  | 'Last Quarter'
+  | 'Waning Crescent'
+
+export interface MoonPhase {
+  fraction: number // 0 (new) up to but not including 1 (the next new) — 0.5 = full
+  name: MoonPhaseName
+  emoji: string
+}
+
+// 8 equal-width buckets around the cycle, standard real-world phase naming —
+// listed in order, each entry's `max` is that bucket's upper bound (as a
+// fraction of the full cycle) so `computeMoonPhase` just needs the first
+// bucket whose `max` exceeds the current fraction.
+const MOON_PHASE_BUCKETS: { max: number; name: MoonPhaseName; emoji: string }[] = [
+  { max: 1 / 16, name: 'New', emoji: '🌑' },
+  { max: 3 / 16, name: 'Waxing Crescent', emoji: '🌒' },
+  { max: 5 / 16, name: 'First Quarter', emoji: '🌓' },
+  { max: 7 / 16, name: 'Waxing Gibbous', emoji: '🌔' },
+  { max: 9 / 16, name: 'Full', emoji: '🌕' },
+  { max: 11 / 16, name: 'Waning Gibbous', emoji: '🌖' },
+  { max: 13 / 16, name: 'Last Quarter', emoji: '🌗' },
+  { max: 15 / 16, name: 'Waning Crescent', emoji: '🌘' },
+  { max: 1, name: 'New', emoji: '🌑' } // wraps back around to New just before a fresh cycle starts
+]
+
+/**
+ * A moon's phase at a given canonical-minute instant — cycleDays/
+ * phaseOffsetDays are already stored calendar-agnostically (see
+ * calendarMoonSchema's comment: a lunar cycle rarely divides evenly into a
+ * custom calendar's months, same as real lunar months not dividing evenly
+ * into the Gregorian year), so this only needs `calendar` to convert minutes
+ * into whole days, not for any month/year-aware math. A non-positive
+ * cycleDays (a moon someone hasn't finished configuring yet) returns New
+ * rather than dividing by zero.
+ */
+export function computeMoonPhase(calendar: CalendarFrontmatter, moon: CalendarMoon, totalMinutes: number): MoonPhase {
+  if (moon.cycleDays <= 0) return { fraction: 0, name: 'New', emoji: '🌑' }
+  const perDay = minutesPerDay(calendar)
+  const totalDays = Math.floor(totalMinutes / perDay)
+  const daysIntoCycle = (((totalDays - moon.phaseOffsetDays) % moon.cycleDays) + moon.cycleDays) % moon.cycleDays
+  const fraction = daysIntoCycle / moon.cycleDays
+  const bucket = MOON_PHASE_BUCKETS.find((b) => fraction < b.max) ?? MOON_PHASE_BUCKETS[MOON_PHASE_BUCKETS.length - 1]
+  return { fraction, name: bucket.name, emoji: bucket.emoji }
 }
 
 /** Human-readable rendering of a calendar date, e.g. "15 Aucaela, 42 AM" or

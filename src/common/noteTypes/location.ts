@@ -11,7 +11,11 @@ export const locationFrontmatterSchema = z
       .string()
       .catch('location')
       .transform((v): LocationKind => (LOCATION_KINDS.includes(v as LocationKind) ? (v as LocationKind) : 'location')),
-    summary: z.string().catch('')
+    summary: z.string().catch(''),
+    // A climate note's title (noteTypes/climate.ts) — optional, since not
+    // every location cares about weather. Same "note title reference"
+    // convention as event.ts's location field.
+    climateNoteTitle: z.string().nullable().catch(null)
   })
   .passthrough()
 

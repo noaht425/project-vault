@@ -13,6 +13,7 @@ import { FamilyTreeSheet } from './FamilyTreeSheet'
 import { MapSheet } from './MapSheet'
 import { SettlementSheet } from './SettlementSheet'
 import { CalendarSheet } from './CalendarSheet'
+import { ClimateSheet } from './ClimateSheet'
 
 export function SheetView({
   content,
@@ -22,8 +23,10 @@ export function SheetView({
   content: string
   onContentChange: (content: string) => void
   /** Only PcSheet (class-reference lookup), EventSheet (location field), MapSheet
-   *  (pin placement), and FamilyTreeSheet (click-to-open diagram nodes) need this —
-   *  everything else is a plain form with no note-to-note resolution. */
+   *  (pin placement), FamilyTreeSheet (click-to-open diagram nodes), SettlementSheet
+   *  (religion-note picker), ClimateSheet (calendar picker), and LocationSheet
+   *  (climate-note picker) need this — everything else is a plain form with no
+   *  note-to-note resolution. */
   noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
   const { frontmatter } = parseNote(content)
@@ -45,7 +48,7 @@ export function SheetView({
     case 'item':
       return <ItemSheet content={content} onContentChange={onContentChange} />
     case 'location':
-      return <LocationSheet content={content} onContentChange={onContentChange} />
+      return <LocationSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'language':
       return <LanguageSheet content={content} onContentChange={onContentChange} />
     case 'family-tree':
@@ -56,6 +59,8 @@ export function SheetView({
       return <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'calendar':
       return <CalendarSheet content={content} onContentChange={onContentChange} />
+    case 'climate':
+      return <ClimateSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     default:
       return null
   }

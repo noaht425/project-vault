@@ -269,6 +269,9 @@ export const settlementFrontmatterSchema = z
     type: z.literal('settlement'),
     tags: z.array(z.string()).catch([]),
     summary: z.string().catch(''),
+    // A climate note's title (noteTypes/climate.ts) — optional. Same "note
+    // title reference" convention as event.ts's location field.
+    climateNoteTitle: z.string().nullable().catch(null),
     // Last-used size/population for generation — stored so re-running
     // Generate doesn't require re-entering them, same as every other
     // generation input here (districts, wealth tiers, ...).

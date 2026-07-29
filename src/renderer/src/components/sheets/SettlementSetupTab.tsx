@@ -32,6 +32,7 @@ export function SettlementSetupTab({
   const [newReligionNote, setNewReligionNote] = useState('')
   const [religionFolder, setReligionFolder] = useState('')
   const [lastFolderAdd, setLastFolderAdd] = useState<string | null>(null)
+  const [climateOptions, setClimateOptions] = useState<string[]>([])
 
   useEffect(() => {
     // No type filter — a religion's source note could be any note type (an
@@ -39,8 +40,14 @@ export function SettlementSetupTab({
     // Location field which only ever points at a 'location' note.
     void noteRefApi.searchTitles('').then((matches) => setReligionNoteOptions(matches.map((m) => m.title)))
     void noteRefApi.listFolderPaths().then(setFolderPathOptions)
+    void noteRefApi.searchTitles('', 'climate').then((matches) => setClimateOptions(matches.map((m) => m.title)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const openClimate = async (): Promise<void> => {
+    if (!data.climateNoteTitle?.trim()) return
+    await noteRefApi.openByTitle(data.climateNoteTitle.trim(), 'climate')
+  }
 
   const existingReligionNames = new Set(data.religionDistribution.map((r) => r.religion))
 
@@ -116,6 +123,34 @@ export function SettlementSetupTab({
           Summary
           <input value={data.summary} onChange={(e) => updateFrontmatter({ summary: e.target.value })} />
         </label>
+      </div>
+
+      <div className="sheet-row" style={{ marginTop: 8 }}>
+        <label className="sheet-field">
+          Climate
+          {/* Optional — a climate note's title. Set this to see generated
+              weather on any Event note whose Location points at this
+              settlement. */}
+          <input
+            list="settlement-climate-options"
+            value={data.climateNoteTitle ?? ''}
+            onChange={(e) => updateFrontmatter({ climateNoteTitle: e.target.value || null })}
+            placeholder="e.g. Arctic Tundra"
+          />
+          <datalist id="settlement-climate-options">
+            {climateOptions.map((title) => (
+              <option key={title} value={title} />
+            ))}
+          </datalist>
+        </label>
+        <button
+          type="button"
+          className="sheet-open-ref-button"
+          onClick={() => void openClimate()}
+          disabled={!data.climateNoteTitle?.trim()}
+        >
+          Open ↗
+        </button>
       </div>
 
       <div style={{ marginTop: 12 }}>

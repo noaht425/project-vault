@@ -1,18 +1,33 @@
+import { useEffect, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { locationFrontmatterSchema, LOCATION_KINDS } from '../../../../common/noteTypes/location'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 
 export function LocationSheet({
   content,
-  onContentChange
+  onContentChange,
+  noteRefApi
 }: {
   content: string
   onContentChange: (content: string) => void
+  noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const { frontmatter, body } = parseNote(content)
   const data = locationFrontmatterSchema.parse(frontmatter)
+  const [climateOptions, setClimateOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    void noteRefApi.searchTitles('', 'climate').then((matches) => setClimateOptions(matches.map((m) => m.title)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))
+  }
+
+  const openClimate = async (): Promise<void> => {
+    if (!data.climateNoteTitle?.trim()) return
+    await noteRefApi.openByTitle(data.climateNoteTitle.trim(), 'climate')
   }
 
   return (
@@ -32,6 +47,33 @@ export function LocationSheet({
           Summary
           <input value={data.summary} onChange={(e) => updateFrontmatter({ summary: e.target.value })} />
         </label>
+      </div>
+      <div className="sheet-row" style={{ marginTop: 8 }}>
+        <label className="sheet-field">
+          Climate
+          {/* Optional — a climate note's title (see the pill Timeline's Event
+              sheet, which shows generated weather once both this and a
+              structured date are set). Most locations won't need it. */}
+          <input
+            list="location-climate-options"
+            value={data.climateNoteTitle ?? ''}
+            onChange={(e) => updateFrontmatter({ climateNoteTitle: e.target.value || null })}
+            placeholder="e.g. Arctic Tundra"
+          />
+          <datalist id="location-climate-options">
+            {climateOptions.map((title) => (
+              <option key={title} value={title} />
+            ))}
+          </datalist>
+        </label>
+        <button
+          type="button"
+          className="sheet-open-ref-button"
+          onClick={() => void openClimate()}
+          disabled={!data.climateNoteTitle?.trim()}
+        >
+          Open ↗
+        </button>
       </div>
     </div>
   )

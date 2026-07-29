@@ -14,6 +14,7 @@ import { defaultLanguageFrontmatter } from './noteTypes/language'
 import { defaultFamilyTreeFrontmatter } from './noteTypes/familyTree'
 import { defaultSettlementFrontmatter } from './noteTypes/settlement'
 import { defaultCalendarFrontmatter } from './noteTypes/calendar'
+import { defaultClimateFrontmatter } from './noteTypes/climate'
 import type { NoteTemplate } from './types'
 
 export const TEMPLATE_DEFAULTS: Partial<Record<NoteTemplate, () => Record<string, unknown>>> = {
@@ -28,7 +29,8 @@ export const TEMPLATE_DEFAULTS: Partial<Record<NoteTemplate, () => Record<string
   language: defaultLanguageFrontmatter,
   'family-tree': defaultFamilyTreeFrontmatter,
   settlement: defaultSettlementFrontmatter,
-  calendar: defaultCalendarFrontmatter
+  calendar: defaultCalendarFrontmatter,
+  climate: defaultClimateFrontmatter
 }
 
 export const TEMPLATE_STARTER_BODY: Partial<Record<NoteTemplate, string>> = {
@@ -55,6 +57,7 @@ export const CREATE_PLACEHOLDERS: Record<CreateKind, string> = {
   'family-tree': 'e.g. The Stormwind Family',
   settlement: 'Settlement name…',
   calendar: 'Calendar name…',
+  climate: 'e.g. Arctic Tundra',
   folder: 'Folder name…'
 }
 
@@ -74,6 +77,7 @@ export const CREATE_LABELS: Record<CreateKind, string> = {
   'family-tree': 'Family Tree',
   settlement: 'Settlement',
   calendar: 'Calendar',
+  climate: 'Climate',
   folder: 'Folder'
 }
 
@@ -92,5 +96,6 @@ export const CREATABLE_NOTE_KINDS: NoteTemplate[] = [
   'language',
   'family-tree',
   'settlement',
-  'calendar'
+  'calendar',
+  'climate'
 ]

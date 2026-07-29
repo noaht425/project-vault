@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../src/common/noteTypes/calendar'
-import { isLeapYear, yearLengthDays, daysInMonthForYear, toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate } from '../src/common/calendarMath'
+import {
+  isLeapYear,
+  yearLengthDays,
+  daysInMonthForYear,
+  toCanonicalMinutes,
+  fromCanonicalMinutes,
+  formatCalendarDate,
+  computeMoonPhase
+} from '../src/common/calendarMath'
 
 function simpleCalendar(overrides: Record<string, unknown> = {}): CalendarFrontmatter {
   return calendarFrontmatterSchema.parse({
@@ -211,5 +219,53 @@ describe('formatCalendarDate', () => {
     expect(formatCalendarDate(cal, { eraId: 'af', year: 3, monthId: 'morcaela', day: 1, hour: 14, minute: 5 })).toBe(
       '1 Morcaela, 3 AF, 14:05'
     )
+  })
+})
+
+describe('computeMoonPhase', () => {
+  const cal = simpleCalendar() // 24 hours/day, 60 min/hour -> 1440 minutes/day
+  const moon = { id: 'm', name: 'The Moon', cycleDays: 30, phaseOffsetDays: 0 }
+  const minutesPerDay = 1440
+
+  it('is New at the start of the cycle and Full halfway through', () => {
+    expect(computeMoonPhase(cal, moon, 0 * minutesPerDay).name).toBe('New')
+    expect(computeMoonPhase(cal, moon, 15 * minutesPerDay).name).toBe('Full')
+  })
+
+  it('steps through every phase name in order across one full cycle', () => {
+    const namesAtEachEighth = [0, 3.75, 7.5, 11.25, 15, 18.75, 22.5, 26.25].map(
+      (days) => computeMoonPhase(cal, moon, days * minutesPerDay).name
+    )
+    expect(namesAtEachEighth).toEqual([
+      'New',
+      'Waxing Crescent',
+      'First Quarter',
+      'Waxing Gibbous',
+      'Full',
+      'Waning Gibbous',
+      'Last Quarter',
+      'Waning Crescent'
+    ])
+  })
+
+  it('wraps back to New just before a fresh cycle starts', () => {
+    expect(computeMoonPhase(cal, moon, 29 * minutesPerDay).name).toBe('New')
+  })
+
+  it('phaseOffsetDays shifts which day counts as New', () => {
+    const offsetMoon = { ...moon, phaseOffsetDays: 15 }
+    expect(computeMoonPhase(cal, offsetMoon, 15 * minutesPerDay).name).toBe('New')
+    expect(computeMoonPhase(cal, offsetMoon, 0 * minutesPerDay).name).toBe('Full')
+  })
+
+  it('handles a negative canonical-minute instant (before epoch) the same as a positive one', () => {
+    // -1 day is equivalent to day 29 of the previous cycle for a 30-day moon.
+    expect(computeMoonPhase(cal, moon, -1 * minutesPerDay).name).toBe(computeMoonPhase(cal, moon, 29 * minutesPerDay).name)
+  })
+
+  it('returns New with a zero fraction for a non-positive cycleDays instead of dividing by zero', () => {
+    const brokenMoon = { ...moon, cycleDays: 0 }
+    const phase = computeMoonPhase(cal, brokenMoon, 15 * minutesPerDay)
+    expect(phase).toEqual({ fraction: 0, name: 'New', emoji: '🌑' })
   })
 })

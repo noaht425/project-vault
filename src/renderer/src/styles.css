@@ -379,6 +379,12 @@ button.active {
   margin-top: 4px;
 }
 
+.pill-expanded-moons {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 .pill-timeline-ticks {
   position: relative;
   height: 28px;
