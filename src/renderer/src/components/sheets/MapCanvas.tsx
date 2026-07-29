@@ -394,8 +394,17 @@ export function MapCanvas({
             key={pin.id}
             transform={`translate(${pin.x}, ${pin.y})`}
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => onPinClick(pin)}
-            style={{ cursor: pin.locationTitle ? 'pointer' : 'default' }}
+            // Stopping propagation on mousedown means the SVG's own
+            // drag/click tracking (dragRef, see the window mouseup handler
+            // below) never sees a click that starts on a pin — this is the
+            // only path such a click gets handled at all. In view mode that
+            // should open the pin's note as always, but in every drawing
+            // mode (paint-zone, draw-line, draw-trip, etc.) it needs to
+            // register as an ordinary point instead, so you can start a
+            // road/route right at an existing city's pin without it
+            // navigating away to the note mid-draw.
+            onClick={() => (mode === 'view' ? onPinClick(pin) : handleClickAt({ x: pin.x, y: pin.y }))}
+            style={{ cursor: mode === 'view' && pin.locationTitle ? 'pointer' : mode === 'view' ? 'default' : 'crosshair' }}
           >
             {highlightedPinIds?.has(pin.id) && (
               <circle r={pinRadius + 5} fill="none" stroke="#7c8cff" strokeWidth={3} />
