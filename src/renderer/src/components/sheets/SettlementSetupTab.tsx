@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   BUILDING_CATEGORIES,
   SETTLEMENT_SIZE_IDS,
@@ -9,6 +9,7 @@ import {
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
 import { BASELINE_RACES, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 
 // All the generation-input editors, mirroring GenerationOptions field for
 // field, plus the Generate button. Every "+ Add" button inserts a row with
@@ -18,12 +19,57 @@ import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 // used immediately by a zone.
 export function SettlementSetupTab({
   data,
-  updateFrontmatter
+  updateFrontmatter,
+  noteRefApi
 }: {
   data: SettlementFrontmatter
   updateFrontmatter: (patch: Record<string, unknown>) => void
+  noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const [lastGenerated, setLastGenerated] = useState<string | null>(null)
+  const [religionNoteOptions, setReligionNoteOptions] = useState<string[]>([])
+  const [folderPathOptions, setFolderPathOptions] = useState<string[]>([])
+  const [newReligionNote, setNewReligionNote] = useState('')
+  const [religionFolder, setReligionFolder] = useState('')
+  const [lastFolderAdd, setLastFolderAdd] = useState<string | null>(null)
+
+  useEffect(() => {
+    // No type filter — a religion's source note could be any note type (an
+    // npc for a deity, a faction for a pantheon, etc.), unlike EventSheet's
+    // Location field which only ever points at a 'location' note.
+    void noteRefApi.searchTitles('').then((matches) => setReligionNoteOptions(matches.map((m) => m.title)))
+    void noteRefApi.listFolderPaths().then(setFolderPathOptions)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const existingReligionNames = new Set(data.religionDistribution.map((r) => r.religion))
+
+  const addReligionFromNote = (): void => {
+    const title = newReligionNote.trim()
+    if (!title || existingReligionNames.has(title)) return
+    updateFrontmatter({ religionDistribution: [...data.religionDistribution, { religion: title, percent: 0 }] })
+    setNewReligionNote('')
+  }
+
+  const addReligionsFromFolder = async (): Promise<void> => {
+    const folderPath = religionFolder.trim()
+    if (!folderPath) return
+    const notes = await noteRefApi.listNotesInFolder(folderPath)
+    // Safe to re-run: skip any note whose title is already present, same
+    // "dedupe by name" spirit as vaultCloudMigration.ts's indexKey check —
+    // re-clicking after adding a new note to the folder only adds the new one.
+    const toAdd = notes.filter((n) => !existingReligionNames.has(n.title))
+    if (toAdd.length > 0) {
+      updateFrontmatter({
+        religionDistribution: [...data.religionDistribution, ...toAdd.map((n) => ({ religion: n.title, percent: 0 }))]
+      })
+    }
+    setLastFolderAdd(
+      toAdd.length > 0
+        ? `Added ${toAdd.length.toLocaleString()} religion(s) from "${folderPath}".`
+        : `No new notes found in "${folderPath}" (or none — already added).`
+    )
+  }
 
   const updateBuildingType = (id: string, patch: Record<string, unknown>): void =>
     updateFrontmatter({ buildingTypes: data.buildingTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)) })
@@ -300,6 +346,17 @@ export function SettlementSetupTab({
               }
             />
             %
+            {/* Always shown, same as EventSheet.tsx's Location field — no upfront
+                check for whether r.religion matches a real note. openByTitle
+                already handles "no note titled X yet" itself. */}
+            <button
+              type="button"
+              className="sheet-open-ref-button"
+              onClick={() => void noteRefApi.openByTitle(r.religion.trim())}
+              disabled={!r.religion.trim()}
+            >
+              Open ↗
+            </button>
             <button onClick={() => updateFrontmatter({ religionDistribution: data.religionDistribution.filter((_, xi) => xi !== i) })}>✕</button>
           </div>
         ))}
@@ -309,6 +366,53 @@ export function SettlementSetupTab({
         >
           + Add religion
         </button>
+
+        <div className="sheet-row" style={{ marginTop: 8 }}>
+          <label className="sheet-field" style={{ maxWidth: 220 }}>
+            Add from note
+            <input
+              list="religion-note-options"
+              value={newReligionNote}
+              onChange={(e) => setNewReligionNote(e.target.value)}
+              placeholder="e.g. Abaddon"
+            />
+            <datalist id="religion-note-options">
+              {religionNoteOptions.map((title) => (
+                <option key={title} value={title} />
+              ))}
+            </datalist>
+          </label>
+          <button type="button" onClick={addReligionFromNote} disabled={!newReligionNote.trim()}>
+            + Add
+          </button>
+        </div>
+
+        <div className="sheet-row" style={{ marginTop: 6 }}>
+          <label className="sheet-field" style={{ maxWidth: 220 }}>
+            Add all from folder
+            <input
+              list="religion-folder-options"
+              value={religionFolder}
+              onChange={(e) => setReligionFolder(e.target.value)}
+              placeholder="e.g. NPCs/Archangels"
+            />
+            <datalist id="religion-folder-options">
+              {folderPathOptions.map((path) => (
+                <option key={path} value={path} />
+              ))}
+            </datalist>
+          </label>
+          <button type="button" onClick={() => void addReligionsFromFolder()} disabled={!religionFolder.trim()}>
+            Add all from folder
+          </button>
+        </div>
+        {lastFolderAdd && <p className="right-panel-note">{lastFolderAdd}</p>}
+        <p className="right-panel-note">
+          Pointing a religion at a real note (by name or by folder) links it to that note's lore — an "Open ↗" button
+          appears next to it above, and a promoted resident's "Follows" line becomes a [[wiki-link]] back to it.
+          Folder-add is a one-time snapshot, safe to re-run: it skips any note already added, and picks up notes in
+          subfolders too.
+        </p>
       </div>
 
       <details style={{ marginTop: 8 }}>

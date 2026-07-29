@@ -108,4 +108,30 @@ describe('createNoteRefApi', () => {
       expect(readFrontmatterByRef).not.toHaveBeenCalled()
     })
   })
+
+  describe('listNotesInFolder / listFolderPaths', () => {
+    it('passes the folder path through to the injected function unchanged', async () => {
+      const listNotesInFolderImpl = vi.fn().mockResolvedValue([{ title: 'Abaddon' }])
+      const api = createNoteRefApi(vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), listNotesInFolderImpl)
+
+      const result = await api.listNotesInFolder('NPCs/Archdevils')
+
+      expect(listNotesInFolderImpl).toHaveBeenCalledWith('NPCs/Archdevils')
+      expect(result).toEqual([{ title: 'Abaddon' }])
+    })
+
+    it('defaults to an empty result when the backend hook omits the implementation', async () => {
+      const api = createNoteRefApi(vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn())
+
+      expect(await api.listNotesInFolder('NPCs')).toEqual([])
+      expect(await api.listFolderPaths()).toEqual([])
+    })
+
+    it('listFolderPaths passes through to the injected function', async () => {
+      const listFolderPathsImpl = vi.fn().mockResolvedValue(['NPCs', 'NPCs/Archangels'])
+      const api = createNoteRefApi(vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), listFolderPathsImpl)
+
+      expect(await api.listFolderPaths()).toEqual(['NPCs', 'NPCs/Archangels'])
+    })
+  })
 })

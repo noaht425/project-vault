@@ -46,7 +46,7 @@ export function SettlementSheet({
         </button>
       </div>
 
-      {tab === 'setup' && <SettlementSetupTab data={data} updateFrontmatter={updateFrontmatter} />}
+      {tab === 'setup' && <SettlementSetupTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'people' && <SettlementPeopleTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'buildings' && <SettlementBuildingsTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
     </div>

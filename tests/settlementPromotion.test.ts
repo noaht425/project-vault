@@ -69,7 +69,7 @@ describe('buildPromotedNpcFrontmatter', () => {
     expect(body).toContain('dwarf, age 52, Male')
     expect(body).toContain('Lives in Main District.')
     expect(body).toContain('Middle class.')
-    expect(body).toContain('Follows The Old Faith.')
+    expect(body).toContain('Follows [[The Old Faith]].')
   })
 
   it('includes proficiencies and an Appearance section when present', () => {

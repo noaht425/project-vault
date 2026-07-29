@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 import { parseNote, stringifyNote } from '../../../common/frontmatter'
+import { listFolderPaths, listNoteTitlesInFolder } from '../../../common/folderTree'
 import { useEditorStore } from '../state/editorStore'
 import { useCloudEditorStore } from '../state/cloudEditorStore'
 import { useVaultStore } from '../state/vaultStore'
+import { useCloudStore } from '../state/cloudStore'
 
 // Shared shape for "resolve a note by title" operations that need to work
 // against either backend: PcSheet's class-reference field, ClassFeaturesPanel's
@@ -24,6 +26,16 @@ export interface NoteRefApi {
   // than the file tree. Lands in the vault/workspace root for both backends
   // in v1; the user can move it via the file tree afterward like any note.
   createNote(name: string, frontmatter: Record<string, unknown>, body?: string): Promise<{ title: string }>
+  // Added for the settlement religion picker's "add all from folder" bulk
+  // action (docs/plans/2026-07-28-settlement-religion-note-references.md) —
+  // recurses into subfolders. Derived from the already-cached vault/cloud
+  // tree client-side (see common/folderTree.ts) rather than a new IPC/API
+  // round-trip, since both backends' tree already nests full folder
+  // contents.
+  listNotesInFolder(folderPath: string): Promise<{ title: string }[]>
+  // Every directory path in the tree, for that same control's folder-path
+  // datalist.
+  listFolderPaths(): Promise<string[]>
 }
 
 // Exported for direct testing (tests/noteRefApi.test.ts) — the two hooks
@@ -35,7 +47,9 @@ export function createNoteRefApi(
   openByRef: (ref: string) => Promise<void>,
   readBodyByRef: (ref: string) => Promise<string>,
   createNoteImpl: (name: string, frontmatter: Record<string, unknown>, body: string) => Promise<{ title: string }>,
-  readFrontmatterByRef: (ref: string) => Promise<Record<string, unknown>>
+  readFrontmatterByRef: (ref: string) => Promise<Record<string, unknown>>,
+  listNotesInFolderImpl: (folderPath: string) => Promise<{ title: string }[]> = async () => [],
+  listFolderPathsImpl: () => Promise<string[]> = async () => []
 ): NoteRefApi {
   async function findExact(title: string, type?: string): Promise<{ title: string; ref: string } | undefined> {
     const matches = await searchTitles(title, type)
@@ -67,6 +81,12 @@ export function createNoteRefApi(
     },
     async createNote(name, frontmatter, body = '') {
       return createNoteImpl(name, frontmatter, body)
+    },
+    async listNotesInFolder(folderPath) {
+      return listNotesInFolderImpl(folderPath)
+    },
+    async listFolderPaths() {
+      return listFolderPathsImpl()
     }
   }
 }
@@ -74,6 +94,7 @@ export function createNoteRefApi(
 export function useLocalNoteRefApi(): NoteRefApi {
   const openNote = useEditorStore((s) => s.openNote)
   const vaultPath = useVaultStore((s) => s.vaultPath)
+  const tree = useVaultStore((s) => s.tree)
   return useMemo(
     () =>
       createNoteRefApi(
@@ -94,14 +115,17 @@ export function useLocalNoteRefApi(): NoteRefApi {
           })
           return { title: name }
         },
-        async (path) => parseNote((await window.vaultApi.readNote(path)).content).frontmatter
+        async (path) => parseNote((await window.vaultApi.readNote(path)).content).frontmatter,
+        async (folderPath) => listNoteTitlesInFolder(tree, folderPath).map((title) => ({ title })),
+        async () => listFolderPaths(tree)
       ),
-    [openNote, vaultPath]
+    [openNote, vaultPath, tree]
   )
 }
 
 export function useCloudNoteRefApi(): NoteRefApi {
   const openNote = useCloudEditorStore((s) => s.openNote)
+  const tree = useCloudStore((s) => s.tree)
   return useMemo(
     () =>
       createNoteRefApi(
@@ -113,8 +137,10 @@ export function useCloudNoteRefApi(): NoteRefApi {
           const created = await window.cloudApi.createNote({ name, frontmatter, body })
           return { title: created.name }
         },
-        async (id) => (await window.cloudApi.getNote(id)).frontmatter
+        async (id) => (await window.cloudApi.getNote(id)).frontmatter,
+        async (folderPath) => listNoteTitlesInFolder(tree ?? [], folderPath).map((title) => ({ title })),
+        async () => listFolderPaths(tree ?? [])
       ),
-    [openNote]
+    [openNote, tree]
   )
 }

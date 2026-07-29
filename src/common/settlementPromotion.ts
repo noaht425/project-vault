@@ -29,7 +29,14 @@ export function buildPromotedNpcFrontmatter(resident: SettlementResident, distri
     resident.jobTitle ? `${resident.jobTitle}.` : '',
     !resident.notable && resident.employmentStatus === 'unemployed' ? 'Unemployed.' : '',
     resident.homeless ? 'Homeless.' : '',
-    resident.religion ? `Follows ${resident.religion}.` : ''
+    // A wiki-link, not plain text (confirmed with the user 2026-07-28) — when
+    // resident.religion matches a real note (e.g. one added via the
+    // settlement religion picker's "add from note"/"add from folder"
+    // controls), that note gets a free backlink here, same mechanism
+    // LanguageSheet.tsx's language-to-language sentences already use. A
+    // religion with no matching note just renders as a dangling wiki-link,
+    // same as anywhere else in the app.
+    resident.religion ? `Follows [[${resident.religion}]].` : ''
   ]
     .filter(Boolean)
     .join(' ')
