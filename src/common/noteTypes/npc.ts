@@ -10,7 +10,11 @@ export const npcFrontmatterSchema = z
     ac: z.coerce.number().catch(10),
     hp: z.coerce.number().catch(10),
     maxHp: z.coerce.number().catch(10),
-    stats: abilityScoresSchema
+    stats: abilityScoresSchema,
+    // Optional — null means "unknown," not 0. The only structured age source
+    // in the app for a real (non-settlement-generated) NPC note; feeds Family
+    // Tree's relationship plausibility checks (familyTree.ts) when set.
+    age: z.number().int().nonnegative().nullable().catch(null)
   })
   .passthrough()
 

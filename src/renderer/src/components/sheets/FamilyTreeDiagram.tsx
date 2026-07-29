@@ -1,11 +1,26 @@
 import { useMemo } from 'react'
-import { computeFamilyTreeLayout, parseRelationships } from '../../../../common/noteTypes/familyTree'
+import { computeFamilyTreeLayout, parseRelationships, type FamilyTreeLineKind } from '../../../../common/noteTypes/familyTree'
 
 const COL_WIDTH = 170
 const ROW_HEIGHT = 120
 const NODE_WIDTH = 150
 const NODE_HEIGHT = 46
 const PADDING = 30
+
+const SOCIAL_LINE_KINDS: FamilyTreeLineKind[] = ['friend', 'rival', 'enemy', 'romantic']
+
+// Legend rows, family group first then social group — matches the same
+// grouping the diagram itself draws (solid/short-dash family lines vs. the
+// social group's shared longer-dash pattern).
+const LEGEND_ROWS: { className: string; label: string }[] = [
+  { className: 'family-tree-line-parent', label: 'Parent / child' },
+  { className: 'family-tree-line-spouse', label: 'Spouse' },
+  { className: 'family-tree-line-sibling', label: 'Sibling' },
+  { className: 'family-tree-line-social family-tree-line-friend', label: 'Friend' },
+  { className: 'family-tree-line-social family-tree-line-rival', label: 'Rival' },
+  { className: 'family-tree-line-social family-tree-line-enemy', label: 'Enemy' },
+  { className: 'family-tree-line-social family-tree-line-romantic', label: 'Romantic partner' }
+]
 
 export function FamilyTreeDiagram({
   body,
@@ -102,6 +117,30 @@ export function FamilyTreeDiagram({
               />
             )
           })}
+        {/* Social ties (friend/rival/enemy/romantic) — same plain-line shape as
+            spouse, but a shared dash pattern (set once, in CSS, on the
+            family-tree-line-social class) plus a per-kind color keeps this
+            group reading as visually distinct from the family/marriage group
+            above at a glance, not just by color. */}
+        {SOCIAL_LINE_KINDS.map((kind) =>
+          layout.lines
+            .filter((l) => l.kind === kind)
+            .map((line) => {
+              const a = positionOf.get(line.from)
+              const b = positionOf.get(line.to)
+              if (!a || !b) return null
+              return (
+                <line
+                  key={`${kind}-${line.from}-${line.to}`}
+                  className={`family-tree-line family-tree-line-social family-tree-line-${kind}`}
+                  x1={a.x}
+                  y1={a.y}
+                  x2={b.x}
+                  y2={b.y}
+                />
+              )
+            })
+        )}
         {layout.nodes.map((node) => {
           const pos = positionOf.get(node.name)!
           return (
@@ -130,6 +169,16 @@ export function FamilyTreeDiagram({
           )
         })}
       </svg>
+      <div className="family-tree-legend">
+        {LEGEND_ROWS.map((row) => (
+          <span key={row.className} className="family-tree-legend-item">
+            <svg width="20" height="10" aria-hidden="true">
+              <line className={`family-tree-line ${row.className}`} x1="0" y1="5" x2="20" y2="5" />
+            </svg>
+            {row.label}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

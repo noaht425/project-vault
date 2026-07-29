@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRelationships, computeFamilyTreeLayout } from '../src/common/noteTypes/familyTree'
+import { parseRelationships, computeFamilyTreeLayout, checkRelationshipPlausibility } from '../src/common/noteTypes/familyTree'
 
 describe('parseRelationships', () => {
   it('parses all four relation phrases', () => {
@@ -15,6 +15,22 @@ describe('parseRelationships', () => {
       { a: 'Bob', b: 'Carol', relation: 'parent' },
       { a: 'Alice', b: 'Dave', relation: 'spouse' },
       { a: 'Bob', b: 'Eve', relation: 'sibling' }
+    ])
+  })
+
+  it('parses all four social relation phrases', () => {
+    const body = `
+## Relationships
+- [[Alice]] friend of [[Bob]]
+- [[Alice]] rival of [[Carol]]
+- [[Alice]] enemy of [[Dave]]
+- [[Alice]] romantic partner of [[Eve]]
+`
+    expect(parseRelationships(body)).toEqual([
+      { a: 'Alice', b: 'Bob', relation: 'friend' },
+      { a: 'Alice', b: 'Carol', relation: 'rival' },
+      { a: 'Alice', b: 'Dave', relation: 'enemy' },
+      { a: 'Alice', b: 'Eve', relation: 'romantic' }
     ])
   })
 
@@ -127,5 +143,111 @@ describe('computeFamilyTreeLayout', () => {
   it('keeps a sibling line when no shared parent is on record', () => {
     const layout = computeFamilyTreeLayout([{ a: 'Bob', b: 'Carol', relation: 'sibling' }])
     expect(layout.lines).toContainEqual({ kind: 'sibling', from: 'Bob', to: 'Carol' })
+  })
+
+  it('draws one deduped line per social relation kind, independent of family structure', () => {
+    const layout = computeFamilyTreeLayout([
+      { a: 'Alice', b: 'Bob', relation: 'friend' },
+      { a: 'Bob', b: 'Alice', relation: 'friend' }, // reverse phrasing of the same pair — should dedupe
+      { a: 'Carol', b: 'Dave', relation: 'rival' },
+      { a: 'Eve', b: 'Frank', relation: 'enemy' },
+      { a: 'Grace', b: 'Hank', relation: 'romantic' }
+    ])
+    const friendLines = layout.lines.filter((l) => l.kind === 'friend')
+    expect(friendLines).toHaveLength(1)
+    expect(new Set([friendLines[0].from, friendLines[0].to])).toEqual(new Set(['Alice', 'Bob']))
+    expect(layout.lines).toContainEqual({ kind: 'rival', from: 'Carol', to: 'Dave' })
+    expect(layout.lines).toContainEqual({ kind: 'enemy', from: 'Eve', to: 'Frank' })
+    expect(layout.lines).toContainEqual({ kind: 'romantic', from: 'Grace', to: 'Hank' })
+  })
+
+  it('places a person with only a social tie (no family relation) at generation 0', () => {
+    const layout = computeFamilyTreeLayout([{ a: 'Alice', b: 'Bob', relation: 'rival' }])
+    expect(layout.nodes.map((n) => n.generation)).toEqual([0, 0])
+  })
+})
+
+describe('checkRelationshipPlausibility', () => {
+  it('flags a parent barely older than their recorded child', () => {
+    const warnings = checkRelationshipPlausibility(
+      [{ a: 'Borin', b: 'Finn', relation: 'parent' }],
+      new Map([
+        ['Borin', 20],
+        ['Finn', 12]
+      ])
+    )
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].message).toContain('only 8 years older')
+  })
+
+  it('flags a parent who is not actually older than their child', () => {
+    const warnings = checkRelationshipPlausibility(
+      [{ a: 'Borin', b: 'Finn', relation: 'parent' }],
+      new Map([
+        ['Borin', 10],
+        ['Finn', 30]
+      ])
+    )
+    expect(warnings[0].message).toContain('ages look swapped or wrong')
+  })
+
+  it('does not flag a normal parent/child age gap', () => {
+    const warnings = checkRelationshipPlausibility(
+      [{ a: 'Borin', b: 'Finn', relation: 'parent' }],
+      new Map([
+        ['Borin', 45],
+        ['Finn', 20]
+      ])
+    )
+    expect(warnings).toEqual([])
+  })
+
+  it('flags a large spouse or romantic-partner age gap as worth double-checking', () => {
+    const warnings = checkRelationshipPlausibility(
+      [
+        { a: 'Alice', b: 'Bob', relation: 'spouse' },
+        { a: 'Carol', b: 'Dave', relation: 'romantic' }
+      ],
+      new Map([
+        ['Alice', 90],
+        ['Bob', 25],
+        ['Carol', 90],
+        ['Dave', 25]
+      ])
+    )
+    expect(warnings).toHaveLength(2)
+    expect(warnings.every((w) => w.message.includes('worth double-checking'))).toBe(true)
+  })
+
+  it('does not flag a modest spouse/romantic age gap', () => {
+    const warnings = checkRelationshipPlausibility(
+      [{ a: 'Alice', b: 'Bob', relation: 'spouse' }],
+      new Map([
+        ['Alice', 40],
+        ['Bob', 35]
+      ])
+    )
+    expect(warnings).toEqual([])
+  })
+
+  it('never checks friend/rival/enemy/sibling regardless of age gap', () => {
+    const warnings = checkRelationshipPlausibility(
+      [
+        { a: 'Alice', b: 'Bob', relation: 'friend' },
+        { a: 'Alice', b: 'Bob', relation: 'rival' },
+        { a: 'Alice', b: 'Bob', relation: 'enemy' },
+        { a: 'Alice', b: 'Bob', relation: 'sibling' }
+      ],
+      new Map([
+        ['Alice', 90],
+        ['Bob', 5]
+      ])
+    )
+    expect(warnings).toEqual([])
+  })
+
+  it('silently skips any pair missing an age on either side', () => {
+    const warnings = checkRelationshipPlausibility([{ a: 'Alice', b: 'Bob', relation: 'parent' }], new Map([['Alice', 20]]))
+    expect(warnings).toEqual([])
   })
 })

@@ -15,6 +15,11 @@
   --border: #2e2e2e;
   --warning: #e0a63c;
   --danger: #d9534f;
+  /* Added for Family Tree's social-tie lines (friend/romantic) — no existing
+     color fit either without reusing --warning/--danger for something they
+     don't semantically mean here. */
+  --positive: #6bab6f;
+  --romantic: #d67ab1;
 }
 
 * {
@@ -1039,6 +1044,52 @@ button.active {
 
 .family-tree-line-sibling {
   stroke-dasharray: 4 3;
+}
+
+/* Social ties (friend/rival/enemy/romantic) share this dash pattern — a
+   tighter dot than sibling's 4/3 dash — so the family-vs-social grouping
+   reads at a glance from line STYLE alone, with color layered on top to
+   distinguish which social tie it is. */
+.family-tree-line-social {
+  stroke-dasharray: 1.5 3.5;
+  stroke-linecap: round;
+}
+
+.family-tree-line-friend {
+  stroke: var(--positive);
+}
+
+.family-tree-line-rival {
+  stroke: var(--warning);
+}
+
+.family-tree-line-enemy {
+  stroke: var(--danger);
+}
+
+.family-tree-line-romantic {
+  stroke: var(--romantic);
+}
+
+.family-tree-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.family-tree-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.family-tree-legend-item svg {
+  flex: none;
 }
 
 .editor-toolbar {
