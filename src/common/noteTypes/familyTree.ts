@@ -53,6 +53,56 @@ function findHeadings(body: string): Heading[] {
   }))
 }
 
+// Every phrase the button-based editor's relation dropdown offers, in the
+// order shown there — "parent of"/"child of" are the same RelationKind
+// ('parent') from two different starting people, matching how
+// parseRelationships already treats them as sugar for the same reversed
+// edge. Used both for the dropdown itself and (via edgeFromMatch below) for
+// parsing/removal.
+export const RELATION_PHRASES = [
+  'parent of',
+  'child of',
+  'spouse of',
+  'sibling of',
+  'friend of',
+  'rival of',
+  'enemy of',
+  'romantic partner of'
+] as const
+export type RelationPhrase = (typeof RELATION_PHRASES)[number]
+
+// The canonical phrase for each stored RelationKind — used to display an
+// already-parsed edge back as readable text (e.g. in the relationship list's
+// remove-button rows). A "child of"-written edge redisplays as "parent of"
+// with a/b already swapped, same as it's stored — there's no need to
+// remember which of the two synonymous phrasings was originally typed.
+export const RELATION_DISPLAY_PHRASE: Record<RelationKind, RelationPhrase> = {
+  parent: 'parent of',
+  spouse: 'spouse of',
+  sibling: 'sibling of',
+  friend: 'friend of',
+  rival: 'rival of',
+  enemy: 'enemy of',
+  romantic: 'romantic partner of'
+}
+
+/** Shared by parseRelationships and removeRelationshipEdge so the phrase→edge mapping lives in exactly one place. */
+function edgeFromMatch(first: string, relationPhrase: string, second: string): RelationshipEdge | null {
+  const relation = relationPhrase.toLowerCase()
+  const a = first.trim()
+  const b = second.trim()
+  if (!a || !b) return null
+
+  if (relation === 'parent of') return { a, b, relation: 'parent' }
+  if (relation === 'child of') return { a: b, b: a, relation: 'parent' }
+  if (relation === 'spouse of') return { a, b, relation: 'spouse' }
+  if (relation === 'sibling of') return { a, b, relation: 'sibling' }
+  if (relation === 'friend of') return { a, b, relation: 'friend' }
+  if (relation === 'rival of') return { a, b, relation: 'rival' }
+  if (relation === 'enemy of') return { a, b, relation: 'enemy' }
+  return { a, b, relation: 'romantic' }
+}
+
 /**
  * Reads every "## Relationships" section in the body (there can be more
  * than one — they're merged) and parses each bullet line into an edge.
@@ -73,24 +123,76 @@ export function parseRelationships(body: string): RelationshipEdge[] {
     for (const line of section.split('\n')) {
       const match = line.match(RELATIONSHIP_LINE_RE)
       if (!match) continue
-      const [, first, relationPhrase, second] = match
-      const relation = relationPhrase.toLowerCase()
-      const a = first.trim()
-      const b = second.trim()
-      if (!a || !b) continue
-
-      if (relation === 'parent of') edges.push({ a, b, relation: 'parent' })
-      else if (relation === 'child of') edges.push({ a: b, b: a, relation: 'parent' })
-      else if (relation === 'spouse of') edges.push({ a, b, relation: 'spouse' })
-      else if (relation === 'sibling of') edges.push({ a, b, relation: 'sibling' })
-      else if (relation === 'friend of') edges.push({ a, b, relation: 'friend' })
-      else if (relation === 'rival of') edges.push({ a, b, relation: 'rival' })
-      else if (relation === 'enemy of') edges.push({ a, b, relation: 'enemy' })
-      else edges.push({ a, b, relation: 'romantic' })
+      const edge = edgeFromMatch(match[1], match[2], match[3])
+      if (edge) edges.push(edge)
     }
   }
 
   return edges
+}
+
+/**
+ * Appends a new relationship bullet to the body's (first) "## Relationships"
+ * section, creating that section at the end of the body if none exists yet
+ * — the button-based editor's "Add relationship" action. Pure string
+ * manipulation, no re-parsing of the rest of the body needed.
+ */
+export function addRelationshipEdge(body: string, a: string, phrase: RelationPhrase, b: string): string {
+  const line = `- [[${a.trim()}]] ${phrase} [[${b.trim()}]]`
+  const headings = findHeadings(body)
+  const i = headings.findIndex((h) => h.isRelationships)
+
+  if (i === -1) {
+    const trimmed = body.replace(/\s+$/, '')
+    return trimmed.length === 0 ? `## Relationships\n${line}\n` : `${trimmed}\n\n## Relationships\n${line}\n`
+  }
+
+  const hasNextHeading = i + 1 < headings.length
+  const sectionEnd = hasNextHeading ? headings[i + 1].index : body.length
+  // Collapse any trailing blank lines within the section down to exactly
+  // one newline before the new bullet, then restore a single blank-line
+  // separator before whatever heading follows (if any).
+  const before = body.slice(0, sectionEnd).replace(/\n*$/, '\n')
+  const after = body.slice(sectionEnd)
+  return `${before}${line}\n${hasNextHeading ? '\n' : ''}${after}`
+}
+
+/**
+ * Removes the first bullet line, across every "## Relationships" section,
+ * that parses to an edge structurally equal to `target` — the button-based
+ * editor's remove action. Re-parses each candidate line (rather than
+ * assuming a canonical serialization) so a line originally written as
+ * "X child of Y" is still found and removed when `target` is the resolved
+ * `{a: Y, b: X, relation: 'parent'}` edge parseRelationships already
+ * produced for it. A no-op (returns body unchanged) if no matching line is
+ * found — same "harmless" fallback as everywhere else in this file.
+ */
+export function removeRelationshipEdge(body: string, target: RelationshipEdge): string {
+  const headings = findHeadings(body)
+
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i]
+    if (!heading.isRelationships) continue
+    const end = i + 1 < headings.length ? headings[i + 1].index : body.length
+    const section = body.slice(heading.lineEnd, end)
+
+    let cursor = heading.lineEnd
+    for (const line of section.split('\n')) {
+      const lineStart = cursor
+      const lineEnd = cursor + line.length
+      cursor = lineEnd + 1 // '\n' consumed by split(), re-added for the next line's start
+
+      const match = line.match(RELATIONSHIP_LINE_RE)
+      if (!match) continue
+      const edge = edgeFromMatch(match[1], match[2], match[3])
+      if (edge && edge.a === target.a && edge.b === target.b && edge.relation === target.relation) {
+        const deleteEnd = Math.min(lineEnd + 1, body.length) // also swallow the line's trailing newline
+        return body.slice(0, lineStart) + body.slice(deleteEnd)
+      }
+    }
+  }
+
+  return body
 }
 
 export interface FamilyTreeNode {

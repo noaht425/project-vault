@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { parseRelationships, computeFamilyTreeLayout, checkRelationshipPlausibility } from '../src/common/noteTypes/familyTree'
+import {
+  parseRelationships,
+  computeFamilyTreeLayout,
+  checkRelationshipPlausibility,
+  addRelationshipEdge,
+  removeRelationshipEdge
+} from '../src/common/noteTypes/familyTree'
 
 describe('parseRelationships', () => {
   it('parses all four relation phrases', () => {
@@ -249,5 +255,69 @@ describe('checkRelationshipPlausibility', () => {
   it('silently skips any pair missing an age on either side', () => {
     const warnings = checkRelationshipPlausibility([{ a: 'Alice', b: 'Bob', relation: 'parent' }], new Map([['Alice', 20]]))
     expect(warnings).toEqual([])
+  })
+})
+
+describe('addRelationshipEdge', () => {
+  it('creates a new Relationships section when the body has none', () => {
+    const body = addRelationshipEdge('', 'Alice', 'parent of', 'Bob')
+    expect(body).toBe('## Relationships\n- [[Alice]] parent of [[Bob]]\n')
+    expect(parseRelationships(body)).toEqual([{ a: 'Alice', b: 'Bob', relation: 'parent' }])
+  })
+
+  it('appends to an existing Relationships section that runs to the end of the body', () => {
+    const body = addRelationshipEdge('## Relationships\n- [[Alice]] parent of [[Bob]]\n', 'Carol', 'sibling of', 'Bob')
+    expect(parseRelationships(body)).toEqual([
+      { a: 'Alice', b: 'Bob', relation: 'parent' },
+      { a: 'Carol', b: 'Bob', relation: 'sibling' }
+    ])
+  })
+
+  it('appends before a following heading, keeping that section intact', () => {
+    const body = addRelationshipEdge('## Relationships\n- [[Alice]] parent of [[Bob]]\n\n## Notes\nSome prose\n', 'Carol', 'friend of', 'Bob')
+    expect(parseRelationships(body)).toEqual([
+      { a: 'Alice', b: 'Bob', relation: 'parent' },
+      { a: 'Carol', b: 'Bob', relation: 'friend' }
+    ])
+    expect(body).toContain('## Notes\nSome prose\n')
+  })
+
+  it('trims whitespace around the two names', () => {
+    const body = addRelationshipEdge('', '  Alice  ', 'parent of', '  Bob  ')
+    expect(body).toBe('## Relationships\n- [[Alice]] parent of [[Bob]]\n')
+  })
+
+  it('resolves "child of" into a reversed parent edge, same as hand-typed text', () => {
+    const body = addRelationshipEdge('', 'Bob', 'child of', 'Alice')
+    expect(parseRelationships(body)).toEqual([{ a: 'Alice', b: 'Bob', relation: 'parent' }])
+  })
+})
+
+describe('removeRelationshipEdge', () => {
+  it('removes the matching line and nothing else', () => {
+    const body = '## Relationships\n- [[Alice]] parent of [[Bob]]\n- [[Carol]] sibling of [[Bob]]\n'
+    const result = removeRelationshipEdge(body, { a: 'Alice', b: 'Bob', relation: 'parent' })
+    expect(parseRelationships(result)).toEqual([{ a: 'Carol', b: 'Bob', relation: 'sibling' }])
+  })
+
+  it('finds and removes a line that was originally written as "child of"', () => {
+    const body = '## Relationships\n- [[Bob]] child of [[Alice]]\n'
+    // parseRelationships resolves this line to {a: Alice, b: Bob, relation: parent} —
+    // removal must be driven by that resolved edge, not the original text.
+    const result = removeRelationshipEdge(body, { a: 'Alice', b: 'Bob', relation: 'parent' })
+    expect(parseRelationships(result)).toEqual([])
+  })
+
+  it('leaves unrelated headings and prose untouched', () => {
+    const body = '## Relationships\n- [[Alice]] parent of [[Bob]]\n\n## Notes\nSome prose\n'
+    const result = removeRelationshipEdge(body, { a: 'Alice', b: 'Bob', relation: 'parent' })
+    expect(result).toContain('## Notes\nSome prose\n')
+    expect(parseRelationships(result)).toEqual([])
+  })
+
+  it('is a no-op when the target edge is not present', () => {
+    const body = '## Relationships\n- [[Alice]] parent of [[Bob]]\n'
+    const result = removeRelationshipEdge(body, { a: 'Carol', b: 'Dave', relation: 'friend' })
+    expect(result).toBe(body)
   })
 })
