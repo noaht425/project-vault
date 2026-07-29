@@ -8,6 +8,7 @@ import {
   panWindow,
   placeEventsInLanes,
   computeAxisTicks,
+  expandAnnualRecurrence,
   MAX_ZOOM_LEVEL,
   type LanePlacement
 } from '../../../../common/eventTimelinePlacement'
@@ -91,7 +92,7 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
 
   const calendarByTitle = useMemo(() => new Map((calendars ?? []).map((c) => [c.title, c.frontmatter])), [calendars])
 
-  const placedItems = useMemo<PlacedEventData[]>(() => {
+  const anchorItems = useMemo<PlacedEventData[]>(() => {
     if (!events) return []
     const items: PlacedEventData[] = []
     for (const event of events) {
@@ -104,7 +105,27 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
     return items
   }, [events, calendarByTitle])
 
-  const fullWindow = useMemo(() => computeFullWindow(placedItems.map((i) => i.minutes)), [placedItems])
+  // Computed from anchors only — never from a recurring event's own
+  // generated occurrences below — so recurrence expansion is bounded by
+  // this window rather than able to grow it (see eventTimelinePlacement.ts's
+  // expandAnnualRecurrence comment for why that ordering matters).
+  const fullWindow = useMemo(() => computeFullWindow(anchorItems.map((i) => i.minutes)), [anchorItems])
+
+  const placedItems = useMemo<PlacedEventData[]>(() => {
+    const items: PlacedEventData[] = []
+    for (const item of anchorItems) {
+      if (!item.event.structuredDate?.annualRecurrence) {
+        items.push(item)
+        continue
+      }
+      const calendar = calendarByTitle.get(item.event.structuredDate.calendarNoteTitle)
+      if (!calendar) continue
+      for (const minutes of expandAnnualRecurrence(calendar, item.event.structuredDate, fullWindow)) {
+        items.push({ event: item.event, minutes })
+      }
+    }
+    return items
+  }, [anchorItems, calendarByTitle, fullWindow])
   const effectiveCenter = center ?? (fullWindow.start + fullWindow.end) / 2
   const currentWindow = windowForZoom(fullWindow, zoomLevel, effectiveCenter)
 
@@ -290,11 +311,15 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
             style={{ left: `${p.positionFraction * 100}%`, bottom: p.lane * LANE_HEIGHT + BASE_CONNECTOR_HEIGHT }}
           >
             <button className="pill" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
+              {p.event.structuredDate?.annualRecurrence && <span title="Recurs annually">↻ </span>}
               {p.event.title}
             </button>
             {expandedIndex === i && (
               <div className="pill-expanded">
-                <div className="pill-expanded-date">{formatDate(p.event, p.minutes)}</div>
+                <div className="pill-expanded-date">
+                  {formatDate(p.event, p.minutes)}
+                  {p.event.structuredDate?.annualRecurrence && ' (recurs annually)'}
+                </div>
                 <div className="pill-expanded-title">{p.event.title}</div>
                 {p.event.summary && <div className="pill-expanded-summary">{p.event.summary}</div>}
                 <button className="sheet-open-ref-button" onClick={() => onOpenEvent(p.event.path)}>

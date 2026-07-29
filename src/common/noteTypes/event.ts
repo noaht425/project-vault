@@ -17,7 +17,16 @@ export const eventStructuredDateSchema = z.object({
   monthId: z.string(),
   day: z.coerce.number().catch(1),
   hour: z.coerce.number().catch(0),
-  minute: z.coerce.number().catch(0)
+  minute: z.coerce.number().catch(0),
+  // "Winter Solstice, every year on this day" — same (era, month, day,
+  // hour, minute) recurring with year advancing by exactly 1. The pill
+  // timeline (eventTimelinePlacement.ts's expandAnnualRecurrence) expands
+  // this into one pill per occurrence, bounded to whatever date range the
+  // vault's other events already establish — no separate "repeat until"
+  // field needed. Era-crossing recurrence (e.g. an event a few years before
+  // an up/down era boundary) is out of scope for v1 — year just increments
+  // within the same era.
+  annualRecurrence: z.boolean().catch(false)
 })
 export type EventStructuredDate = z.infer<typeof eventStructuredDateSchema>
 

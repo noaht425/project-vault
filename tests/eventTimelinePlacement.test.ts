@@ -5,9 +5,11 @@ import {
   panWindow,
   placeEventsInLanes,
   computeAxisTicks,
+  expandAnnualRecurrence,
   MAX_ZOOM_LEVEL
 } from '../src/common/eventTimelinePlacement'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../src/common/noteTypes/calendar'
+import { toCanonicalMinutes } from '../src/common/calendarMath'
 
 describe('computeFullWindow', () => {
   it('pads 5% on each side of the min/max', () => {
@@ -243,5 +245,73 @@ describe('computeAxisTicks', () => {
       expect(t.positionFraction).toBeGreaterThanOrEqual(0)
       expect(t.positionFraction).toBeLessThanOrEqual(1)
     }
+  })
+})
+
+describe('expandAnnualRecurrence', () => {
+  function gregorianStyleCalendar(): CalendarFrontmatter {
+    return calendarFrontmatterSchema.parse({
+      type: 'calendar',
+      eras: [{ id: 'ce', name: 'Common Era', abbreviation: 'CE', direction: 'up' }],
+      months: [
+        { id: 'jan', name: 'January', days: 31 },
+        { id: 'feb', name: 'February', days: 28 },
+        { id: 'rest', name: 'Rest of Year', days: 306 }
+      ],
+      leapYearRule: {
+        intervalYears: 4,
+        exceptionEveryYears: 100,
+        exceptionToExceptionEveryYears: 400,
+        extraDays: 1,
+        monthId: 'feb'
+      }
+    })
+  }
+
+  it('always includes the anchor occurrence itself', () => {
+    const cal = gregorianStyleCalendar()
+    const anchor = { eraId: 'ce', year: 2020, monthId: 'jan', day: 1, hour: 0, minute: 0 }
+    const anchorMinutes = toCanonicalMinutes(cal, anchor)!
+    const occurrences = expandAnnualRecurrence(cal, anchor, { start: anchorMinutes, end: anchorMinutes })
+    expect(occurrences).toEqual([anchorMinutes])
+  })
+
+  it('generates one occurrence per year within the window, none outside it', () => {
+    const cal = gregorianStyleCalendar()
+    const anchor = { eraId: 'ce', year: 2020, monthId: 'jan', day: 1, hour: 0, minute: 0 }
+    const window = {
+      start: toCanonicalMinutes(cal, { ...anchor, year: 2018 })!,
+      end: toCanonicalMinutes(cal, { ...anchor, year: 2022 })!
+    }
+    const occurrences = expandAnnualRecurrence(cal, anchor, window)
+    const years = occurrences.map((m) => {
+      // Jan 1st of each year should be exactly (year - 2020) apart in whole-year steps.
+      return Math.round((m - toCanonicalMinutes(cal, anchor)!) / (365 * 24 * 60))
+    })
+    expect(new Set(years)).toEqual(new Set([-2, -1, 0, 1, 2]))
+    for (const m of occurrences) {
+      expect(m).toBeGreaterThanOrEqual(window.start)
+      expect(m).toBeLessThanOrEqual(window.end)
+    }
+  })
+
+  it('skips a year where the target day does not exist, but keeps recurring in later years', () => {
+    const cal = gregorianStyleCalendar()
+    // Feb 29th only exists in leap years (2020, 2024) — 2021-2023 must be skipped.
+    const anchor = { eraId: 'ce', year: 2020, monthId: 'feb', day: 29, hour: 0, minute: 0 }
+    const window = {
+      start: toCanonicalMinutes(cal, anchor)!,
+      end: toCanonicalMinutes(cal, { ...anchor, year: 2024 })!
+    }
+    const occurrences = expandAnnualRecurrence(cal, anchor, window)
+    expect(occurrences).toHaveLength(2) // 2020 and 2024 only
+    expect(occurrences).toContain(toCanonicalMinutes(cal, { ...anchor, year: 2020 }))
+    expect(occurrences).toContain(toCanonicalMinutes(cal, { ...anchor, year: 2024 }))
+  })
+
+  it('returns an empty array when the anchor date itself does not resolve', () => {
+    const cal = gregorianStyleCalendar()
+    const anchor = { eraId: 'nonexistent', year: 2020, monthId: 'jan', day: 1, hour: 0, minute: 0 }
+    expect(expandAnnualRecurrence(cal, anchor, { start: 0, end: 1000 })).toEqual([])
   })
 })

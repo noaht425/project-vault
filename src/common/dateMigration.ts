@@ -43,7 +43,16 @@ export function migrateFreeTextDate(freeText: string, calendars: CalendarCandida
       frontmatter.eras.find((e) => e.id === frontmatter.defaultEraId)
     if (!era) continue
 
-    return { calendarNoteTitle: noteTitle, eraId: era.id, year: raw.year, monthId: month.id, day: raw.day ?? 1, hour: 0, minute: 0 }
+    return {
+      calendarNoteTitle: noteTitle,
+      eraId: era.id,
+      year: raw.year,
+      monthId: month.id,
+      day: raw.day ?? 1,
+      hour: 0,
+      minute: 0,
+      annualRecurrence: false
+    }
   }
 
   return null

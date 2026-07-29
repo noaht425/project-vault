@@ -43,7 +43,16 @@ function krotaphosCalendar(): CalendarCandidate {
 describe('migrateFreeTextDate', () => {
   it('matches a full date against the calendar whose months know that name', () => {
     const result = migrateFreeTextDate('15 Aucaela, 42 AM', [mainCalendar(), krotaphosCalendar()])
-    expect(result).toEqual({ calendarNoteTitle: 'Age of the Many', eraId: 'am', year: 42, monthId: 'aucaela', day: 15, hour: 0, minute: 0 })
+    expect(result).toEqual({
+      calendarNoteTitle: 'Age of the Many',
+      eraId: 'am',
+      year: 42,
+      monthId: 'aucaela',
+      day: 15,
+      hour: 0,
+      minute: 0,
+      annualRecurrence: false
+    })
   })
 
   it('picks the Krotaphos calendar when the month name only exists there', () => {
@@ -54,7 +63,16 @@ describe('migrateFreeTextDate', () => {
 
   it('uses the first calendar\'s first month for a bare year (no month given)', () => {
     const result = migrateFreeTextDate('50 AF', [mainCalendar(), krotaphosCalendar()])
-    expect(result).toEqual({ calendarNoteTitle: 'Age of the Many', eraId: 'af', year: 50, monthId: 'aucaela', day: 1, hour: 0, minute: 0 })
+    expect(result).toEqual({
+      calendarNoteTitle: 'Age of the Many',
+      eraId: 'af',
+      year: 50,
+      monthId: 'aucaela',
+      day: 1,
+      hour: 0,
+      minute: 0,
+      annualRecurrence: false
+    })
   })
 
   it('falls back to defaultEraId when no AM/AF suffix is present', () => {
@@ -84,7 +102,21 @@ describe('computeDateMigration', () => {
       { path: '/d.md', date: 'sometime vague', hasStructuredDate: false } // unparseable -- skip, stays undated
     ]
     const updates = computeDateMigration(events, [mainCalendar(), krotaphosCalendar()])
-    expect(updates).toEqual([{ path: '/a.md', structuredDate: { calendarNoteTitle: 'Age of the Many', eraId: 'am', year: 42, monthId: 'aucaela', day: 15, hour: 0, minute: 0 } }])
+    expect(updates).toEqual([
+      {
+        path: '/a.md',
+        structuredDate: {
+          calendarNoteTitle: 'Age of the Many',
+          eraId: 'am',
+          year: 42,
+          monthId: 'aucaela',
+          day: 15,
+          hour: 0,
+          minute: 0,
+          annualRecurrence: false
+        }
+      }
+    ])
   })
 
   it('is a no-op when there are no calendars defined yet', () => {

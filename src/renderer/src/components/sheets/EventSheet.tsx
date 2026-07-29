@@ -81,7 +81,16 @@ export function EventSheet({
             onChange={(e) =>
               updateFrontmatter({
                 structuredDate: e.target.checked
-                  ? { calendarNoteTitle: calendarOptions[0] ?? '', eraId: '', year: 1, monthId: '', day: 1, hour: 0, minute: 0 }
+                  ? {
+                      calendarNoteTitle: calendarOptions[0] ?? '',
+                      eraId: '',
+                      year: 1,
+                      monthId: '',
+                      day: 1,
+                      hour: 0,
+                      minute: 0,
+                      annualRecurrence: false
+                    }
                   : null
               })
             }
@@ -152,6 +161,20 @@ export function EventSheet({
                     onChange={(e) => updateStructuredDate({ minute: Number(e.target.value) })}
                   />
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flexBasis: '100%', marginTop: 4 }}>
+                  <input
+                    type="checkbox"
+                    checked={data.structuredDate.annualRecurrence}
+                    onChange={(e) => updateStructuredDate({ annualRecurrence: e.target.checked })}
+                  />
+                  Recurs annually (e.g. "Winter Solstice, every year")
+                </label>
+                {data.structuredDate.annualRecurrence && (
+                  <p className="right-panel-note" style={{ flexBasis: '100%' }}>
+                    Shows once per year, in the same era/month/day/time, across whatever date range your other
+                    events already span on the pill Timeline — no separate end date needed.
+                  </p>
+                )}
               </>
             ) : (
               data.structuredDate.calendarNoteTitle && (

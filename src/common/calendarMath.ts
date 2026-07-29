@@ -60,6 +60,23 @@ export function yearLengthDays(calendar: CalendarFrontmatter, year: number): num
   return isLeapYear(calendar.leapYearRule, year) ? base + calendar.leapYearRule!.extraDays : base
 }
 
+/**
+ * How many days `monthId` actually has in `year` — its base length, plus the
+ * leap rule's extraDays if this specific month is the leap rule's target AND
+ * `year` is a leap year. Returns null if `monthId` doesn't exist on this
+ * calendar. Needed because toCanonicalMinutes doesn't validate day-in-range
+ * itself (see its own comment) — a recurring event landing on, e.g., Feb 29
+ * needs this to know that day doesn't exist in a non-leap year, rather than
+ * silently spilling into March's date range for that year.
+ */
+export function daysInMonthForYear(calendar: CalendarFrontmatter, monthId: string, year: number): number | null {
+  const month = calendar.months.find((m) => m.id === monthId)
+  if (!month) return null
+  const leap = isLeapYear(calendar.leapYearRule, year)
+  const extra = leap && calendar.leapYearRule?.monthId === monthId ? calendar.leapYearRule.extraDays : 0
+  return month.days + extra
+}
+
 // Total leap days contributed by every leap year in [1, year-1] — closed
 // form, no loop, the exact same "floor division" trick real Gregorian
 // day-count algorithms use (days = 365y + floor(y/4) - floor(y/100) +

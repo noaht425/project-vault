@@ -18,7 +18,7 @@
 // whatever region they care about.
 
 import type { CalendarFrontmatter } from './noteTypes/calendar'
-import { fromCanonicalMinutes } from './calendarMath'
+import { daysInMonthForYear, fromCanonicalMinutes, toCanonicalMinutes, type CalendarDateParts } from './calendarMath'
 
 export interface TimelineWindow {
   start: number // canonical minutes
@@ -36,6 +36,57 @@ export function computeFullWindow(canonicalMinutes: number[]): TimelineWindow {
   if (min === max) return { start: min - 1, end: max + 1 }
   const pad = (max - min) * 0.05
   return { start: min - pad, end: max + pad }
+}
+
+// A recurring event never needs the user to configure "repeat until when" —
+// it's bounded to whatever full date range the vault's OTHER events already
+// establish (computeFullWindow above, computed from real anchor dates only,
+// never from a recurring event's own generated instances — that ordering
+// matters, see EventsPillTimelineView.tsx's placedItems for how the two
+// stay decoupled). MAX_RECURRENCE_STEPS is a defensive cap per direction
+// against a malformed calendar where advancing a year somehow doesn't move
+// canonical minutes forward — not a limit expected to matter in practice.
+const MAX_RECURRENCE_STEPS = 1000
+
+/**
+ * Expands one annually-recurring event's anchor date into every yearly
+ * occurrence (same era/month/day/hour/minute, year advancing by exactly 1
+ * within the same era — no era-crossing recurrence in v1) whose canonical
+ * minutes fall within `window`. The anchor occurrence itself is always
+ * included. A year whose target day doesn't exist for this calendar (e.g.
+ * Feb 29 in a non-leap year — see calendarMath.ts's daysInMonthForYear,
+ * since toCanonicalMinutes doesn't validate day-in-range) is skipped for
+ * that year only; stepping continues to the next year rather than stopping,
+ * since one invalid year doesn't mean recurrence has run out.
+ */
+export function expandAnnualRecurrence(calendar: CalendarFrontmatter, anchor: CalendarDateParts, window: TimelineWindow): number[] {
+  const anchorMinutes = toCanonicalMinutes(calendar, anchor)
+  if (anchorMinutes === null) return []
+
+  const occurrenceMinutes = (deltaYears: number): number | null => {
+    const year = anchor.year + deltaYears
+    const daysInTargetMonth = daysInMonthForYear(calendar, anchor.monthId, year)
+    if (daysInTargetMonth === null || anchor.day > daysInTargetMonth) return null
+    return toCanonicalMinutes(calendar, { ...anchor, year })
+  }
+
+  const results = [anchorMinutes]
+
+  for (let delta = 1; delta <= MAX_RECURRENCE_STEPS; delta++) {
+    const minutes = occurrenceMinutes(delta)
+    if (minutes === null) continue // this year's target day doesn't exist — try the next one
+    if (minutes > window.end) break // years only move further into the future from here
+    if (minutes >= window.start) results.push(minutes)
+  }
+
+  for (let delta = -1; delta >= -MAX_RECURRENCE_STEPS; delta--) {
+    const minutes = occurrenceMinutes(delta)
+    if (minutes === null) continue
+    if (minutes < window.start) break // years only move further into the past from here
+    if (minutes <= window.end) results.push(minutes)
+  }
+
+  return results
 }
 
 // Each whole zoom level in is 3x narrower than the previous — arbitrary

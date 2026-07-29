@@ -33,7 +33,8 @@ describe('eventFrontmatterSchema', () => {
       monthId: 'aucaela',
       day: 15,
       hour: 0,
-      minute: 0
+      minute: 0,
+      annualRecurrence: false
     })
   })
 

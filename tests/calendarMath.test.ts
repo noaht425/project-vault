@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../src/common/noteTypes/calendar'
-import { isLeapYear, yearLengthDays, toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate } from '../src/common/calendarMath'
+import { isLeapYear, yearLengthDays, daysInMonthForYear, toCanonicalMinutes, fromCanonicalMinutes, formatCalendarDate } from '../src/common/calendarMath'
 
 function simpleCalendar(overrides: Record<string, unknown> = {}): CalendarFrontmatter {
   return calendarFrontmatterSchema.parse({
@@ -78,6 +78,27 @@ describe('yearLengthDays', () => {
     expect(yearLengthDays(cal, 2024)).toBe(366)
     expect(yearLengthDays(cal, 1900)).toBe(365) // divisible by 100, not 400
     expect(yearLengthDays(cal, 2000)).toBe(366) // divisible by 400
+  })
+})
+
+describe('daysInMonthForYear', () => {
+  it('gives February 29 days in a leap year, 28 otherwise', () => {
+    const cal = gregorianStyleCalendar()
+    expect(daysInMonthForYear(cal, 'feb', 2024)).toBe(29)
+    expect(daysInMonthForYear(cal, 'feb', 2023)).toBe(28)
+    expect(daysInMonthForYear(cal, 'feb', 1900)).toBe(28) // divisible by 100, not 400
+    expect(daysInMonthForYear(cal, 'feb', 2000)).toBe(29) // divisible by 400
+  })
+
+  it('is unaffected by a leap year for a month the leap rule does not target', () => {
+    const cal = gregorianStyleCalendar()
+    expect(daysInMonthForYear(cal, 'jan', 2024)).toBe(31)
+    expect(daysInMonthForYear(cal, 'rest', 2024)).toBe(306)
+  })
+
+  it('returns null for a month id that does not exist on this calendar', () => {
+    const cal = gregorianStyleCalendar()
+    expect(daysInMonthForYear(cal, 'nonexistent', 2024)).toBeNull()
   })
 })
 
