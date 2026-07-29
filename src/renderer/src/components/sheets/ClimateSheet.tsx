@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { climateFrontmatterSchema, type ClimateSeason } from '../../../../common/noteTypes/climate'
+import { CLIMATE_PRESETS, applyClimatePreset } from '../../../../common/climatePresets'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../../../../common/noteTypes/calendar'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
@@ -22,6 +23,7 @@ export function ClimateSheet({
   // The referenced calendar's own month list — same cross-note frontmatter
   // fetch EventSheet.tsx already uses for its own Calendar field.
   const [calendarDef, setCalendarDef] = useState<CalendarFrontmatter | null>(null)
+  const [presetId, setPresetId] = useState('')
 
   useEffect(() => {
     void noteRefApi.searchTitles('', 'calendar').then((matches) => setCalendarOptions(matches.map((m) => m.title)))
@@ -78,6 +80,48 @@ export function ClimateSheet({
           <p className="right-panel-note">No calendar note titled "{data.calendarNoteTitle}" found yet.</p>
         )}
       </div>
+
+      {calendarDef && (
+        <div style={{ marginTop: 12 }}>
+          <strong>Start from a climate preset</strong>
+          <p className="right-panel-note">
+            Fills in a full set of seasons and weather conditions based on a real-world climate type — a starting point to
+            edit from, not a final answer. Assigns this calendar's months into blocks in chronological order, so re-check
+            the month checkboxes below if your calendar's first month isn't your world's winter (or dry season, etc.).
+          </p>
+          <div className="sheet-row">
+            <label className="sheet-field" style={{ flex: 2 }}>
+              Climate preset
+              <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+                <option value="">Choose…</option>
+                {CLIMATE_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.koppenCodes})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="sheet-open-ref-button"
+              disabled={!presetId}
+              onClick={() => {
+                const preset = CLIMATE_PRESETS.find((p) => p.id === presetId)
+                if (!preset) return
+                if (data.seasons.length > 0) {
+                  const proceed = window.confirm(
+                    `Replace all ${data.seasons.length} current season(s) with the "${preset.name}" preset? This can't be undone.`
+                  )
+                  if (!proceed) return
+                }
+                updateFrontmatter({ seasons: applyClimatePreset(preset, calendarDef.months) })
+              }}
+            >
+              Apply preset
+            </button>
+          </div>
+          {presetId && <p className="right-panel-note">{CLIMATE_PRESETS.find((p) => p.id === presetId)?.description}</p>}
+        </div>
+      )}
 
       {calendarDef && (
         <div style={{ marginTop: 12 }}>
