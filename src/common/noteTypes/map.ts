@@ -54,6 +54,21 @@ export const mapLineSchema = z.object({
   widthPixels: z.coerce.number().catch(20)
 })
 
+// A landmass has no terrain/speed of its own — it's a pure land/water
+// boundary. Anything inside any landmass polygon counts as land (unpainted
+// default, same 1x as today); anything outside every landmass on the map
+// counts as water, using the map's waterTerrainTypeId (see mapGeometry.ts's
+// calculateTrip). A map with zero landmasses behaves exactly as before —
+// this is additive, not a replacement for the existing zone/line system,
+// which still wins wherever explicitly painted (a river or a sea lane keeps
+// its own speed regardless of which side of a landmass boundary it's on).
+export const mapLandmassSchema = z.object({
+  id: z.string(),
+  name: z.string().catch(''),
+  // Simple single-ring polygon, same shape/limitations as a MapZone (v1).
+  points: z.array(pointSchema)
+})
+
 export const mapPinSchema = z.object({
   id: z.string(),
   x: z.number(),
@@ -85,6 +100,14 @@ export const mapFrontmatterSchema = z
     lineTypes: z.array(lineTypeSchema).catch([]),
     zones: z.array(mapZoneSchema).catch([]),
     lines: z.array(mapLineSchema).catch([]),
+    landmasses: z.array(mapLandmassSchema).catch([]),
+    // Which terrainTypes entry represents "water" — used as the default
+    // speed for anything outside every landmass and not otherwise covered
+    // by a painted zone/line. Null until the user sets one (see MapSheet's
+    // Water terrain picker), in which case water areas default to 1x, same
+    // as unpainted land — a deliberate no-op until configured, not a hidden
+    // slowdown/impassable surprise on maps that predate this feature.
+    waterTerrainTypeId: z.string().nullable().catch(null),
     pins: z.array(mapPinSchema).catch([])
   })
   .passthrough()
@@ -96,6 +119,7 @@ export type TerrainType = z.infer<typeof terrainTypeSchema>
 export type LineType = z.infer<typeof lineTypeSchema>
 export type MapZone = z.infer<typeof mapZoneSchema>
 export type MapLine = z.infer<typeof mapLineSchema>
+export type MapLandmass = z.infer<typeof mapLandmassSchema>
 export type MapPin = z.infer<typeof mapPinSchema>
 
 // Seeded on every new map — generic real-world-ish starting points, not

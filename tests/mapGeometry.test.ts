@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { pointInPolygon, segmentDistance, pixelsToReal, crossingTime, splitLineByZones, zonesIncludingLines, calculateTrip } from '../src/common/mapGeometry'
-import type { LineType, MapLine, MapZone, TerrainType } from '../src/common/noteTypes/map'
+import {
+  pointInPolygon,
+  isLandAt,
+  segmentDistance,
+  pixelsToReal,
+  crossingTime,
+  splitLineByZones,
+  zonesIncludingLines,
+  calculateTrip
+} from '../src/common/mapGeometry'
+import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../src/common/noteTypes/map'
 import type { TravelMode } from '../src/common/noteTypes/travelModes'
 
 // Two adjacent 100x100 squares sharing the edge x=100: a "forest" on the
@@ -72,20 +81,64 @@ describe('crossingTime', () => {
 describe('splitLineByZones', () => {
   it('returns one segment when the whole line is inside a single zone', () => {
     const segments = splitLineByZones({ x: 10, y: 50 }, { x: 90, y: 50 }, ZONES)
-    expect(segments).toEqual([{ terrainTypeId: 'forest', pixelLength: 80 }])
+    expect(segments).toEqual([{ terrainTypeId: 'forest', isLand: true, pixelLength: 80 }])
   })
 
   it('splits at the boundary when a line crosses from one zone into an adjacent one', () => {
     const segments = splitLineByZones({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES)
     expect(segments).toEqual([
-      { terrainTypeId: 'forest', pixelLength: 50 },
-      { terrainTypeId: 'meadow', pixelLength: 50 }
+      { terrainTypeId: 'forest', isLand: true, pixelLength: 50 },
+      { terrainTypeId: 'meadow', isLand: true, pixelLength: 50 }
     ])
   })
 
   it('falls back to a null (unpainted) segment when the line misses every zone', () => {
     const segments = splitLineByZones({ x: 300, y: 300 }, { x: 400, y: 300 }, ZONES)
-    expect(segments).toEqual([{ terrainTypeId: null, pixelLength: 100 }])
+    expect(segments).toEqual([{ terrainTypeId: null, isLand: true, pixelLength: 100 }])
+  })
+})
+
+// A single landmass covering the FOREST zone's footprint (x=[0,100],
+// y=[0,100]) but not MEADOW's (x=[100,200]) — used to test the land/water
+// split independently of the existing terrain-zone tests above.
+const CONTINENT: MapLandmass = {
+  id: 'landmass-continent',
+  name: 'The Continent',
+  points: [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+    { x: 0, y: 100 }
+  ]
+}
+
+describe('isLandAt', () => {
+  it('treats everywhere as land when no landmasses are drawn', () => {
+    expect(isLandAt({ x: 9999, y: 9999 }, [])).toBe(true)
+  })
+
+  it('is true inside a landmass and false outside every landmass', () => {
+    expect(isLandAt({ x: 50, y: 50 }, [CONTINENT])).toBe(true)
+    expect(isLandAt({ x: 150, y: 50 }, [CONTINENT])).toBe(false)
+  })
+})
+
+describe('splitLineByZones with landmasses', () => {
+  it('splits an unpainted line at a landmass boundary even with no zones present', () => {
+    // Straight line crossing from inside CONTINENT (land) to outside it (water).
+    const segments = splitLineByZones({ x: 50, y: 50 }, { x: 150, y: 50 }, [], [CONTINENT])
+    expect(segments).toEqual([
+      { terrainTypeId: null, isLand: true, pixelLength: 50 },
+      { terrainTypeId: null, isLand: false, pixelLength: 50 }
+    ])
+  })
+
+  it('does not split an explicit zone/line segment on isLand — only null segments care', () => {
+    // MEADOW zone spans x=[100,200], entirely outside CONTINENT (water) —
+    // it should still come back as one merged 'meadow' segment despite
+    // being entirely on the water side, since an explicit zone always wins.
+    const segments = splitLineByZones({ x: 110, y: 50 }, { x: 190, y: 50 }, ZONES, [CONTINENT])
+    expect(segments).toEqual([{ terrainTypeId: 'meadow', isLand: false, pixelLength: 80 }])
   })
 })
 
@@ -107,7 +160,7 @@ describe('zonesIncludingLines', () => {
 
   it('registers a route that runs along a line for its whole length as a single segment', () => {
     const segments = splitLineByZones({ x: 10, y: 50 }, { x: 190, y: 50 }, zonesIncludingLines([], [ROAD_LINE]))
-    expect(segments).toEqual([{ terrainTypeId: 'road', pixelLength: 180 }])
+    expect(segments).toEqual([{ terrainTypeId: 'road', isLand: true, pixelLength: 180 }])
   })
 
   it('lets a line take priority over an underlying area zone where they overlap', () => {
@@ -132,45 +185,98 @@ describe('calculateTrip', () => {
   const walking: TravelMode = { id: 'walk', name: 'Walking', speed: 2, timeUnitLabel: 'hours' }
 
   it('sums per-segment distance and time across crossed terrain, weighted by speed multiplier', () => {
-    const trip = calculateTrip({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES, [], terrainTypes, lineTypes, scale, walking)
+    const trip = calculateTrip({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES, [], terrainTypes, lineTypes, [], null, scale, walking)
 
     expect(trip.totalPixelDistance).toBe(100)
     expect(trip.totalRealDistance).toBe(10) // 100px * (10mi / 100px)
     // forest: 5mi at (2 * 0.5)=1mph -> 5h; meadow: 5mi at (2 * 1.5)=3mph -> 5/3h
     expect(trip.totalTime).toBeCloseTo(5 + 5 / 3, 10)
     expect(trip.segments).toEqual([
-      { terrainTypeId: 'forest', realDistance: 5, time: 5 },
-      { terrainTypeId: 'meadow', realDistance: 5, time: 5 / 3 }
+      { terrainTypeId: 'forest', isLand: true, realDistance: 5, time: 5 },
+      { terrainTypeId: 'meadow', isLand: true, realDistance: 5, time: 5 / 3 }
     ])
   })
 
   it('produces Infinity total time when a crossed terrain is impassable (0 speed multiplier)', () => {
     const impassableForest = [{ ...terrainTypes[0], speedMultiplier: 0 }, terrainTypes[1]]
-    const trip = calculateTrip({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES, [], impassableForest, lineTypes, scale, walking)
+    const trip = calculateTrip({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES, [], impassableForest, lineTypes, [], null, scale, walking)
 
     expect(trip.segments[0].time).toBe(Infinity)
     expect(trip.totalTime).toBe(Infinity)
   })
 
   it('treats unpainted ground as a normal (1x) multiplier', () => {
-    const trip = calculateTrip({ x: 300, y: 300 }, { x: 400, y: 300 }, ZONES, [], terrainTypes, lineTypes, scale, walking)
+    const trip = calculateTrip({ x: 300, y: 300 }, { x: 400, y: 300 }, ZONES, [], terrainTypes, lineTypes, [], null, scale, walking)
 
-    expect(trip.segments).toEqual([{ terrainTypeId: null, realDistance: 10, time: 5 }]) // 10mi at 2mph
+    expect(trip.segments).toEqual([{ terrainTypeId: null, isLand: true, realDistance: 10, time: 5 }]) // 10mi at 2mph
   })
 
   it('speeds up a route that runs along a road line for its whole length', () => {
-    const noRoad = calculateTrip({ x: 10, y: 50 }, { x: 190, y: 50 }, [], [], terrainTypes, lineTypes, scale, walking)
-    const withRoad = calculateTrip({ x: 10, y: 50 }, { x: 190, y: 50 }, [], [ROAD_LINE], terrainTypes, lineTypes, scale, walking)
+    const noRoad = calculateTrip({ x: 10, y: 50 }, { x: 190, y: 50 }, [], [], terrainTypes, lineTypes, [], null, scale, walking)
+    const withRoad = calculateTrip({ x: 10, y: 50 }, { x: 190, y: 50 }, [], [ROAD_LINE], terrainTypes, lineTypes, [], null, scale, walking)
 
     expect(withRoad.totalRealDistance).toBe(noRoad.totalRealDistance) // same ground covered...
     expect(withRoad.totalTime).toBeLessThan(noRoad.totalTime) // ...but faster, thanks to the road
   })
 
   it('slows down a route that crosses a river line', () => {
-    const noRiver = calculateTrip({ x: 0, y: 100 }, { x: 200, y: 100 }, [], [], terrainTypes, lineTypes, scale, walking)
-    const withRiver = calculateTrip({ x: 0, y: 100 }, { x: 200, y: 100 }, [], [RIVER_LINE], terrainTypes, lineTypes, scale, walking)
+    const noRiver = calculateTrip({ x: 0, y: 100 }, { x: 200, y: 100 }, [], [], terrainTypes, lineTypes, [], null, scale, walking)
+    const withRiver = calculateTrip({ x: 0, y: 100 }, { x: 200, y: 100 }, [], [RIVER_LINE], terrainTypes, lineTypes, [], null, scale, walking)
 
     expect(withRiver.totalRealDistance).toBe(noRiver.totalRealDistance)
     expect(withRiver.totalTime).toBeGreaterThan(noRiver.totalTime)
+  })
+
+  it('treats unpainted ground outside a landmass as normal (1x) speed until a water terrain is set', () => {
+    // 150,50 sits outside CONTINENT (x=[0,100]) and outside every zone/line.
+    const trip = calculateTrip({ x: 120, y: 50 }, { x: 180, y: 50 }, [], [], terrainTypes, lineTypes, [CONTINENT], null, scale, walking)
+
+    expect(trip.segments).toEqual([{ terrainTypeId: null, isLand: false, realDistance: 6, time: 3 }]) // 6mi at 2mph
+  })
+
+  it('applies the chosen water terrain multiplier outside a landmass, and normal speed inside it', () => {
+    const oceanTerrainTypes: TerrainType[] = [...terrainTypes, { id: 'ocean', name: 'Ocean', color: '#3c8fe0', speedMultiplier: 0.25 }]
+    // Route crosses straight out of CONTINENT (land, x<100) into open water (x>100).
+    const trip = calculateTrip(
+      { x: 50, y: 50 },
+      { x: 150, y: 50 },
+      [],
+      [],
+      oceanTerrainTypes,
+      lineTypes,
+      [CONTINENT],
+      'ocean',
+      scale,
+      walking
+    )
+
+    // land half: 5mi at (2*1)=2mph -> 2.5h; water half: 5mi at (2*0.25)=0.5mph -> 10h
+    expect(trip.segments).toEqual([
+      { terrainTypeId: null, isLand: true, realDistance: 5, time: 2.5 },
+      { terrainTypeId: null, isLand: false, realDistance: 5, time: 10 }
+    ])
+    expect(trip.totalTime).toBeCloseTo(12.5, 10)
+  })
+
+  it("lets an explicit zone/line override water's default even outside a landmass (e.g. a sea lane)", () => {
+    // MEADOW (x=[100,200]) is entirely outside CONTINENT (water side) but is
+    // an explicitly painted zone — its own 1.5x multiplier should win, not
+    // the impassable ocean default.
+    const oceanTerrainTypes: TerrainType[] = [...terrainTypes, { id: 'ocean', name: 'Ocean', color: '#3c8fe0', speedMultiplier: 0 }]
+    const trip = calculateTrip(
+      { x: 110, y: 50 },
+      { x: 190, y: 50 },
+      ZONES,
+      [],
+      oceanTerrainTypes,
+      lineTypes,
+      [CONTINENT],
+      'ocean',
+      scale,
+      walking
+    )
+
+    expect(trip.totalTime).not.toBe(Infinity)
+    expect(trip.segments).toEqual([{ terrainTypeId: 'meadow', isLand: false, realDistance: 8, time: 8 / 3 }])
   })
 })

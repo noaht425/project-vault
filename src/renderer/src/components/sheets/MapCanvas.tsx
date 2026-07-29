@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { segmentDistance, type Point } from '../../../../common/mapGeometry'
-import { pinDisplayLabel, type LineType, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
+import { pinDisplayLabel, type LineType, type MapLandmass, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
 
-export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'place-pin'
+export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'place-pin'
 
 interface ViewBox {
   x: number
@@ -43,6 +43,7 @@ export interface MapCanvasProps {
   imageHeight: number
   zones: MapZone[]
   lines: MapLine[]
+  landmasses: MapLandmass[]
   pins: MapPin[]
   terrainTypes: TerrainType[]
   lineTypes: LineType[]
@@ -50,6 +51,7 @@ export interface MapCanvasProps {
   onCalibrate: (pixelDistance: number) => void
   onZoneDrawn: (points: Point[]) => void
   onLineDrawn: (points: Point[]) => void
+  onLandmassDrawn: (points: Point[]) => void
   onPinPlaced: (point: Point) => void
   onPinClick: (pin: MapPin) => void
   // Pin ids to ring in an accent color — used by the Timeline section to
@@ -64,6 +66,7 @@ export function MapCanvas({
   imageHeight,
   zones,
   lines,
+  landmasses,
   pins,
   terrainTypes,
   lineTypes,
@@ -71,6 +74,7 @@ export function MapCanvas({
   onCalibrate,
   onZoneDrawn,
   onLineDrawn,
+  onLandmassDrawn,
   onPinPlaced,
   onPinClick,
   highlightedPinIds
@@ -79,6 +83,7 @@ export function MapCanvas({
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
   const [zoneDraft, setZoneDraft] = useState<Point[]>([])
   const [lineDraft, setLineDraft] = useState<Point[]>([])
+  const [landmassDraft, setLandmassDraft] = useState<Point[]>([])
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
   // The window-level mousemove/mouseup listeners below are only rebound
@@ -108,6 +113,7 @@ export function MapCanvas({
     setCalibrationStart(null)
     setZoneDraft([])
     setLineDraft([])
+    setLandmassDraft([])
   }, [mode])
 
   useEffect(() => {
@@ -126,11 +132,18 @@ export function MapCanvas({
         } else if (e.key === 'Escape') {
           setLineDraft([])
         }
+      } else if (mode === 'paint-landmass') {
+        if (e.key === 'Enter' && landmassDraft.length >= 3) {
+          onLandmassDrawn(landmassDraft)
+          setLandmassDraft([])
+        } else if (e.key === 'Escape') {
+          setLandmassDraft([])
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn])
+  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn, landmassDraft, onLandmassDrawn])
 
   const clientToSvgPoint = (clientX: number, clientY: number): Point | null => {
     const rect = svgRef.current?.getBoundingClientRect()
@@ -155,6 +168,8 @@ export function MapCanvas({
       setZoneDraft((pts) => [...pts, point])
     } else if (mode === 'draw-line') {
       setLineDraft((pts) => [...pts, point])
+    } else if (mode === 'paint-landmass') {
+      setLandmassDraft((pts) => [...pts, point])
     } else if (mode === 'place-pin') {
       onPinPlaced(point)
     }
@@ -219,7 +234,7 @@ export function MapCanvas({
     // values from the dep list — only re-binding on the values above (same
     // as CloudGraphView's identical pattern) avoids tearing down and
     // rebuilding these window listeners on every pan tick.
-  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft])
+  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft, landmassDraft])
 
   return (
     <svg
@@ -231,6 +246,25 @@ export function MapCanvas({
       onMouseDown={handleMouseDown}
     >
       <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />
+
+      <g>
+        {/* Landmass boundaries render underneath terrain zones/lines — they're
+            a land/water backdrop, not a paintable region themselves, so a
+            dashed outline with near-zero fill keeps whatever's drawn inside
+            (or the base map image) fully legible. */}
+        {landmasses.map((landmass) => (
+          <polygon
+            key={landmass.id}
+            points={landmass.points.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="#2a6f97"
+            fillOpacity={0.06}
+            stroke="#2a6f97"
+            strokeOpacity={0.8}
+            strokeWidth={2}
+            strokeDasharray="6,4"
+          />
+        ))}
+      </g>
 
       <g>
         {zones.map((zone) => (
@@ -278,6 +312,16 @@ export function MapCanvas({
           <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
           <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
           {lineDraft.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+          ))}
+        </g>
+      )}
+
+      {mode === 'paint-landmass' && landmassDraft.length > 0 && (
+        <g>
+          <polyline points={landmassDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+          <polyline points={landmassDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+          {landmassDraft.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
           ))}
         </g>

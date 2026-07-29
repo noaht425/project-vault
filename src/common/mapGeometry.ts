@@ -4,7 +4,7 @@
 // hand for every distance query, it walks the straight line between two
 // pins and automatically works out which painted terrain zones it passes
 // through and how much of the line falls in each.
-import type { LineType, MapLine, MapScale, MapZone, TerrainType } from './noteTypes/map'
+import type { LineType, MapLandmass, MapLine, MapScale, MapZone, TerrainType } from './noteTypes/map'
 import type { TravelMode } from './noteTypes/travelModes'
 
 export interface Point {
@@ -47,6 +47,17 @@ export function pointInPolygon(point: Point, polygon: Point[]): boolean {
   return inside
 }
 
+// A map with no landmasses drawn treats everywhere as land — same as the
+// pre-landmass behavior, so existing maps don't silently pick up a "water"
+// default they never configured. Once at least one landmass exists, a point
+// counts as land only if it falls inside one of them (union, no priority
+// between overlapping landmasses needed since they carry no terrain of
+// their own — see mapLandmassSchema's comment in noteTypes/map.ts).
+export function isLandAt(point: Point, landmasses: MapLandmass[]): boolean {
+  if (landmasses.length === 0) return true
+  return landmasses.some((landmass) => pointInPolygon(point, landmass.points))
+}
+
 // Parametric intersection of segment p1->p2 with segment a->b, returned as
 // t along p1->p2 (0..1), or null if they don't cross within both segments'
 // bounds. Parallel/collinear edges return null — a zero-measure edge case
@@ -79,13 +90,14 @@ function zoneAt(point: Point, zones: MapZone[]): string | null {
 
 export interface ZoneSegment {
   terrainTypeId: string | null // null = outside every painted zone
+  isLand: boolean // only meaningful when terrainTypeId is null — see calculateTrip
   pixelLength: number
 }
 
-export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[]): ZoneSegment[] {
+export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[], landmasses: MapLandmass[] = []): ZoneSegment[] {
   const totalLength = segmentDistance(p1, p2)
   if (totalLength === 0) {
-    return [{ terrainTypeId: zoneAt(p1, zones), pixelLength: 0 }]
+    return [{ terrainTypeId: zoneAt(p1, zones), isLand: isLandAt(p1, landmasses), pixelLength: 0 }]
   }
 
   const ts = new Set<number>([0, 1])
@@ -93,6 +105,19 @@ export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[]): ZoneSe
     for (let i = 0; i < zone.points.length; i++) {
       const a = zone.points[i]
       const b = zone.points[(i + 1) % zone.points.length]
+      const t = segmentIntersectionT(p1, p2, a, b)
+      if (t !== null) ts.add(t)
+    }
+  }
+  // A landmass boundary crossing changes the land/water default even where
+  // no zone/line covers the point, so it needs its own split points too —
+  // otherwise a route that exits a landmass into open water without ever
+  // touching a painted zone would be scored as one long "unpainted" segment
+  // straddling both land and water.
+  for (const landmass of landmasses) {
+    for (let i = 0; i < landmass.points.length; i++) {
+      const a = landmass.points[i]
+      const b = landmass.points[(i + 1) % landmass.points.length]
       const t = segmentIntersectionT(p1, p2, a, b)
       if (t !== null) ts.add(t)
     }
@@ -107,13 +132,21 @@ export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[]): ZoneSe
 
     const tMid = (tStart + tEnd) / 2
     const midpoint = { x: p1.x + (p2.x - p1.x) * tMid, y: p1.y + (p2.y - p1.y) * tMid }
-    segments.push({ terrainTypeId: zoneAt(midpoint, zones), pixelLength: totalLength * (tEnd - tStart) })
+    segments.push({
+      terrainTypeId: zoneAt(midpoint, zones),
+      isLand: isLandAt(midpoint, landmasses),
+      pixelLength: totalLength * (tEnd - tStart)
+    })
   }
 
   const merged: ZoneSegment[] = []
   for (const segment of segments) {
     const last = merged.at(-1)
-    if (last && last.terrainTypeId === segment.terrainTypeId) {
+    // isLand only needs to match when terrainTypeId is null — an explicitly
+    // painted zone/line's speed doesn't depend on which side of a landmass
+    // boundary it's on, so two explicit segments of the same terrain type
+    // still merge even if a landmass edge happens to run through them.
+    if (last && last.terrainTypeId === segment.terrainTypeId && (segment.terrainTypeId !== null || last.isLand === segment.isLand)) {
       last.pixelLength += segment.pixelLength
     } else {
       merged.push({ ...segment })
@@ -180,6 +213,7 @@ export function zonesIncludingLines(zones: MapZone[], lines: MapLine[]): MapZone
 
 export interface TripSegmentResult {
   terrainTypeId: string | null
+  isLand: boolean // only meaningful when terrainTypeId is null — see calculateTrip
   realDistance: number
   time: number
 }
@@ -198,6 +232,8 @@ export function calculateTrip(
   lines: MapLine[],
   terrainTypes: TerrainType[],
   lineTypes: LineType[],
+  landmasses: MapLandmass[],
+  waterTerrainTypeId: string | null,
   scale: MapScale,
   travelMode: TravelMode
 ): TripResult {
@@ -206,19 +242,30 @@ export function calculateTrip(
   // (see lineToCorridorZones) carries the line's lineTypeId in that same
   // field, so both pools need to be searchable here.
   const multiplierById = new Map([...terrainTypes, ...lineTypes].map((t) => [t.id, t.speedMultiplier]))
-  const zoneSegments = splitLineByZones(p1, p2, zonesIncludingLines(zones, lines))
+  const zoneSegments = splitLineByZones(p1, p2, zonesIncludingLines(zones, lines), landmasses)
 
   let totalRealDistance = 0
   let totalTime = 0
   const segments: TripSegmentResult[] = zoneSegments.map((seg) => {
     const realDistance = pixelsToReal(seg.pixelLength, scale)
-    const multiplier = seg.terrainTypeId === null ? 1 : (multiplierById.get(seg.terrainTypeId) ?? 1)
+    // An explicitly painted zone/line always wins, regardless of land or
+    // water. Otherwise land defaults to 1x (unchanged from before landmasses
+    // existed), and water defaults to the map's chosen water terrain type —
+    // or 1x too, if none has been picked yet, so drawing a landmass boundary
+    // without setting a water terrain is a visual no-op rather than a
+    // silent slowdown.
+    const multiplier =
+      seg.terrainTypeId !== null
+        ? (multiplierById.get(seg.terrainTypeId) ?? 1)
+        : seg.isLand || waterTerrainTypeId === null
+          ? 1
+          : (multiplierById.get(waterTerrainTypeId) ?? 1)
     const effectiveSpeed = travelMode.speed * multiplier
     const time = effectiveSpeed === 0 ? Infinity : realDistance / effectiveSpeed
 
     totalRealDistance += realDistance
     totalTime += time
-    return { terrainTypeId: seg.terrainTypeId, realDistance, time }
+    return { terrainTypeId: seg.terrainTypeId, isLand: seg.isLand, realDistance, time }
   })
 
   return { totalPixelDistance: segmentDistance(p1, p2), totalRealDistance, totalTime, segments }

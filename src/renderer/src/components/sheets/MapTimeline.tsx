@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { calculateTrip } from '../../../../common/mapGeometry'
 import { matchEventsToPins, countUnplacedEvents } from '../../../../common/mapTimeline'
-import { pinDisplayLabel, type LineType, type MapLine, type MapPin, type MapScale, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
+import {
+  pinDisplayLabel,
+  type LineType,
+  type MapLandmass,
+  type MapLine,
+  type MapPin,
+  type MapScale,
+  type MapZone,
+  type TerrainType
+} from '../../../../common/noteTypes/map'
 import type { EventSummary } from '../../../../common/types'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
@@ -25,6 +34,8 @@ export function MapTimeline({
   lines,
   terrainTypes,
   lineTypes,
+  landmasses,
+  waterTerrainTypeId,
   scale,
   noteRefApi,
   onHighlightChange
@@ -34,6 +45,8 @@ export function MapTimeline({
   lines: MapLine[]
   terrainTypes: TerrainType[]
   lineTypes: LineType[]
+  landmasses: MapLandmass[]
+  waterTerrainTypeId: string | null
   scale: MapScale | null
   noteRefApi: NoteRefApi
   onHighlightChange: (ids: Set<string>) => void
@@ -128,7 +141,7 @@ export function MapTimeline({
             const prev = i > 0 ? revealed[i - 1] : null
             const trip =
               prev && scale && travelMode && prev.pin.id !== entry.pin.id
-                ? calculateTrip(prev.pin, entry.pin, zones, lines, terrainTypes, lineTypes, scale, travelMode)
+                ? calculateTrip(prev.pin, entry.pin, zones, lines, terrainTypes, lineTypes, landmasses, waterTerrainTypeId, scale, travelMode)
                 : null
             return (
               <div key={`${entry.event.path}-${i}`}>

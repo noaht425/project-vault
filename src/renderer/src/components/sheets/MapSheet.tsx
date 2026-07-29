@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { mapFrontmatterSchema } from '../../../../common/noteTypes/map'
-import type { LineType, MapLine, MapZone, TerrainType } from '../../../../common/noteTypes/map'
+import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../../../../common/noteTypes/map'
 import { crossingTime, type Point } from '../../../../common/mapGeometry'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
@@ -56,6 +56,9 @@ export function MapSheet({
 
   const [pendingLinePoints, setPendingLinePoints] = useState<Point[] | null>(null)
   const [lineWidthInput, setLineWidthInput] = useState(20)
+
+  const [pendingLandmassPoints, setPendingLandmassPoints] = useState<Point[] | null>(null)
+  const [newLandmassName, setNewLandmassName] = useState('')
 
   const [pendingPinPoint, setPendingPinPoint] = useState<Point | null>(null)
   const [pinQuery, setPinQuery] = useState('')
@@ -202,6 +205,20 @@ export function MapSheet({
     setMode('view')
   }
 
+  const confirmLandmass = (): void => {
+    if (!pendingLandmassPoints) return
+    const landmass: MapLandmass = { id: crypto.randomUUID(), name: newLandmassName.trim(), points: pendingLandmassPoints }
+    updateFrontmatter({ landmasses: [...data.landmasses, landmass] })
+    setPendingLandmassPoints(null)
+    setNewLandmassName('')
+    setMode('view')
+  }
+  const cancelLandmass = (): void => {
+    setPendingLandmassPoints(null)
+    setNewLandmassName('')
+    setMode('view')
+  }
+
   const confirmPin = (title: string): void => {
     if (!pendingPinPoint) return
     updateFrontmatter({
@@ -232,7 +249,15 @@ export function MapSheet({
     updateFrontmatter({ lineTypes: data.lineTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)) })
   const removeZone = (id: string): void => updateFrontmatter({ zones: data.zones.filter((z) => z.id !== id) })
   const removeLine = (id: string): void => updateFrontmatter({ lines: data.lines.filter((l) => l.id !== id) })
-  const removeTerrainType = (id: string): void => updateFrontmatter({ terrainTypes: data.terrainTypes.filter((t) => t.id !== id) })
+  const removeLandmass = (id: string): void => updateFrontmatter({ landmasses: data.landmasses.filter((l) => l.id !== id) })
+  const removeTerrainType = (id: string): void =>
+    updateFrontmatter({
+      terrainTypes: data.terrainTypes.filter((t) => t.id !== id),
+      // Clear a dangling water-terrain reference so the picker below falls
+      // back to "None" instead of pointing at a terrain type that no longer
+      // exists.
+      waterTerrainTypeId: data.waterTerrainTypeId === id ? null : data.waterTerrainTypeId
+    })
   const removeLineType = (id: string): void => updateFrontmatter({ lineTypes: data.lineTypes.filter((t) => t.id !== id) })
   const removePin = (id: string): void => updateFrontmatter({ pins: data.pins.filter((p) => p.id !== id) })
 
@@ -270,6 +295,9 @@ export function MapSheet({
             <button className={mode === 'draw-line' ? 'active' : ''} onClick={() => setMode('draw-line')}>
               Draw Line
             </button>
+            <button className={mode === 'paint-landmass' ? 'active' : ''} onClick={() => setMode('paint-landmass')}>
+              Draw Landmass
+            </button>
             <button className={mode === 'place-pin' ? 'active' : ''} onClick={() => setMode('place-pin')}>
               Place Pin
             </button>
@@ -286,6 +314,12 @@ export function MapSheet({
               Click to add points along a road, path, or river, press Enter to finish (2+ points), Escape to cancel.
             </p>
           )}
+          {mode === 'paint-landmass' && !pendingLandmassPoints && (
+            <p className="right-panel-note">
+              Click to trace a continent or island's outline, press Enter to finish (3+ points), Escape to cancel. Anything outside
+              every landmass is treated as water.
+            </p>
+          )}
           {mode === 'place-pin' && !pendingPinPoint && <p className="right-panel-note">Click a spot on the map to place a pin.</p>}
 
           <div style={{ position: 'relative', height: 480, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -295,6 +329,7 @@ export function MapSheet({
               imageHeight={data.image.height}
               zones={data.zones}
               lines={data.lines}
+              landmasses={data.landmasses}
               pins={data.pins}
               terrainTypes={data.terrainTypes}
               lineTypes={data.lineTypes}
@@ -302,6 +337,7 @@ export function MapSheet({
               onCalibrate={setPendingPixelDistance}
               onZoneDrawn={setPendingZonePoints}
               onLineDrawn={setPendingLinePoints}
+              onLandmassDrawn={setPendingLandmassPoints}
               onPinPlaced={(point) => {
                 setPendingPinPoint(point)
                 setPinQuery('')
@@ -442,6 +478,21 @@ export function MapSheet({
             </div>
           )}
 
+          {pendingLandmassPoints && (
+            <div className="sheet-row" style={{ marginTop: 8 }}>
+              <label className="sheet-field">
+                Name (optional)
+                <input value={newLandmassName} onChange={(e) => setNewLandmassName(e.target.value)} placeholder="The Old Continent" autoFocus />
+              </label>
+              <button className="sheet-open-ref-button" onClick={confirmLandmass}>
+                Add landmass
+              </button>
+              <button className="sheet-open-ref-button" onClick={cancelLandmass}>
+                Cancel
+              </button>
+            </div>
+          )}
+
           {pendingPinPoint && (
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <input
@@ -563,6 +614,46 @@ export function MapSheet({
         </div>
       )}
 
+      {data.landmasses.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <strong>Landmasses (continents/islands)</strong>
+          <p className="right-panel-note">
+            Anything outside every landmass boundary below is treated as water, using the "Water terrain" pick below (or normal
+            1x speed if none is set) — unless it's covered by its own painted zone or line.
+          </p>
+          {data.landmasses.map((landmass) => (
+            <div key={landmass.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <span
+                style={{ width: 10, height: 10, borderRadius: '50%', border: '2px dashed #2a6f97' }}
+              />
+              <span>{landmass.name || 'Unnamed landmass'}</span>
+              <button onClick={() => removeLandmass(landmass.id)}>✕</button>
+            </div>
+          ))}
+          <label className="sheet-field" style={{ marginTop: 6, maxWidth: 260 }}>
+            Water terrain
+            <select
+              value={data.waterTerrainTypeId ?? ''}
+              onChange={(e) => updateFrontmatter({ waterTerrainTypeId: e.target.value || null })}
+            >
+              <option value="">None (water = normal 1x speed)</option>
+              {data.terrainTypes.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!data.waterTerrainTypeId && (
+            <p className="right-panel-note">
+              Don't see the terrain you want (e.g. "Ocean")? Use Paint Terrain to draw one small zone with a "+ New terrain
+              type…" (anywhere, even somewhere you'll delete afterward) — the terrain type itself stays available here even
+              after you remove that zone.
+            </p>
+          )}
+        </div>
+      )}
+
       {data.pins.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <strong>Pins</strong>
@@ -592,6 +683,8 @@ export function MapSheet({
           lines={data.lines}
           terrainTypes={data.terrainTypes}
           lineTypes={data.lineTypes}
+          landmasses={data.landmasses}
+          waterTerrainTypeId={data.waterTerrainTypeId}
           scale={data.scale}
         />
       </details>
@@ -604,6 +697,8 @@ export function MapSheet({
           lines={data.lines}
           terrainTypes={data.terrainTypes}
           lineTypes={data.lineTypes}
+          landmasses={data.landmasses}
+          waterTerrainTypeId={data.waterTerrainTypeId}
           scale={data.scale}
           noteRefApi={noteRefApi}
           onHighlightChange={setHighlightedPinIds}

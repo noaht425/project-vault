@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { calculateTrip } from '../../../../common/mapGeometry'
-import { pinDisplayLabel, type LineType, type MapLine, type MapPin, type MapScale, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
+import {
+  pinDisplayLabel,
+  type LineType,
+  type MapLandmass,
+  type MapLine,
+  type MapPin,
+  type MapScale,
+  type MapZone,
+  type TerrainType
+} from '../../../../common/noteTypes/map'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 
 export function MapTripCalculator({
@@ -9,6 +18,8 @@ export function MapTripCalculator({
   lines,
   terrainTypes,
   lineTypes,
+  landmasses,
+  waterTerrainTypeId,
   scale
 }: {
   pins: MapPin[]
@@ -16,6 +27,8 @@ export function MapTripCalculator({
   lines: MapLine[]
   terrainTypes: TerrainType[]
   lineTypes: LineType[]
+  landmasses: MapLandmass[]
+  waterTerrainTypeId: string | null
   scale: MapScale | null
 }): React.JSX.Element {
   const noteId = useTravelModesStore((s) => s.noteId)
@@ -38,13 +51,16 @@ export function MapTripCalculator({
 
   const trip = useMemo(() => {
     if (!from || !to || !travelMode || !scale || from.id === to.id) return null
-    return calculateTrip(from, to, zones, lines, terrainTypes, lineTypes, scale, travelMode)
-  }, [from, to, travelMode, scale, zones, lines, terrainTypes, lineTypes])
+    return calculateTrip(from, to, zones, lines, terrainTypes, lineTypes, landmasses, waterTerrainTypeId, scale, travelMode)
+  }, [from, to, travelMode, scale, zones, lines, terrainTypes, lineTypes, landmasses, waterTerrainTypeId])
 
   // A segment's terrainTypeId may resolve against either pool — see
   // calculateTrip's own comment on why zones and line-derived corridors
   // share one id space here.
   const terrainNameById = new Map([...terrainTypes, ...lineTypes].map((t) => [t.id, t.name]))
+  // Falls back to a generic "Water" label when a landmass boundary exists
+  // but no water terrain type has been picked yet.
+  const waterLabel = (waterTerrainTypeId && terrainNameById.get(waterTerrainTypeId)) || 'Water'
 
   if (!scale) return <p className="right-panel-note">Calibrate this map's scale first (Calibrate mode) to enable the trip calculator.</p>
   if (pins.length < 2) return <p className="right-panel-note">Place at least two pins to calculate a trip between them.</p>
@@ -97,7 +113,13 @@ export function MapTripCalculator({
             <tbody>
               {trip.segments.map((seg, i) => (
                 <tr key={i}>
-                  <td style={{ paddingRight: 12 }}>{seg.terrainTypeId ? (terrainNameById.get(seg.terrainTypeId) ?? 'Unknown') : 'Unpainted'}</td>
+                  <td style={{ paddingRight: 12 }}>
+                    {seg.terrainTypeId
+                      ? (terrainNameById.get(seg.terrainTypeId) ?? 'Unknown')
+                      : seg.isLand
+                        ? 'Unpainted'
+                        : waterLabel}
+                  </td>
                   <td style={{ paddingRight: 12 }}>
                     {seg.realDistance.toFixed(1)} {scale.unit}
                   </td>
