@@ -78,8 +78,33 @@ export function GraphView({ onOpenNode }: { onOpenNode: (path: string) => void }
     return degrees
   }, [graph])
 
+  // Topology (node ids + edges) the currently-laid-out `nodes` state was
+  // simulated from. refreshTree — and therefore a fresh `graph` object —
+  // fires after every single autosave anywhere in the vault, but almost
+  // none of those saves add/remove a note or a link. Re-running the 500-tick
+  // simulation (measured ~380ms for a 205-note vault, worse than linearly
+  // above that) on every one of those was the actual cost; the structure
+  // itself changes far less often than the content does.
+  const prevTopologyRef = useRef<string | null>(null)
+  const prevSimNodesRef = useRef<SimNode[] | null>(null)
+
   useEffect(() => {
     if (!graph) return
+    const topologyKey =
+      graph.nodes.map((n) => n.id).sort().join(',') + '|' + graph.edges.map((e) => `${e.source}>${e.target}`).sort().join(',')
+
+    if (topologyKey === prevTopologyRef.current && prevSimNodesRef.current) {
+      // Same nodes, same edges — reuse the existing layout (x/y/vx/vy) and
+      // just refresh whatever display metadata (title, noteType, path)
+      // came back from this fetch, instead of re-simulating from scratch.
+      const prevById = new Map(prevSimNodesRef.current.map((n) => [n.id, n]))
+      const merged = graph.nodes.map((n) => ({ ...(prevById.get(n.id) ?? {}), ...n }) as SimNode)
+      prevSimNodesRef.current = merged
+      setNodes(merged)
+      return
+    }
+    prevTopologyRef.current = topologyKey
+
     const simNodes: SimNode[] = graph.nodes.map((n) => ({ ...n }))
     const simLinks = graph.edges.map((e) => ({ source: e.source, target: e.target }))
 
@@ -117,6 +142,7 @@ export function GraphView({ onOpenNode }: { onOpenNode: (path: string) => void }
       .stop()
 
     for (let i = 0; i < TICKS; i++) simulation.tick()
+    prevSimNodesRef.current = simNodes
     setNodes(simNodes)
     setViewBox({ x: 0, y: 0, w: WORLD_WIDTH, h: WORLD_HEIGHT })
   }, [graph, degreeById])
