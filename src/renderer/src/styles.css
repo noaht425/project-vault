@@ -418,7 +418,10 @@ button.active {
 
 .month-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  /* Column count varies per calendar (a 7-day week, the Krotaphos fixture's
+     9-day week, ...) so it's set inline per render — see MonthGridView.tsx.
+     This fallback only matters for the split second before that resolves. */
+  grid-template-columns: repeat(7, 1fr);
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);

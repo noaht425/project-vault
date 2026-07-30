@@ -271,7 +271,7 @@ export function CloudMonthGridView({ onOpenEvent }: { onOpenEvent: (id: string) 
         {monthName} {monthRef.year} {eraLabel}
       </h3>
 
-      <div className="month-grid">
+      <div className="month-grid" style={{ gridTemplateColumns: `repeat(${Math.max(1, selectedCalendar.weekDays.length)}, 1fr)` }}>
         {selectedCalendar.weekDays.map((wd) => (
           <div key={wd} className="month-grid-weekday">
             {wd}
