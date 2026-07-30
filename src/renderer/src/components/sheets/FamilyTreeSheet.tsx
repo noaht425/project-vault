@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import {
   addRelationshipEdge,
@@ -15,6 +15,10 @@ import { npcFrontmatterSchema } from '../../../../common/noteTypes/npc'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { FamilyTreeDiagram } from './FamilyTreeDiagram'
 
+// Matches editorStore's AUTOSAVE_DELAY_MS — no reason for the age lookup to
+// outrun the point at which typing has actually settled.
+const AGE_LOOKUP_DEBOUNCE_MS = 1500
+
 export function FamilyTreeSheet({
   content,
   onContentChange,
@@ -24,8 +28,11 @@ export function FamilyTreeSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = familyTreeFrontmatterSchema.parse(frontmatter)
+  // Memoized so unrelated re-renders (ageByTitle/personOptions state updates
+  // below) don't re-run parseNote + the zod parse + parseRelationships on
+  // every render — only an actual content edit should redo this work.
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => familyTreeFrontmatterSchema.parse(frontmatter), [frontmatter])
   const [ageByTitle, setAgeByTitle] = useState<Map<string, number>>(new Map())
   const [personOptions, setPersonOptions] = useState<string[]>([])
   const [newA, setNewA] = useState('')
@@ -40,7 +47,7 @@ export function FamilyTreeSheet({
     onContentChange(stringifyNote({ frontmatter, body: newBody }))
   }
 
-  const edges = parseRelationships(body)
+  const edges = useMemo(() => parseRelationships(body), [body])
 
   // No type filter — a family tree can connect any two notes (npc, pc,
   // location, whatever), same as the person names themselves being free
@@ -70,24 +77,31 @@ export function FamilyTreeSheet({
   useEffect(() => {
     const names = [...new Set(edges.flatMap((e) => [e.a, e.b]))]
     let cancelled = false
-    void Promise.all(
-      names.map(async (name) => {
-        const fm = await noteRefApi.readFrontmatterByTitle(name, 'npc')
-        if (!fm) return null
-        const age = npcFrontmatterSchema.parse(fm).age
-        return age === null ? null : ([name, age] as const)
+    // Debounced to the same cadence as autosave — typing anywhere in the
+    // body (even outside the Relationships section) changes `edges`'
+    // upstream `body` string, which previously fired one readFrontmatterByTitle
+    // IPC call per named person on every single keystroke.
+    const timer = setTimeout(() => {
+      void Promise.all(
+        names.map(async (name) => {
+          const fm = await noteRefApi.readFrontmatterByTitle(name, 'npc')
+          if (!fm) return null
+          const age = npcFrontmatterSchema.parse(fm).age
+          return age === null ? null : ([name, age] as const)
+        })
+      ).then((results) => {
+        if (cancelled) return
+        setAgeByTitle(new Map(results.filter((r): r is readonly [string, number] => r !== null)))
       })
-    ).then((results) => {
-      if (cancelled) return
-      setAgeByTitle(new Map(results.filter((r): r is readonly [string, number] => r !== null)))
-    })
+    }, AGE_LOOKUP_DEBOUNCE_MS)
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [body])
+  }, [edges])
 
-  const warnings = checkRelationshipPlausibility(edges, ageByTitle)
+  const warnings = useMemo(() => checkRelationshipPlausibility(edges, ageByTitle), [edges, ageByTitle])
 
   return (
     <div className="sheet-view">

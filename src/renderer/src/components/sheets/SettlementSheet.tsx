@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { settlementFrontmatterSchema } from '../../../../common/noteTypes/settlement'
 import type { NoteRefApi } from '../../lib/noteRefApi'
@@ -23,8 +23,11 @@ export function SettlementSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = settlementFrontmatterSchema.parse(frontmatter)
+  // Memoized on content — a settlement's residents array can be tens of
+  // thousands of entries, and without this the zod parse re-ran on every
+  // render, including switching tabs (setTab), not just on real edits.
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => settlementFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

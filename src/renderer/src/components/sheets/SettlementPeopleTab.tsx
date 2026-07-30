@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import type { SettlementFrontmatter, SettlementResident } from '../../../../common/noteTypes/settlement'
 import { buildPromotedNpcFrontmatter } from '../../../../common/settlementPromotion'
 import { raceLabel } from '../../../../common/settlementNames'
@@ -88,36 +88,51 @@ export function SettlementPeopleTab({
   const [page, setPage] = useState(0)
   const [pageJump, setPageJump] = useState('')
 
-  const districtNameById = new Map(data.districts.map((d) => [d.id, d.name]))
-  const wealthTierNameById = new Map(data.wealthTiers.map((t) => [t.id, t.name]))
-  const wealthTierRankById = new Map(data.wealthTiers.map((t, i) => [t.id, i]))
-  const buildingNameById = new Map(data.buildings.map((b) => [b.id, b.name]))
-  const races = Array.from(new Set(data.residents.map((r) => r.race))).sort()
+  // Memoized against data.residents (and the filter/sort controls) — without
+  // this, expanding a row (setExpandedId) re-filtered and re-sorted the
+  // entire resident array, which for a large settlement can be tens of
+  // thousands of rows, even though neither the data nor the filters changed.
+  const districtNameById = useMemo(() => new Map(data.districts.map((d) => [d.id, d.name])), [data.districts])
+  const wealthTierNameById = useMemo(() => new Map(data.wealthTiers.map((t) => [t.id, t.name])), [data.wealthTiers])
+  const wealthTierRankById = useMemo(() => new Map(data.wealthTiers.map((t, i) => [t.id, i])), [data.wealthTiers])
+  const buildingNameById = useMemo(() => new Map(data.buildings.map((b) => [b.id, b.name])), [data.buildings])
+  const races = useMemo(() => Array.from(new Set(data.residents.map((r) => r.race))).sort(), [data.residents])
 
-  const filtered = data.residents.filter((r) => {
-    if (search.trim() && !r.name.toLowerCase().includes(search.trim().toLowerCase())) return false
-    if (raceFilter && r.race !== raceFilter) return false
-    if (wealthFilter && r.wealthTierId !== wealthFilter) return false
-    if (districtFilter && r.districtId !== districtFilter) return false
-    if (notableOnly && !r.notable) return false
-    return true
-  })
+  const filtered = useMemo(
+    () =>
+      data.residents.filter((r) => {
+        if (search.trim() && !r.name.toLowerCase().includes(search.trim().toLowerCase())) return false
+        if (raceFilter && r.race !== raceFilter) return false
+        if (wealthFilter && r.wealthTierId !== wealthFilter) return false
+        if (districtFilter && r.districtId !== districtFilter) return false
+        if (notableOnly && !r.notable) return false
+        return true
+      }),
+    [data.residents, search, raceFilter, wealthFilter, districtFilter, notableOnly]
+  )
 
-  const sorted = sortKey
-    ? [...filtered].sort((a, b) => {
-        const va = getSortValue(a, sortKey, wealthTierRankById, districtNameById, buildingNameById, data.customRaces)
-        const vb = getSortValue(b, sortKey, wealthTierRankById, districtNameById, buildingNameById, data.customRaces)
-        const cmp =
-          typeof va === 'string' && typeof vb === 'string'
-            ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
-            : va < vb ? -1 : va > vb ? 1 : 0
-        return sortDir === 'asc' ? cmp : -cmp
-      })
-    : filtered
+  const sorted = useMemo(
+    () =>
+      sortKey
+        ? [...filtered].sort((a, b) => {
+            const va = getSortValue(a, sortKey, wealthTierRankById, districtNameById, buildingNameById, data.customRaces)
+            const vb = getSortValue(b, sortKey, wealthTierRankById, districtNameById, buildingNameById, data.customRaces)
+            const cmp =
+              typeof va === 'string' && typeof vb === 'string'
+                ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
+                : va < vb ? -1 : va > vb ? 1 : 0
+            return sortDir === 'asc' ? cmp : -cmp
+          })
+        : filtered,
+    [filtered, sortKey, sortDir, wealthTierRankById, districtNameById, buildingNameById, data.customRaces]
+  )
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const clampedPage = Math.min(page, totalPages - 1)
-  const pageItems = sorted.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE)
+  const pageItems = useMemo(
+    () => sorted.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE),
+    [sorted, clampedPage]
+  )
 
   const goToPage = (): void => {
     const n = Number(pageJump)
