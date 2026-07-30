@@ -57,7 +57,7 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
           // docs/plans/2026-07-28-calendar-timeline-system.md's step 6
           // notes) reject the whole Promise.all and leave this view stuck
           // on "Loading…" forever, since nothing else here depends on it.
-          window.cloudApi.getWorkspaceSettings().catch(() => ({ activeCalendarNoteTitles: [] }))
+          window.cloudApi.getWorkspaceSettings().catch(() => ({ activeCalendarNoteTitles: [], campaignDate: null }))
         ])
         setEvents(allEvents)
         setSettings(workspaceSettings)

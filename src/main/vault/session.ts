@@ -20,6 +20,7 @@ import { SNIPPET_MATCH_START, SNIPPET_MATCH_END } from '../../common/searchSnipp
 import type { z } from 'zod'
 import type {
   Backlink,
+  CampaignDate,
   EventSummary,
   ExternalChangeEvent,
   NoteData,
@@ -53,7 +54,26 @@ const VAULT_SETTINGS_FILENAME = '.project-vault-settings.json'
 const SEARCH_TITLES_LIMIT = 500
 
 function defaultVaultSettings(): VaultSettings {
-  return { activeCalendarNoteTitles: [] }
+  return { activeCalendarNoteTitles: [], campaignDate: null }
+}
+
+/** Loose shape check on whatever's in the settings file's `campaignDate` key — an unknown/malformed
+ * value (an older settings file predating this field, a hand-edited typo) falls back to null rather
+ * than throwing, same "don't fail vault-open over an optional enhancement" spirit as the rest of this
+ * settings file's parsing. */
+function parseCampaignDate(value: unknown): CampaignDate | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  if (
+    typeof v.calendarNoteTitle === 'string' &&
+    typeof v.eraId === 'string' &&
+    typeof v.year === 'number' &&
+    typeof v.monthId === 'string' &&
+    typeof v.day === 'number'
+  ) {
+    return { calendarNoteTitle: v.calendarNoteTitle, eraId: v.eraId, year: v.year, monthId: v.monthId, day: v.day }
+  }
+  return null
 }
 
 export interface VaultSessionHandlers {
@@ -304,7 +324,10 @@ export class VaultSession {
     try {
       const raw = await fs.readFile(join(root, VAULT_SETTINGS_FILENAME), 'utf8')
       const parsed = JSON.parse(raw)
-      return { activeCalendarNoteTitles: Array.isArray(parsed?.activeCalendarNoteTitles) ? parsed.activeCalendarNoteTitles : [] }
+      return {
+        activeCalendarNoteTitles: Array.isArray(parsed?.activeCalendarNoteTitles) ? parsed.activeCalendarNoteTitles : [],
+        campaignDate: parseCampaignDate(parsed?.campaignDate)
+      }
     } catch {
       return defaultVaultSettings()
     }

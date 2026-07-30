@@ -4,6 +4,7 @@
 // src/main/cloud/cloudSession.ts for the client that produces these.
 
 import type { EventStructuredDate } from './noteTypes/event'
+import type { CampaignDate } from './types'
 
 export interface CloudNoteData {
   id: string
@@ -94,4 +95,7 @@ export interface CloudEventSummary {
 // supabase/migrations/0003_workspace_calendar_settings.sql).
 export interface CloudWorkspaceSettings {
   activeCalendarNoteTitles: string[]
+  // Mirrors the local app's VaultSettings.campaignDate (common/types.ts) —
+  // same shape, same "date-only, no time of day" convention.
+  campaignDate: CampaignDate | null
 }

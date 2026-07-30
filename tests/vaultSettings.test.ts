@@ -31,7 +31,7 @@ describe('VaultSession settings (build step 6 of the calendar/timeline plan)', (
     const session = makeSession(userDataDir)
     await session.openVault(vaultDir)
 
-    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: [] })
+    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: [], campaignDate: null })
     await session.closeVault()
   })
 
@@ -42,13 +42,51 @@ describe('VaultSession settings (build step 6 of the calendar/timeline plan)', (
     await session.openVault(vaultDir)
 
     await session.updateSettings({ activeCalendarNoteTitles: ['Age of the Many', 'Kingdom of Krotaphos'] })
-    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: ['Age of the Many', 'Kingdom of Krotaphos'] })
+    expect(await session.getSettings()).toEqual({
+      activeCalendarNoteTitles: ['Age of the Many', 'Kingdom of Krotaphos'],
+      campaignDate: null
+    })
     await session.closeVault()
 
     const reopened = makeSession(userDataDir)
     await reopened.openVault(vaultDir)
-    expect(await reopened.getSettings()).toEqual({ activeCalendarNoteTitles: ['Age of the Many', 'Kingdom of Krotaphos'] })
+    expect(await reopened.getSettings()).toEqual({
+      activeCalendarNoteTitles: ['Age of the Many', 'Kingdom of Krotaphos'],
+      campaignDate: null
+    })
     await reopened.closeVault()
+  })
+
+  it('persists a campaignDate across a close/reopen', async () => {
+    const vaultDir = await makeTmpVault()
+    const userDataDir = await makeTmpVault()
+    const session = makeSession(userDataDir)
+    await session.openVault(vaultDir)
+
+    const campaignDate = { calendarNoteTitle: 'Age of the Many', eraId: 'am', year: 42, monthId: 'aucaela', day: 15 }
+    await session.updateSettings({ campaignDate })
+    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: [], campaignDate })
+    await session.closeVault()
+
+    const reopened = makeSession(userDataDir)
+    await reopened.openVault(vaultDir)
+    expect(await reopened.getSettings()).toEqual({ activeCalendarNoteTitles: [], campaignDate })
+    await reopened.closeVault()
+  })
+
+  it('falls back to a null campaignDate for a malformed value rather than throwing', async () => {
+    const vaultDir = await makeTmpVault()
+    await fs.writeFile(
+      join(vaultDir, '.project-vault-settings.json'),
+      JSON.stringify({ activeCalendarNoteTitles: [], campaignDate: { calendarNoteTitle: 'Age of the Many' } }), // missing required keys
+      'utf8'
+    )
+    const userDataDir = await makeTmpVault()
+    const session = makeSession(userDataDir)
+    await session.openVault(vaultDir)
+
+    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: [], campaignDate: null })
+    await session.closeVault()
   })
 
   it('writes the settings file as a hidden dotfile invisible to the note tree', async () => {
@@ -70,7 +108,7 @@ describe('VaultSession settings (build step 6 of the calendar/timeline plan)', (
     const session = makeSession(userDataDir)
     await session.openVault(vaultDir)
 
-    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: [] })
+    expect(await session.getSettings()).toEqual({ activeCalendarNoteTitles: [], campaignDate: null })
     await session.closeVault()
   })
 })

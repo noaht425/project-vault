@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { CloudEventsTimelineView } from './CloudEventsTimelineView'
 import { CloudEventsPillTimelineView } from './CloudEventsPillTimelineView'
+import { CloudMonthGridView } from './CloudMonthGridView'
 
 // Cloud counterpart of EventsSection.tsx — see that file for the toggle
-// rationale (build step 7 of docs/plans/2026-07-28-calendar-timeline-system.md).
+// rationale (build step 7 of docs/plans/2026-07-28-calendar-timeline-system.md,
+// third tab added by docs/plans/2026-07-29-month-grid-campaign-date.md).
 export function CloudEventsSection({ onOpenEvent }: { onOpenEvent: (id: string) => void }): React.JSX.Element {
-  const [tab, setTab] = useState<'list' | 'timeline'>('list')
+  const [tab, setTab] = useState<'list' | 'timeline' | 'grid'>('list')
 
   return (
     <div className="events-section">
@@ -16,12 +18,13 @@ export function CloudEventsSection({ onOpenEvent }: { onOpenEvent: (id: string) 
         <button className={tab === 'timeline' ? 'active' : ''} onClick={() => setTab('timeline')}>
           Timeline
         </button>
+        <button className={tab === 'grid' ? 'active' : ''} onClick={() => setTab('grid')}>
+          Calendar
+        </button>
       </div>
-      {tab === 'list' ? (
-        <CloudEventsTimelineView onOpenEvent={onOpenEvent} />
-      ) : (
-        <CloudEventsPillTimelineView onOpenEvent={onOpenEvent} />
-      )}
+      {tab === 'list' && <CloudEventsTimelineView onOpenEvent={onOpenEvent} />}
+      {tab === 'timeline' && <CloudEventsPillTimelineView onOpenEvent={onOpenEvent} />}
+      {tab === 'grid' && <CloudMonthGridView onOpenEvent={onOpenEvent} />}
     </div>
   )
 }

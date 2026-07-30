@@ -99,15 +99,32 @@ export interface EventSummary {
   structuredDate?: EventStructuredDate | null
 }
 
+// The campaign's current in-world date ("today") — set/advanced from the
+// Events section's month-grid Calendar view, which uses it to open on the
+// right month, highlight the day, and anchor its upcoming-events list.
+// Deliberately date-only (no hour/minute — "today" has no time of day);
+// converts via toCanonicalMinutes with hour/minute 0.
+export interface CampaignDate {
+  calendarNoteTitle: string
+  eraId: string
+  year: number
+  monthId: string
+  day: number
+}
+
 // Per-vault display preference (see build step 6 of the same plan doc,
 // "confirmed with the user: per-vault, not per-user" — shared by everyone
 // who opens this vault, same as every other vault-level config in this
 // app). Empty array = no calendars active yet, meaning every date renders
 // as its raw free text, same as before any of the calendar/timeline system
 // existed — a brand-new vault (or one where the user hasn't picked
-// calendars yet) still works sensibly with zero configuration.
+// calendars yet) still works sensibly with zero configuration. Null
+// campaignDate = no "today" chosen yet — the month grid still works, it
+// just opens on the latest event's month and shows no highlight/upcoming
+// list.
 export interface VaultSettings {
   activeCalendarNoteTitles: string[]
+  campaignDate: CampaignDate | null
 }
 
 export interface SearchResult {
