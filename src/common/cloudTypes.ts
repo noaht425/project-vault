@@ -6,6 +6,16 @@
 import type { EventStructuredDate } from './noteTypes/event'
 import type { CampaignDate } from './types'
 
+// Supabase, by default, requires confirming a new account's email before
+// it gets a real session — so signUp can't always return a signed-in
+// session the way signIn does. `needsEmailConfirmation: true` means the
+// account was created but has no session yet; the caller should prompt
+// the user to check their email and then sign in normally once confirmed.
+export interface CloudSignUpResult {
+  userId: string
+  needsEmailConfirmation: boolean
+}
+
 export interface CloudNoteData {
   id: string
   name: string

@@ -25,6 +25,7 @@ import type {
   CloudSaveResult,
   CloudSearchResult,
   CloudSessionSummary,
+  CloudSignUpResult,
   CloudTitleMatch,
   CloudTreeNode,
   CloudWorkspaceSettings
@@ -104,6 +105,8 @@ const cloudApi = {
   getSession: (): Promise<{ userId: string } | null> => ipcRenderer.invoke('cloud:getSession'),
   signIn: (email: string, password: string): Promise<{ userId: string }> =>
     ipcRenderer.invoke('cloud:signIn', { email, password }),
+  signUp: (email: string, password: string): Promise<CloudSignUpResult> =>
+    ipcRenderer.invoke('cloud:signUp', { email, password }),
   createNote: (args: {
     name: string
     folderId?: string | null

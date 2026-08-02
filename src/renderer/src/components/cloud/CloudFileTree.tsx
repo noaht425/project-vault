@@ -266,18 +266,43 @@ function TreeNode({ entry, depth }: { entry: CloudTreeNode; depth: number }): Re
 }
 
 function CloudSignInForm(): React.JSX.Element {
+  const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const signIn = useCloudStore((s) => s.signIn)
   const signInError = useCloudStore((s) => s.signInError)
+  const signUp = useCloudStore((s) => s.signUp)
+  const signUpError = useCloudStore((s) => s.signUpError)
+  const awaitingEmailConfirmation = useCloudStore((s) => s.awaitingEmailConfirmation)
+
+  if (awaitingEmailConfirmation) {
+    return (
+      <div className="sidebar" style={{ padding: 16, gap: 8, display: 'flex', flexDirection: 'column' }}>
+        <p className="right-panel-note">
+          Account created — check {email || 'your email'} for a confirmation link, then sign in below.
+        </p>
+        <button onClick={() => setMode('signIn')}>Back to sign in</button>
+      </div>
+    )
+  }
 
   return (
     <div className="sidebar" style={{ padding: 16, gap: 8, display: 'flex', flexDirection: 'column' }}>
-      <p className="right-panel-note">Sign in to your cloud workspace.</p>
+      <p className="right-panel-note">
+        {mode === 'signIn' ? 'Sign in to your cloud workspace.' : 'Create a new cloud workspace — your own, separate campaign.'}
+      </p>
       <input placeholder="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <input placeholder="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      <button onClick={() => void signIn(email, password)}>Sign in</button>
-      {signInError && <p className="right-panel-note">{signInError}</p>}
+      {mode === 'signIn' ? (
+        <button onClick={() => void signIn(email, password)}>Sign in</button>
+      ) : (
+        <button onClick={() => void signUp(email, password)}>Create account</button>
+      )}
+      {mode === 'signIn' && signInError && <p className="right-panel-note">{signInError}</p>}
+      {mode === 'signUp' && signUpError && <p className="right-panel-note">{signUpError}</p>}
+      <button className="sheet-open-ref-button" onClick={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}>
+        {mode === 'signIn' ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
+      </button>
     </div>
   )
 }

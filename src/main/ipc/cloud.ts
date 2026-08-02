@@ -9,6 +9,7 @@ import type {
   CloudSaveResult,
   CloudSearchResult,
   CloudSessionSummary,
+  CloudSignUpResult,
   CloudTitleMatch,
   CloudTreeNode,
   CloudWorkspaceSettings
@@ -21,6 +22,12 @@ export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow): vo
     'cloud:signIn',
     async (_event, args: { email: string; password: string }): Promise<{ userId: string }> =>
       cloud.signIn(args.email, args.password)
+  )
+
+  ipcMain.handle(
+    'cloud:signUp',
+    async (_event, args: { email: string; password: string }): Promise<CloudSignUpResult> =>
+      cloud.signUp(args.email, args.password)
   )
 
   ipcMain.handle(

@@ -13,6 +13,7 @@ import type {
   CloudSaveResult,
   CloudSearchResult,
   CloudSessionSummary,
+  CloudSignUpResult,
   CloudTitleMatch,
   CloudTreeNode,
   CloudWorkspaceSettings
@@ -44,6 +45,10 @@ interface SupabaseTokenResponse {
   user?: { id: string }
   error_description?: string
   msg?: string
+  // Only present on a /signup response when email confirmation is required
+  // — gotrue returns the raw new user row (id at the top level) instead of
+  // a session in that case, rather than nesting it under `user`.
+  id?: string
 }
 
 export interface CloudSessionHandlers {
@@ -130,6 +135,32 @@ export class CloudSession {
   async signIn(email: string, password: string): Promise<{ userId: string }> {
     await this.applyTokenResponse(await this.requestToken('password', { email, password }))
     return this.getSession()!
+  }
+
+  // Separate from signIn/requestToken (rather than reusing it) because a
+  // /signup response doesn't always carry a session the way /token does —
+  // whether it does depends on this Supabase project's "Confirm email"
+  // Auth setting, which isn't visible from here. With confirmation on,
+  // gotrue creates the account but returns the raw user row with no
+  // access_token, and the account can't sign in until the user clicks the
+  // confirmation email. Both cases are handled rather than assumed.
+  async signUp(email: string, password: string): Promise<CloudSignUpResult> {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+      body: JSON.stringify({ email, password })
+    })
+    const data = (await res.json()) as SupabaseTokenResponse
+    if (!res.ok) {
+      throw new Error(data.error_description ?? data.msg ?? 'Could not create account')
+    }
+    if (data.access_token && data.user) {
+      await this.applyTokenResponse(data)
+      return { userId: this.getSession()!.userId, needsEmailConfirmation: false }
+    }
+    const userId = data.user?.id ?? data.id
+    if (!userId) throw new Error('Could not create account')
+    return { userId, needsEmailConfirmation: true }
   }
 
   private async requestToken(grantType: string, body: Record<string, string>): Promise<SupabaseTokenResponse> {
