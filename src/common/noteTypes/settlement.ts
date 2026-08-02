@@ -206,6 +206,35 @@ export const settlementBuildingSchema = z.object({
 })
 export type SettlementBuilding = z.infer<typeof settlementBuildingSchema>
 
+// A notable's family — see settlementGenerator.ts's generateFamily for why
+// this is scoped to notables only (staffed-building owners), not every
+// resident: a full relationship graph across a population that can run into
+// the tens of thousands at Metropolis scale is a much bigger undertaking
+// (cross-resident consistency, generation-order dependencies) than a small,
+// self-contained family tree invented for one notable at a time. These
+// relatives are flavor data on the notable's own record, not independent
+// SettlementResident entries elsewhere in the population — no further
+// generations beyond spouse/children/siblings/parents/grandparents.
+export const RELATION_TYPES = ['spouse', 'child', 'parent', 'sibling', 'grandparent'] as const
+export type RelationType = (typeof RELATION_TYPES)[number]
+
+export const notableRelativeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  // What this person IS to the notable (e.g. 'parent' means this record is
+  // the notable's parent) — see settlementGenerator.ts's relationLabel for
+  // how this renders as "Daughter of {name}" vs "Married to {name}" etc.,
+  // gendered by the NOTABLE's own gender, not this relative's.
+  relation: z.enum(RELATION_TYPES).catch('sibling'),
+  gender: z.string().catch(''),
+  age: z.coerce.number().catch(30),
+  race: z.string().catch(''),
+  // A parent/grandparent whose plausible age exceeds their race's max
+  // lifespan is deceased rather than clamped — see relativeAgeOrDeceased.
+  livingStatus: z.enum(['alive', 'deceased']).catch('alive')
+})
+export type NotableRelative = z.infer<typeof notableRelativeSchema>
+
 export const settlementResidentSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -248,6 +277,9 @@ export const settlementResidentSchema = z.object({
   // Multi-line prose (hair/eyes, facial hair, skin, height+build) — notable
   // only, same cost/scope lever as stats. See settlementAppearance.ts.
   appearance: z.string().catch(''),
+  // Notable only, same cost/scope lever as stats/appearance — see
+  // notableRelativeSchema above and settlementGenerator.ts's generateFamily.
+  relatives: z.array(notableRelativeSchema).catch([]),
   // Set once a user "promotes" this background record to a real `npc` note.
   linkedNoteTitle: z.string().nullable().catch(null)
 })

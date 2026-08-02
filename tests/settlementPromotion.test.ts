@@ -21,6 +21,7 @@ function makeNotable(overrides: Partial<SettlementResident> = {}): SettlementRes
     stats: { str: 14, dex: 10, con: 13, int: 9, wis: 11, cha: 12 },
     proficiencies: ["Smith's Tools", 'Athletics'],
     appearance: 'Has short, thick, gray hair, and blue eyes.',
+    relatives: [],
     linkedNoteTitle: null,
     ...overrides
   }
@@ -62,6 +63,28 @@ describe('buildPromotedNpcFrontmatter', () => {
 
     const stubBody = buildPromotedNpcFrontmatter(makeStub(), 'Main District', 'Middle').body
     expect(stubBody).toContain('Whistles constantly, off-key.')
+  })
+
+  it("weaves a notable's family into the body as a Family section, gendered by the notable's own gender", () => {
+    const body = buildPromotedNpcFrontmatter(
+      makeNotable({
+        gender: 'Female',
+        relatives: [
+          { id: 'f1', name: 'Elena Brightwater', relation: 'spouse', gender: 'Female', age: 34, race: 'dwarf', livingStatus: 'alive' },
+          { id: 'f2', name: 'Aldric Ashworth', relation: 'parent', gender: 'Male', age: 95, race: 'dwarf', livingStatus: 'deceased' }
+        ]
+      }),
+      'Main District',
+      'Middle'
+    ).body
+    expect(body).toContain('## Family')
+    expect(body).toContain('Married to Elena Brightwater (34)')
+    expect(body).toContain('Daughter of Aldric Ashworth (deceased)')
+  })
+
+  it('omits the Family section entirely when a resident has no relatives', () => {
+    const body = buildPromotedNpcFrontmatter(makeStub(), 'Main District', 'Middle').body
+    expect(body).not.toContain('## Family')
   })
 
   it('includes race/age/gender/district/wealth-tier/religion facts', () => {

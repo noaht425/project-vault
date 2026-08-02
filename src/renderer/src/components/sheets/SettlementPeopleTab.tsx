@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { SettlementFrontmatter, SettlementResident } from '../../../../common/noteTypes/settlement'
 import { buildPromotedNpcFrontmatter } from '../../../../common/settlementPromotion'
+import { relationLabel } from '../../../../common/settlementGenerator'
 import { raceLabel } from '../../../../common/settlementNames'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
@@ -299,6 +300,19 @@ export function SettlementPeopleTab({
                                 <strong>Appearance</strong>
                                 <br />
                                 {r.appearance}
+                              </div>
+                            )}
+                            {r.relatives.length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                <strong>Family</strong>
+                                <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                                  {r.relatives.map((rel) => (
+                                    <li key={rel.id}>
+                                      {relationLabel(rel.relation, r.gender)} {rel.name}{' '}
+                                      {rel.livingStatus === 'deceased' ? '(deceased)' : `(${rel.age})`}
+                                    </li>
+                                  ))}
+                                </ul>
                               </div>
                             )}
                           </>

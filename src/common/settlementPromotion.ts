@@ -1,6 +1,7 @@
 import { defaultNpcFrontmatter } from './noteTypes/npc'
 import { defaultLocationFrontmatter } from './noteTypes/location'
 import type { SettlementBuilding, SettlementResident } from './noteTypes/settlement'
+import { relationLabel } from './settlementGenerator'
 
 // Maps a background settlement record to the frontmatter/body of a real
 // npc/location note — the "promote" action's actual content, kept as pure
@@ -49,8 +50,14 @@ export function buildPromotedNpcFrontmatter(resident: SettlementResident, distri
 
   const proficiencies = resident.proficiencies.length > 0 ? `Proficient in: ${resident.proficiencies.join(', ')}.` : ''
   const appearance = resident.appearance ? `## Appearance\n${resident.appearance}` : ''
+  const family =
+    (resident.relatives ?? []).length > 0
+      ? `## Family\n${resident.relatives
+          .map((r) => `- ${relationLabel(r.relation, resident.gender)} ${r.name} (${r.livingStatus === 'deceased' ? 'deceased' : r.age})`)
+          .join('\n')}`
+      : ''
 
-  return { frontmatter, body: [facts, flavor, proficiencies, appearance].filter(Boolean).join('\n\n') }
+  return { frontmatter, body: [facts, flavor, proficiencies, appearance, family].filter(Boolean).join('\n\n') }
 }
 
 export function buildPromotedLocationFrontmatter(

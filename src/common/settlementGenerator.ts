@@ -4,8 +4,10 @@ import {
   type BuildingTypeDef,
   type CustomRaceDef,
   type District,
+  type NotableRelative,
   type RaceLifeStage,
   type RaceShare,
+  type RelationType,
   type ReligionShare,
   type SettlementBuilding,
   type SettlementResident,
@@ -394,6 +396,125 @@ function randomLifespanAge(stage: RaceLifeStage, rng: () => number): number {
   return randomInt(bucket.min, bucket.max, rng)
 }
 
+// -------------------- Family (notables only) --------------------
+// See notableRelativeSchema's comment in noteTypes/settlement.ts for why
+// this is scoped to notables only. Each notable's family is generated as
+// its own self-contained tree — invented people who exist purely as flavor
+// on this one notable's record, never independent SettlementResident
+// entries elsewhere in the population — which sidesteps the cross-resident
+// consistency problem (two separately generated residents both claiming to
+// be each other's spouse) that made a settlement-wide relationship graph a
+// much bigger undertaking. Bounded to spouse/children/siblings/parents/
+// grandparents — no grandchildren, no aunts/uncles/cousins.
+
+const CHILD_COUNT_WEIGHTS: { count: number; percent: number }[] = [
+  { count: 0, percent: 30 },
+  { count: 1, percent: 30 },
+  { count: 2, percent: 25 },
+  { count: 3, percent: 15 }
+]
+const SIBLING_COUNT_WEIGHTS: { count: number; percent: number }[] = [
+  { count: 0, percent: 35 },
+  { count: 1, percent: 30 },
+  { count: 2, percent: 20 },
+  { count: 3, percent: 15 }
+]
+
+/**
+ * Describes what a NotableRelative record IS TO the notable — e.g.
+ * relation='parent' renders as "Daughter of {name}" for a Female notable,
+ * since the label is the notable's own role relative to that person, not
+ * the relative's gender (that only decided which name pool they were drawn
+ * from). 'spouse' doesn't need gendering since the label is symmetric.
+ */
+export function relationLabel(relation: RelationType, ownGender: string): string {
+  switch (relation) {
+    case 'spouse':
+      return 'Married to'
+    case 'child':
+      return ownGender === 'Female' ? 'Mother of' : ownGender === 'Male' ? 'Father of' : 'Parent of'
+    case 'parent':
+      return ownGender === 'Female' ? 'Daughter of' : ownGender === 'Male' ? 'Son of' : 'Child of'
+    case 'sibling':
+      return ownGender === 'Female' ? 'Sister of' : ownGender === 'Male' ? 'Brother of' : 'Sibling of'
+    case 'grandparent':
+      return ownGender === 'Female' ? 'Granddaughter of' : ownGender === 'Male' ? 'Grandson of' : 'Grandchild of'
+  }
+}
+
+// A parent/grandparent whose plausible age would exceed their race's max
+// lifespan is marked deceased instead of clamped to maxAge — clamping would
+// silently make every very-old parent read as exactly the same age, which
+// undersells how often a notable's parents (let alone grandparents) have
+// realistically already passed on for a longer-lived line of descent.
+function relativeAgeOrDeceased(targetAge: number, stage: RaceLifeStage): { age: number; livingStatus: 'alive' | 'deceased' } {
+  return targetAge > stage.maxAge ? { age: targetAge, livingStatus: 'deceased' } : { age: targetAge, livingStatus: 'alive' }
+}
+
+function generateFamily(
+  notable: { race: string; gender: string; age: number },
+  raceLifeStages: RaceLifeStage[],
+  nameFor: (race: string, gender: string) => string,
+  pickGender: () => string,
+  rng: () => number,
+  idFactory: () => string
+): NotableRelative[] {
+  const stage = resolveLifeStage(notable.race, raceLifeStages)
+  const relatives: NotableRelative[] = []
+
+  const addRelative = (relation: RelationType, age: number, livingStatus: 'alive' | 'deceased' = 'alive'): void => {
+    const gender = pickGender()
+    relatives.push({
+      id: idFactory(),
+      name: nameFor(notable.race, gender),
+      relation,
+      gender,
+      age: Math.max(0, Math.round(age)),
+      race: notable.race,
+      livingStatus
+    })
+  }
+
+  // Spouse — roughly the notable's own generation, both already adults.
+  if (rng() < 0.6) {
+    addRelative('spouse', Math.max(stage.adulthood, notable.age + randomInt(-10, 10, rng)))
+  }
+
+  // Children — each at least stage.adulthood years younger than the
+  // notable, i.e. the notable was already an adult when they were born.
+  const childCount = pickByPercent(CHILD_COUNT_WEIGHTS, rng)?.count ?? 0
+  for (let i = 0; i < childCount; i++) {
+    addRelative('child', randomInt(0, Math.max(0, notable.age - stage.adulthood), rng))
+  }
+
+  // Siblings — same rough generation, offset either direction.
+  const siblingCount = pickByPercent(SIBLING_COUNT_WEIGHTS, rng)?.count ?? 0
+  for (let i = 0; i < siblingCount; i++) {
+    addRelative('sibling', Math.max(0, notable.age + randomInt(-15, 15, rng)))
+  }
+
+  // Parents — each old enough to have had the notable as an adult
+  // themselves; frequently deceased for an older notable, which is
+  // realistic rather than a bug (see relativeAgeOrDeceased).
+  for (let i = 0; i < 2; i++) {
+    if (rng() >= 0.85) continue
+    const gap = randomInt(stage.adulthood, stage.adulthood + 25, rng)
+    const { age, livingStatus } = relativeAgeOrDeceased(notable.age + gap, stage)
+    addRelative('parent', age, livingStatus)
+  }
+
+  // Grandparents — one more generation back, almost always deceased by the
+  // time a notable is old enough to run a business.
+  const grandparentCount = randomInt(0, 2, rng)
+  for (let i = 0; i < grandparentCount; i++) {
+    const gap = randomInt(2 * stage.adulthood, 2 * stage.adulthood + 40, rng)
+    const { age, livingStatus } = relativeAgeOrDeceased(notable.age + gap, stage)
+    addRelative('grandparent', age, livingStatus)
+  }
+
+  return relatives
+}
+
 export interface GenerationOptions {
   population: number
   // Defaults to inferSizeId(population) when omitted — only needed
@@ -623,11 +744,12 @@ export function generateSettlement(
     if (!buildingType?.staffed) continue
     const race = pickRace()
     const gender = pickGender()
+    const age = randomAdultAge(resolveLifeStage(race, raceLifeStages), rng)
     residents.push({
       id: idFactory(),
       name: nameFor(race, gender),
       race,
-      age: randomAdultAge(resolveLifeStage(race, raceLifeStages), rng),
+      age,
       gender,
       professionBuildingId: building.id,
       // A notable definitionally runs the place they're staffed at (see
@@ -648,6 +770,7 @@ export function generateSettlement(
       stats: rollAbilityScores(buildingType, rng),
       proficiencies: pickProficiencies(buildingType, rng),
       appearance: generateAppearance(race, gender, rng, customRaces),
+      relatives: generateFamily({ race, gender, age }, raceLifeStages, nameFor, pickGender, rng, idFactory),
       linkedNoteTitle: null
     })
   }
@@ -710,6 +833,7 @@ export function generateSettlement(
       stats: null,
       proficiencies: [],
       appearance: '',
+      relatives: [],
       linkedNoteTitle: null
     })
   }
