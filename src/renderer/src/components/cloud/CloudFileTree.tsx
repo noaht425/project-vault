@@ -242,7 +242,7 @@ function TreeNode({ entry, depth }: { entry: CloudTreeNode; depth: number }): Re
     <div
       className={`tree-row tree-row-file ${activeNoteId === entry.id ? 'active' : ''}`}
       style={{ paddingLeft: depth * 14 + 14 }}
-      onClick={() => void openNote(entry.id)}
+      onClick={() => void openNote(entry.id).catch(reportError)}
       draggable
       onDragStart={handleDragStart}
     >

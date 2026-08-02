@@ -158,22 +158,55 @@ export class CloudSession {
     return { Authorization: `Bearer ${this.accessToken}` }
   }
 
+  // Supabase access tokens expire after about an hour — every API call in
+  // this class used to build its own `authHeaders()` and just let an
+  // expired token 401 straight through, with nothing anywhere that ever
+  // got a new one after the one-time refresh in restore() at app launch.
+  // In practice that meant any note click more than ~an hour into a
+  // session (or after the computer slept through that boundary) silently
+  // failed with no UI feedback (see CloudFileTree.tsx's un-caught
+  // `void openNote(...)`). This wraps every authenticated request: on a
+  // 401, transparently refresh using the stored refresh token and retry
+  // ONCE before giving up — the same mechanism restore() already uses,
+  // just triggered reactively instead of only at launch.
+  private async authedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+    const withAuth = (): RequestInit => ({ ...init, headers: { ...init.headers, ...this.authHeaders() } })
+    const res = await fetch(input, withAuth())
+    if (res.status !== 401) return res
+
+    const refreshToken = await readRefreshToken(this.userDataDir)
+    if (!refreshToken) return res // nothing to refresh with — let the caller see the original 401
+
+    try {
+      await this.applyTokenResponse(await this.requestToken('refresh_token', { refresh_token: refreshToken }))
+    } catch {
+      // Refresh token itself is stale/invalid — same as restore()'s
+      // failure path, require a fresh sign-in rather than looping forever.
+      await clearRefreshToken(this.userDataDir)
+      this.accessToken = null
+      this.userId = null
+      this.handlers.onSessionRestored(null)
+      return res
+    }
+    return fetch(input, withAuth())
+  }
+
   async createNote(args: {
     name: string
     folderId?: string | null
     frontmatter?: Record<string, unknown>
     body?: string
   }): Promise<CloudNoteData> {
-    const res = await fetch(`${API_BASE_URL}/api/notes`, {
+    const res = await this.authedFetch(`${API_BASE_URL}/api/notes`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(args)
     })
     return mapNote(await this.parseOrThrow<RawNote>(res))
   }
 
   async getNote(id: string): Promise<CloudNoteData> {
-    const res = await fetch(`${API_BASE_URL}/api/notes/${id}`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/notes/${id}`)
     return mapNote(await this.parseOrThrow<RawNote>(res))
   }
 
@@ -192,9 +225,9 @@ export class CloudSession {
       body?: string
     }
   ): Promise<CloudSaveResult> {
-    const res = await fetch(`${API_BASE_URL}/api/notes/${id}`, {
+    const res = await this.authedFetch(`${API_BASE_URL}/api/notes/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req)
     })
     if (res.status === 409) {
@@ -213,14 +246,14 @@ export class CloudSession {
   }
 
   async deleteNote(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/api/notes/${id}`, { method: 'DELETE', headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/notes/${id}`, { method: 'DELETE' })
     await this.parseOrThrow(res)
   }
 
   async createFolder(name: string, parentId: string | null = null): Promise<CloudFolder> {
-    const res = await fetch(`${API_BASE_URL}/api/folders`, {
+    const res = await this.authedFetch(`${API_BASE_URL}/api/folders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parentId })
     })
     return mapFolder(await this.parseOrThrow<RawFolder>(res))
@@ -237,50 +270,50 @@ export class CloudSession {
   }
 
   private async patchFolder(id: string, patch: { name?: string; parentId?: string | null }): Promise<CloudFolder> {
-    const res = await fetch(`${API_BASE_URL}/api/folders/${id}`, {
+    const res = await this.authedFetch(`${API_BASE_URL}/api/folders/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
     })
     return mapFolder(await this.parseOrThrow<RawFolder>(res))
   }
 
   async deleteFolder(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/api/folders/${id}`, { method: 'DELETE', headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/folders/${id}`, { method: 'DELETE' })
     await this.parseOrThrow(res)
   }
 
   async searchTitles(query: string, type?: string): Promise<CloudTitleMatch[]> {
     const params = new URLSearchParams({ q: query })
     if (type) params.set('type', type)
-    const res = await fetch(`${API_BASE_URL}/api/notes?${params}`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/notes?${params}`)
     return this.parseOrThrow<CloudTitleMatch[]>(res)
   }
 
   async getBacklinks(id: string): Promise<CloudBacklink[]> {
-    const res = await fetch(`${API_BASE_URL}/api/notes/${id}/backlinks`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/notes/${id}/backlinks`)
     return this.parseOrThrow<CloudBacklink[]>(res)
   }
 
   async search(query: string, type?: string): Promise<CloudSearchResult[]> {
     const params = new URLSearchParams({ q: query })
     if (type) params.set('type', type)
-    const res = await fetch(`${API_BASE_URL}/api/search?${params}`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/search?${params}`)
     return this.parseOrThrow<CloudSearchResult[]>(res)
   }
 
   async getGraph(): Promise<CloudGraphData> {
-    const res = await fetch(`${API_BASE_URL}/api/graph`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/graph`)
     return this.parseOrThrow<CloudGraphData>(res)
   }
 
   async listSessions(): Promise<CloudSessionSummary[]> {
-    const res = await fetch(`${API_BASE_URL}/api/sessions`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/sessions`)
     return this.parseOrThrow<CloudSessionSummary[]>(res)
   }
 
   async listEvents(): Promise<CloudEventSummary[]> {
-    const res = await fetch(`${API_BASE_URL}/api/events`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/events`)
     return this.parseOrThrow<CloudEventSummary[]>(res)
   }
 
@@ -290,7 +323,7 @@ export class CloudSession {
   // effect) rather than as a manual action — safe to call repeatedly,
   // idempotent by construction (see the route's own comment).
   async migrateDates(): Promise<{ migrated: number; skipped: number }> {
-    const res = await fetch(`${API_BASE_URL}/api/migrate-dates`, { method: 'POST', headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/migrate-dates`, { method: 'POST' })
     return this.parseOrThrow<{ migrated: number; skipped: number }>(res)
   }
 
@@ -298,14 +331,14 @@ export class CloudSession {
   // workspace (not per-user), same setting the local vault stores in
   // .project-vault-settings.json.
   async getWorkspaceSettings(): Promise<CloudWorkspaceSettings> {
-    const res = await fetch(`${API_BASE_URL}/api/workspace-settings`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/workspace-settings`)
     return this.parseOrThrow<CloudWorkspaceSettings>(res)
   }
 
   async updateWorkspaceSettings(patch: Partial<CloudWorkspaceSettings>): Promise<CloudWorkspaceSettings> {
-    const res = await fetch(`${API_BASE_URL}/api/workspace-settings`, {
+    const res = await this.authedFetch(`${API_BASE_URL}/api/workspace-settings`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
     })
     return this.parseOrThrow<CloudWorkspaceSettings>(res)
@@ -322,7 +355,7 @@ export class CloudSession {
   // notifies the renderer via the same push-event pattern the local vault
   // already uses for vault:treeUpdated.
   async refreshTree(): Promise<CloudTreeNode[]> {
-    const res = await fetch(`${API_BASE_URL}/api/tree`, { headers: this.authHeaders() })
+    const res = await this.authedFetch(`${API_BASE_URL}/api/tree`)
     const tree = await this.parseOrThrow<CloudTreeNode[]>(res)
     this.cachedTree = tree
     await writeCachedTree(this.userDataDir, tree)
