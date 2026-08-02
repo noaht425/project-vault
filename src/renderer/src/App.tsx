@@ -11,6 +11,7 @@ import { TimelineView } from './components/timeline/TimelineView'
 import { EventsSection } from './components/timeline/EventsSection'
 import { GraphView } from './components/graph/GraphView'
 import { InitiativeView } from './components/initiative/InitiativeView'
+import { ContradictionsView } from './components/contradictions/ContradictionsView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
 import { CloudFileTree } from './components/cloud/CloudFileTree'
@@ -46,7 +47,7 @@ export default function App(): React.JSX.Element {
   const signedIn = useCloudStore((s) => s.signedIn)
   const cloudOpenNote = useCloudEditorStore((s) => s.openNote)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
-  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative' | 'contradictions'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -220,6 +221,14 @@ export default function App(): React.JSX.Element {
           >
             Initiative
           </button>
+          <button
+            className={mainView === 'contradictions' ? 'active' : ''}
+            onClick={() => setMainView((v) => (v === 'contradictions' ? 'editor' : 'contradictions'))}
+            disabled={workspaceSource === 'cloud' || !vaultPath}
+            title={workspaceSource === 'cloud' ? 'Contradiction Check is local-vault only for now' : undefined}
+          >
+            Contradictions
+          </button>
         </div>
         <div className="title-bar-group">
           <DiceRoller />
@@ -308,6 +317,8 @@ export default function App(): React.JSX.Element {
               setMainView('editor')
             }}
           />
+        ) : effectiveView === 'contradictions' ? (
+          <ContradictionsView />
         ) : (
           <>
             <div className="editor-column">
