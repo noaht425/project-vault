@@ -131,6 +131,27 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [saveNow])
 
+  // Quitting the app (see main/index.ts's before-quit handler) now waits
+  // on this instead of trusting the passive autosave debounce to have
+  // already fired — flushes whichever editor (local or cloud) is actually
+  // dirty, then acks so the main process can proceed. If a save genuinely
+  // fails (e.g. a dropped network request in Cloud mode), asks before
+  // letting the app quit and lose it, rather than silently discarding it.
+  useEffect(() => {
+    const unsubscribe = window.appApi.onFlushBeforeQuit(() => {
+      void (async () => {
+        await Promise.allSettled([useEditorStore.getState().saveNow(), useCloudEditorStore.getState().saveNow()])
+        const stillDirty = useEditorStore.getState().dirty || useCloudEditorStore.getState().dirty
+        if (stillDirty && !window.confirm('A note could not be saved. Quit anyway and lose the unsaved changes?')) {
+          window.appApi.cancelQuit()
+          return
+        }
+        window.appApi.flushComplete()
+      })()
+    })
+    return unsubscribe
+  }, [])
+
   return (
     <div className="app-shell">
       <div className="title-bar">

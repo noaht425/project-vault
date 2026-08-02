@@ -77,11 +77,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveNow: async () => {
     const { activeNotePath, content, baseVersion, dirty } = get()
     if (!activeNotePath || !dirty) return
-    const result = await window.vaultApi.saveNote({ path: activeNotePath, content, baseVersion })
-    if (result.status === 'saved') {
-      set({ baseVersion: result.version, dirty: false, externalChangePending: false })
-    } else {
-      set({ conflict: { conflictPath: result.conflictPath }, dirty: false })
+    try {
+      const result = await window.vaultApi.saveNote({ path: activeNotePath, content, baseVersion })
+      if (result.status === 'saved') {
+        set({ baseVersion: result.version, dirty: false, externalChangePending: false })
+      } else {
+        set({ conflict: { conflictPath: result.conflictPath }, dirty: false })
+      }
+    } catch (err) {
+      // Leave dirty:true on failure — nothing else retries a failed save
+      // automatically, so the next edit (or the flush-before-quit path in
+      // App.tsx) gets another chance instead of the failure being silent
+      // and permanent. A large note (e.g. a generated Settlement) can be
+      // slow enough to serialize/write that a transient failure here is
+      // the difference between the last edit surviving a quit or not.
+      console.error('Failed to save note:', err)
     }
   },
 

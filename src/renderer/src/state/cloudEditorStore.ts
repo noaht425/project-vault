@@ -68,13 +68,21 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   saveNow: async () => {
     const { activeNote, body, frontmatter, dirty } = get()
     if (!activeNote || !dirty) return
-    const result = await window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter })
-    if (result.status === 'saved') {
-      set({ activeNote: result.note, body: result.note.body, frontmatter: result.note.frontmatter, dirty: false, conflict: null })
-    } else {
-      // Deliberately doesn't touch `body`/`frontmatter` — the local edit
-      // stays exactly as made, just unsaved, until retry/discard below.
-      set({ conflict: result.current })
+    try {
+      const result = await window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter })
+      if (result.status === 'saved') {
+        set({ activeNote: result.note, body: result.note.body, frontmatter: result.note.frontmatter, dirty: false, conflict: null })
+      } else {
+        // Deliberately doesn't touch `body`/`frontmatter` — the local edit
+        // stays exactly as made, just unsaved, until retry/discard below.
+        set({ conflict: result.current })
+      }
+    } catch (err) {
+      // Leave dirty:true on failure (e.g. an expired session, or a dropped
+      // network request) so a retry — the next edit, or the
+      // flush-before-quit path in App.tsx — gets another chance instead of
+      // the failure being silent and permanent.
+      console.error('Failed to save cloud note:', err)
     }
   },
 

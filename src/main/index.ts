@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { VaultSession } from './vault/session'
@@ -119,6 +119,49 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
-  void session?.closeVault()
+// A settlement/map note's frontmatter can be tens of megabytes (a large
+// generated settlement) — parsing/serializing it is slow enough on the
+// renderer's main thread that the normal 1.5s debounced autosave (see
+// editorStore.ts/cloudEditorStore.ts) can still be pending when the app
+// quits, silently discarding the last edit. Quitting now always asks the
+// renderer to flush first and waits for it (bounded by a timeout in case
+// the renderer is unresponsive), rather than trusting the debounce timer
+// to have already fired.
+let quitConfirmed = false
+
+async function flushRendererAndQuit(): Promise<void> {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    quitConfirmed = true
+    app.quit()
+    return
+  }
+
+  const outcome = await new Promise<'done' | 'cancelled' | 'timeout'>((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), 8000)
+    const onComplete = (): void => {
+      clearTimeout(timer)
+      ipcMain.removeListener('app:cancelQuit', onCancel)
+      resolve('done')
+    }
+    const onCancel = (): void => {
+      clearTimeout(timer)
+      ipcMain.removeListener('app:flushComplete', onComplete)
+      resolve('cancelled')
+    }
+    ipcMain.once('app:flushComplete', onComplete)
+    ipcMain.once('app:cancelQuit', onCancel)
+    mainWindow!.webContents.send('app:flushBeforeQuit')
+  })
+
+  if (outcome === 'cancelled') return // renderer had an unsaved note it couldn't save and the user chose not to quit
+
+  await session?.closeVault()
+  quitConfirmed = true
+  app.quit()
+}
+
+app.on('before-quit', (event) => {
+  if (quitConfirmed) return
+  event.preventDefault()
+  void flushRendererAndQuit()
 })

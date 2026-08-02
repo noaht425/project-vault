@@ -80,6 +80,23 @@ export type VaultApi = typeof vaultApi
 
 contextBridge.exposeInMainWorld('vaultApi', vaultApi)
 
+// Lets the main process ask the renderer to flush any pending autosave
+// before the app actually quits (see main/index.ts's before-quit handler)
+// — the renderer is the only place that knows whether a note is dirty.
+const appApi = {
+  onFlushBeforeQuit: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('app:flushBeforeQuit', listener)
+    return () => ipcRenderer.removeListener('app:flushBeforeQuit', listener)
+  },
+  flushComplete: (): void => ipcRenderer.send('app:flushComplete'),
+  cancelQuit: (): void => ipcRenderer.send('app:cancelQuit')
+}
+
+export type AppApi = typeof appApi
+
+contextBridge.exposeInMainWorld('appApi', appApi)
+
 // Proof-of-concept bridge to project-vault-cloud, kept entirely separate
 // from vaultApi — the local vault's file-backed read/write path is
 // untouched by this.
