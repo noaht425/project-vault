@@ -144,4 +144,46 @@ describe('cloudEditorStore', () => {
     expect(state.frontmatter).toEqual({})
     expect(state.dirty).toBe(false)
   })
+
+  // Regression test for a real data-loss bug: switching to a different note
+  // (or closing the current one) used to just clearTimeout the pending
+  // debounced autosave and move on, silently discarding an edit that
+  // hadn't reached its 1.5s quiet window yet — e.g. a just-run Settlement
+  // Generate, followed by clicking a different note in the sidebar before
+  // the debounce fired.
+  it('openNote flushes a pending dirty edit on the currently open note before switching away', async () => {
+    await useCloudEditorStore.getState().openNote('note-1')
+    const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
+    saveNote.mockResolvedValue({ status: 'saved', note: { ...NOTE_A, body: 'edited body', version: 2 } })
+
+    useCloudEditorStore.getState().setBody('edited body')
+    expect(useCloudEditorStore.getState().dirty).toBe(true)
+
+    // Switch to a different note WITHOUT letting the 1.5s debounce fire —
+    // openNote itself must flush the pending save first.
+    const noteB = { ...NOTE_A, id: 'note-2', name: 'Bob', body: 'note b body' }
+    const getNote = (window as unknown as { cloudApi: { getNote: ReturnType<typeof vi.fn> } }).cloudApi.getNote
+    getNote.mockResolvedValue(noteB)
+    await useCloudEditorStore.getState().openNote('note-2')
+
+    expect(saveNote).toHaveBeenCalledWith({ id: 'note-1', version: 1, body: 'edited body', frontmatter: { type: 'npc' } })
+    expect(useCloudEditorStore.getState().activeNote?.id).toBe('note-2')
+  })
+
+  it('closeNote flushes a pending dirty edit before clearing note state', async () => {
+    await useCloudEditorStore.getState().openNote('note-1')
+    const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
+    saveNote.mockResolvedValue({ status: 'saved', note: { ...NOTE_A, body: 'edited body', version: 2 } })
+
+    useCloudEditorStore.getState().setBody('edited body')
+    useCloudEditorStore.getState().closeNote()
+    // closeNote's flush is fire-and-forget (the action itself isn't
+    // async) — flush the microtask queue so its internal saveNow() (a
+    // single already-mocked-resolved fetch, no real timers involved)
+    // actually completes before asserting.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(saveNote).toHaveBeenCalledWith({ id: 'note-1', version: 1, body: 'edited body', frontmatter: { type: 'npc' } })
+  })
 })

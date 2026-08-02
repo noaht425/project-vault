@@ -40,7 +40,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   externalChangePending: false,
 
   openNote: async (path) => {
-    if (autosaveTimer) clearTimeout(autosaveTimer)
+    // Flush whatever's pending on the CURRENTLY open note before switching
+    // away — this used to just clearTimeout the debounce and move on,
+    // silently discarding an edit (e.g. a just-run Settlement Generate)
+    // that hadn't reached its 1.5s quiet window yet. saveNow() is itself a
+    // no-op when nothing is dirty, so this is free the vast majority of
+    // the time.
+    await get().saveNow()
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
     const note = await window.vaultApi.readNote(path)
     set((s) => ({
       activeNotePath: note.path,
@@ -111,7 +121,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   closeNote: () => {
-    if (autosaveTimer) clearTimeout(autosaveTimer)
+    // Same reasoning as openNote — flush before discarding. Fire-and-forget
+    // (closeNote itself isn't async) is safe here: saveNow() reads
+    // activeNotePath/content/dirty synchronously via get() before its own
+    // first await, so it captures the right values before the set() below
+    // clears them.
+    void get().saveNow()
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
     set((s) => ({
       activeNotePath: null,
       content: '',

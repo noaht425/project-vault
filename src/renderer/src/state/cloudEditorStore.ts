@@ -43,7 +43,14 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   conflict: null,
 
   openNote: async (id) => {
-    if (autosaveTimer) clearTimeout(autosaveTimer)
+    // Flush whatever's pending on the CURRENTLY open note before switching
+    // away — see editorStore.ts's openNote for the full reasoning (same
+    // fix, same bug, mirrored here for Cloud Workspace).
+    await get().saveNow()
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
     const note = await window.cloudApi.getNote(id)
     set((s) => ({
       activeNote: note,
@@ -111,7 +118,14 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   },
 
   closeNote: () => {
-    if (autosaveTimer) clearTimeout(autosaveTimer)
+    // Same reasoning as editorStore.ts's closeNote — fire-and-forget is
+    // safe since saveNow() reads state synchronously before its own first
+    // await, ahead of the set() below.
+    void get().saveNow()
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
     set((s) => ({ activeNote: null, body: '', frontmatter: {}, revision: s.revision + 1, dirty: false, conflict: null }))
   }
 }))
