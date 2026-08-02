@@ -10,6 +10,9 @@ function makeNotable(overrides: Partial<SettlementResident> = {}): SettlementRes
     age: 52,
     gender: 'Male',
     professionBuildingId: 'b1',
+    jobTitle: 'Owner',
+    employmentStatus: 'employed',
+    homeless: false,
     homeBuildingId: null,
     wealthTierId: 'middle',
     districtId: 'main',
@@ -122,7 +125,8 @@ describe('buildPromotedLocationFrontmatter', () => {
     buildingTypeId: 'tavern',
     wealthTierId: 'middle',
     districtId: 'harborside',
-    linkedNoteTitle: null
+    linkedNoteTitle: null,
+    inventory: []
   }
 
   it('sets locationType to "location" and summarizes the building type + district', () => {

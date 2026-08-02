@@ -44,7 +44,7 @@ function sequenceIds(prefix: string): () => string {
 function baseOptions(overrides: Partial<GenerationOptions> = {}): GenerationOptions {
   return {
     population: 120,
-    districts: [{ id: 'main', name: 'Main District' }],
+    districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
     raceDistribution: [{ race: 'human', percent: 70 }, { race: 'elf', percent: 30 }],
     wealthTiers: defaultWealthTiers(),
     religionDistribution: [{ religion: 'The Old Faith', percent: 100 }],
@@ -112,7 +112,8 @@ describe('generateSettlement', () => {
       buildingTypeId: 'tavern',
       wealthTierId: 'middle',
       districtId: 'main',
-      linkedNoteTitle: 'The Rusty Anchor'
+      linkedNoteTitle: 'The Rusty Anchor',
+      inventory: []
     }
     const promotedResident: SettlementResident = {
       id: 'kept-resident',
@@ -121,6 +122,9 @@ describe('generateSettlement', () => {
       age: 60,
       gender: 'Male',
       professionBuildingId: 'kept-building',
+      jobTitle: 'Innkeeper',
+      employmentStatus: 'employed',
+      homeless: false,
       homeBuildingId: null,
       wealthTierId: 'middle',
       districtId: 'main',
@@ -132,6 +136,7 @@ describe('generateSettlement', () => {
       stats: { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 },
       proficiencies: [],
       appearance: '',
+      relatives: [],
       linkedNoteTitle: 'Old Tomas'
     }
     const unpromotedResident: SettlementResident = { ...promotedResident, id: 'unpromoted', linkedNoteTitle: null }
@@ -153,13 +158,13 @@ describe('generateSettlement', () => {
     // so with equal base weights this comparison is exact and seed-
     // independent — it isolates sizeGateMultiplier's effect specifically.
     const buildingTypes: BuildingTypeDef[] = [
-      { id: 'basic-shop', name: 'Basic Shop', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [] },
-      { id: 'metropolis-only', name: 'Grand Bazaar', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'metropolis', primaryAbility: '', secondaryAbility: '', proficiencyPool: [] }
+      { id: 'basic-shop', name: 'Basic Shop', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] },
+      { id: 'metropolis-only', name: 'Grand Bazaar', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'metropolis', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
     ]
     const options = (sizeId: string): GenerationOptions => ({
       population: 400,
       sizeId,
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -180,8 +185,8 @@ describe('generateSettlement', () => {
 
   it('boosts a specialty-targeted building type\'s share when that specialty is active, and stacks multiple active specialties', () => {
     const buildingTypes: BuildingTypeDef[] = [
-      { id: 'fishmonger', name: 'Fishmonger', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [] },
-      { id: 'jeweler', name: 'Jeweler', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [] }
+      { id: 'fishmonger', name: 'Fishmonger', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] },
+      { id: 'jeweler', name: 'Jeweler', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
     ]
     const specialties: SpecialtyDef[] = [
       { id: 'port-town', name: 'Port Town', boosts: [{ buildingTypeId: 'fishmonger', multiplier: 3 }] },
@@ -190,7 +195,7 @@ describe('generateSettlement', () => {
     const options = (activeSpecialtyIds: string[]): GenerationOptions => ({
       population: 800,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -290,7 +295,7 @@ describe('wealth tier percent', () => {
     const options: GenerationOptions = {
       population: 2000,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: skewedTiers,
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -310,7 +315,7 @@ describe('wealth tier percent', () => {
     const options: GenerationOptions = {
       population: 200,
       sizeId: 'village',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: [],
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -391,14 +396,16 @@ describe('ability scores', () => {
     minSizeId: 'hamlet',
     primaryAbility: '',
     secondaryAbility: '',
-    proficiencyPool: []
+    proficiencyPool: [],
+    jobTitlePool: [],
+    itemPool: []
   }
 
   it('centers unbiased ability scores around 10 with the majority in 8-12, matching the requested bell-curve shape', () => {
     const options: GenerationOptions = {
       population: 4000,
       sizeId: 'city',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -427,7 +434,7 @@ describe('ability scores', () => {
     const options: GenerationOptions = {
       population: 4000,
       sizeId: 'city',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -454,12 +461,14 @@ describe('proficiencies', () => {
       minSizeId: 'hamlet',
       primaryAbility: 'int',
       secondaryAbility: 'wis',
-      proficiencyPool: ['Herbalism Kit', 'Medicine']
+      proficiencyPool: ['Herbalism Kit', 'Medicine'],
+      jobTitlePool: [],
+      itemPool: []
     }
     const options: GenerationOptions = {
       population: 2000,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -487,12 +496,14 @@ describe('proficiencies', () => {
       minSizeId: 'hamlet',
       primaryAbility: '',
       secondaryAbility: '',
-      proficiencyPool: []
+      proficiencyPool: [],
+      jobTitlePool: [],
+      itemPool: []
     }
     const options: GenerationOptions = {
       population: 400,
       sizeId: 'village',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -517,7 +528,7 @@ describe('race life stages', () => {
     const options: GenerationOptions = {
       population: 2000,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -539,7 +550,7 @@ describe('race life stages', () => {
     const options: GenerationOptions = {
       population: 6000,
       sizeId: 'city',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'orc', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -566,7 +577,7 @@ describe('race life stages', () => {
     const options: GenerationOptions = {
       population: 2000,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -583,7 +594,7 @@ describe('race life stages', () => {
     const options: GenerationOptions = {
       population: 2000,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'elf', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -603,7 +614,7 @@ describe('race life stages', () => {
     const options: GenerationOptions = {
       population: 2000,
       sizeId: 'town',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'dwarf', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -631,7 +642,7 @@ describe('stub employment', () => {
     const options: GenerationOptions = {
       population: 4000,
       sizeId: 'city',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -648,7 +659,7 @@ describe('stub employment', () => {
     const options: GenerationOptions = {
       population: 6000,
       sizeId: 'city',
-      districts: [{ id: 'main', name: 'Main District' }],
+      districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
       raceDistribution: [{ race: 'human', percent: 100 }],
       wealthTiers: defaultWealthTiers(),
       religionDistribution: [{ religion: 'None', percent: 100 }],
@@ -748,7 +759,7 @@ describe('building inventory', () => {
       { id: 'no-items-shop', name: 'No Items Shop', category: 'shop', defaultWealthTierId: '', staffed: true, weight: 1, minSizeId: 'hamlet', primaryAbility: '', secondaryAbility: '', proficiencyPool: [], jobTitlePool: [], itemPool: [] }
     ]
     const result = generateSettlement(
-      { population: 200, sizeId: 'village', districts: [{ id: 'main', name: 'Main District' }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      { population: 200, sizeId: 'village', districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
       undefined,
       seededRng(64),
       sequenceIds('r')
@@ -783,13 +794,13 @@ describe('building inventory', () => {
     ]
 
     const hamletResult = generateSettlement(
-      { population: 40, sizeId: 'hamlet', districts: [{ id: 'main', name: 'Main District' }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      { population: 40, sizeId: 'hamlet', districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
       undefined,
       seededRng(62),
       sequenceIds('r')
     )
     const metropolisResult = generateSettlement(
-      { population: 40000, sizeId: 'metropolis', districts: [{ id: 'main', name: 'Main District' }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
+      { population: 40000, sizeId: 'metropolis', districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }], raceDistribution: [{ race: 'human', percent: 100 }], wealthTiers: defaultWealthTiers(), religionDistribution: [{ religion: 'None', percent: 100 }], buildingTypes },
       undefined,
       seededRng(63),
       sequenceIds('r')
