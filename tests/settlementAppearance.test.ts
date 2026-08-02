@@ -24,10 +24,10 @@ describe('generateAppearance', () => {
     }
   })
 
-  it('always ends with a height + build line in the "Stands NNNcm (F′ I″) tall and has a/an X build." shape', () => {
+  it('always ends with a height + build line in the "Stands F′ I″ tall and has a/an X build." shape', () => {
     const text = generateAppearance('human', 'Female', seededRng(2))
     const lastLine = text.split('\n').at(-1)
-    expect(lastLine).toMatch(/^Stands \d+cm \(\d+′ \d+″\) tall and has an? \w+ build\.$/)
+    expect(lastLine).toMatch(/^Stands \d+′ \d+″ tall and has an? \w+ build\.$/)
   })
 
   it('uses "an" before a vowel-starting build word (e.g. "average") and "a" otherwise', () => {
@@ -98,22 +98,22 @@ describe('generateAppearance with custom races', () => {
       name: 'Lizardfolk',
       inspirationSourceIds: [],
       phoneticProfileIds: [],
-      heightRangeCm: [150, 190],
+      heightRangeInches: [59, 75],
       specialFeatures: [],
       ...overrides
     }
   }
 
   it("uses the custom race's own height range instead of the human fallback range", () => {
-    const race = customRace({ heightRangeCm: [300, 310] }) // deliberately outside the human range
+    const race = customRace({ heightRangeInches: [100, 110] }) // deliberately outside the human range
     const rng = seededRng(1)
     for (let i = 0; i < 20; i++) {
       const text = generateAppearance('lizardfolk', 'Male', rng, [race])
-      const heightMatch = text.match(/Stands (\d+)cm/)
+      const heightMatch = text.match(/Stands (\d+)′ (\d+)″/)
       expect(heightMatch).not.toBeNull()
-      const height = Number(heightMatch![1])
-      expect(height).toBeGreaterThanOrEqual(300)
-      expect(height).toBeLessThanOrEqual(310)
+      const heightInches = Number(heightMatch![1]) * 12 + Number(heightMatch![2])
+      expect(heightInches).toBeGreaterThanOrEqual(100)
+      expect(heightInches).toBeLessThanOrEqual(110)
     }
   })
 

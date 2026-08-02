@@ -222,7 +222,7 @@ describe('phonetic-profile custom races', () => {
           name: 'Sylvani',
           inspirationSourceIds: [],
           phoneticProfileIds: ['elvish-leaning'],
-          heightRangeCm: [150, 190],
+          heightRangeInches: [59, 75],
           specialFeatures: []
         }
       ]
@@ -257,7 +257,7 @@ describe('phonetic-profile custom races', () => {
           name: 'Sylvani',
           inspirationSourceIds: [],
           phoneticProfileIds: ['elvish-leaning', 'harsh-guttural'],
-          heightRangeCm: [150, 190],
+          heightRangeInches: [59, 75],
           specialFeatures: []
         }
       ]

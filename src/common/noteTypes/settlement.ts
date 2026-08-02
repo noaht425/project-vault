@@ -81,7 +81,10 @@ export const customRaceDefSchema = z.object({
   // tusks/horns/scales), just user-editable here since a custom race has
   // no seeded profile to fall back on otherwise. Height defaults to a
   // roughly human range rather than something arbitrary.
-  heightRangeCm: z.tuple([z.coerce.number(), z.coerce.number()]).catch([150, 190]),
+  // Stored as a single total-inches number per bound (imperial) — see
+  // settlementAppearance.ts's inchesToFeetAndInches/feetAndInchesToInches
+  // for converting to/from a feet+inches pair for display/editing.
+  heightRangeInches: z.tuple([z.coerce.number(), z.coerce.number()]).catch([59, 75]),
   specialFeatures: z.array(z.string()).catch([])
 })
 export type CustomRaceDef = z.infer<typeof customRaceDefSchema>

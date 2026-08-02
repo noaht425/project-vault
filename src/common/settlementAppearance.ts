@@ -19,7 +19,7 @@ export interface AppearanceProfile {
   // Race-specific traits (tusks, horns, tattoos, ...) — empty for races
   // with nothing distinctive beyond skin/hair/eyes.
   specialFeatures: string[]
-  heightRangeCm: [number, number]
+  heightRangeInches: [number, number]
 }
 
 const BUILDS = ['skinny', 'slim', 'athletic', 'average', 'stocky', 'muscular', 'heavyset']
@@ -38,7 +38,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['pale', 'fair', 'light tan', 'olive', 'tan', 'brown', 'dark brown', 'deep brown'],
     canGrowFacialHair: true,
     specialFeatures: [],
-    heightRangeCm: [150, 195]
+    heightRangeInches: [59, 77]
   },
   elf: {
     hasHair: true,
@@ -48,7 +48,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['pale', 'fair', 'light golden', 'light brown', 'bronze'],
     canGrowFacialHair: false,
     specialFeatures: [],
-    heightRangeCm: [155, 190]
+    heightRangeInches: [61, 75]
   },
   dwarf: {
     hasHair: true,
@@ -58,7 +58,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['ruddy', 'tan', 'brown', 'pale', 'deep tan'],
     canGrowFacialHair: true,
     specialFeatures: [],
-    heightRangeCm: [122, 145]
+    heightRangeInches: [48, 57]
   },
   halfling: {
     hasHair: true,
@@ -68,7 +68,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['tan', 'light brown', 'ruddy', 'fair'],
     canGrowFacialHair: true,
     specialFeatures: [],
-    heightRangeCm: [85, 110]
+    heightRangeInches: [33, 43]
   },
   dragonborn: {
     hasHair: false,
@@ -78,7 +78,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: [],
     canGrowFacialHair: false,
     specialFeatures: ['small horn ridges above the brow', 'a faint crest running down the back of the neck'],
-    heightRangeCm: [180, 220]
+    heightRangeInches: [71, 87]
   },
   tiefling: {
     hasHair: true,
@@ -88,7 +88,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['deep red', 'maroon', 'dark purple', 'ashen gray', 'deep blue'],
     canGrowFacialHair: true,
     specialFeatures: ['small curved horns', 'a thin tail that flicks when they get tense'],
-    heightRangeCm: [160, 195]
+    heightRangeInches: [63, 77]
   },
   orc: {
     hasHair: true,
@@ -98,7 +98,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['dark green', 'olive green', 'gray-green', 'dark pink', 'ashen gray'],
     canGrowFacialHair: true,
     specialFeatures: ['small tusks', 'medium-sized broken tusks', 'large tusks'],
-    heightRangeCm: [170, 200]
+    heightRangeInches: [67, 79]
   },
   goliath: {
     hasHair: true,
@@ -108,7 +108,7 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
     skinTones: ['gray', 'pale gray-blue', 'stone gray', 'light gray with dark speckles'],
     canGrowFacialHair: true,
     specialFeatures: ['ritual tattoos across the shoulders', 'pale birthmark-like patterns across the skin'],
-    heightRangeCm: [195, 230]
+    heightRangeInches: [77, 91]
   }
 }
 
@@ -130,7 +130,7 @@ function resolveAppearanceProfile(race: string, customRaces: CustomRaceDef[] = [
 
   const custom = customRaces.find((r) => r.id === race)
   if (custom) {
-    return { ...FALLBACK_APPEARANCE_PROFILE, specialFeatures: custom.specialFeatures, heightRangeCm: custom.heightRangeCm }
+    return { ...FALLBACK_APPEARANCE_PROFILE, specialFeatures: custom.specialFeatures, heightRangeInches: custom.heightRangeInches }
   }
 
   return FALLBACK_APPEARANCE_PROFILE
@@ -144,10 +144,18 @@ function randomInt(min: number, max: number, rng: () => number): number {
   return Math.floor(rng() * (max - min + 1)) + min
 }
 
-function cmToFeetInches(cm: number): string {
-  const totalInches = cm / 2.54
-  const feet = Math.floor(totalInches / 12)
-  const inches = Math.round(totalInches % 12)
+// Exported so the settlement-editor UI (a custom race's height range input)
+// can convert to/from a feet+inches pair without duplicating this math —
+// the underlying stored value is always a single total-inches number.
+export function inchesToFeetAndInches(totalInches: number): { feet: number; inches: number } {
+  return { feet: Math.floor(totalInches / 12), inches: Math.round(totalInches % 12) }
+}
+export function feetAndInchesToInches(feet: number, inches: number): number {
+  return Math.max(0, feet) * 12 + Math.max(0, inches)
+}
+
+function formatFeetInches(totalInches: number): string {
+  const { feet, inches } = inchesToFeetAndInches(totalInches)
   return `${feet}′ ${inches}″`
 }
 
@@ -177,10 +185,10 @@ export function generateAppearance(race: string, gender: string, rng: () => numb
     lines.push(`Has ${pick(profile.skinTones, rng)} skin.`)
   }
 
-  const heightCm = randomInt(profile.heightRangeCm[0], profile.heightRangeCm[1], rng)
+  const heightInches = randomInt(profile.heightRangeInches[0], profile.heightRangeInches[1], rng)
   const build = pick(BUILDS, rng)
   const article = /^[aeiou]/i.test(build) ? 'an' : 'a'
-  lines.push(`Stands ${heightCm}cm (${cmToFeetInches(heightCm)}) tall and has ${article} ${build} build.`)
+  lines.push(`Stands ${formatFeetInches(heightInches)} tall and has ${article} ${build} build.`)
 
   return lines.join('\n')
 }

@@ -9,6 +9,7 @@ import {
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
 import { BASELINE_RACES, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
+import { feetAndInchesToInches, inchesToFeetAndInches } from '../../../../common/settlementAppearance'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
 // All the generation-input editors, mirroring GenerationOptions field for
@@ -595,7 +596,7 @@ function RaceCard({
       updateFrontmatter({
         customRaces: [
           ...data.customRaces,
-          { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileIds: [], heightRangeCm: [150, 190], specialFeatures: [] }
+          { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileIds: [], heightRangeInches: [59, 75], specialFeatures: [] }
         ],
         raceDistribution: data.raceDistribution.map((x, xi) => (xi === index ? { ...x, race: newId } : x)),
         raceLifeStages: renameLifeStage(newId)
@@ -666,20 +667,24 @@ function RaceCard({
         <div style={{ marginTop: 6 }}>
           <div className="sheet-row">
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-              Height range (cm)
-              <input
-                type="number"
-                style={{ width: 60 }}
-                value={customRace.heightRangeCm[0]}
-                onChange={(e) => updateCustomRaceField({ heightRangeCm: [Number(e.target.value), customRace.heightRangeCm[1]] })}
-              />
-              to
-              <input
-                type="number"
-                style={{ width: 60 }}
-                value={customRace.heightRangeCm[1]}
-                onChange={(e) => updateCustomRaceField({ heightRangeCm: [customRace.heightRangeCm[0], Number(e.target.value)] })}
-              />
+              Height range
+              {([0, 1] as const).map((boundIndex) => {
+                const { feet, inches } = inchesToFeetAndInches(customRace.heightRangeInches[boundIndex])
+                const setBound = (nextFeet: number, nextInches: number): void => {
+                  const nextRange = [...customRace.heightRangeInches] as [number, number]
+                  nextRange[boundIndex] = feetAndInchesToInches(nextFeet, nextInches)
+                  updateCustomRaceField({ heightRangeInches: nextRange })
+                }
+                return (
+                  <span key={boundIndex} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {boundIndex === 1 && <span style={{ margin: '0 4px' }}>to</span>}
+                    <input type="number" style={{ width: 50 }} value={feet} onChange={(e) => setBound(Number(e.target.value), inches)} />
+                    ft
+                    <input type="number" style={{ width: 50 }} value={inches} onChange={(e) => setBound(feet, Number(e.target.value))} />
+                    in
+                  </span>
+                )
+              })}
             </label>
           </div>
 

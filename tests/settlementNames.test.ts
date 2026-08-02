@@ -121,7 +121,7 @@ describe('resolveNameBank', () => {
         name: 'Gnome',
         inspirationSourceIds: ['germanic', 'french'],
         phoneticProfileIds: [],
-        heightRangeCm: [90, 120] as [number, number],
+        heightRangeInches: [35, 47] as [number, number],
         specialFeatures: []
       }
     ]
@@ -138,7 +138,7 @@ describe('resolveNameBank', () => {
         name: 'Wanderer-folk',
         inspirationSourceIds: ['nordic', 'central-african'],
         phoneticProfileIds: [],
-        heightRangeCm: [150, 190] as [number, number],
+        heightRangeInches: [59, 75] as [number, number],
         specialFeatures: []
       }
     ]
@@ -152,7 +152,7 @@ describe('resolveNameBank', () => {
 
   it('falls back to a generic bank for an unconfigured custom race', () => {
     const customRaces = [
-      { id: 'gnome', name: 'Gnome', inspirationSourceIds: [], phoneticProfileIds: [], heightRangeCm: [90, 120] as [number, number], specialFeatures: [] }
+      { id: 'gnome', name: 'Gnome', inspirationSourceIds: [], phoneticProfileIds: [], heightRangeInches: [35, 47] as [number, number], specialFeatures: [] }
     ]
     const bank = resolveNameBank('gnome', customRaces, [])
     expect(bank.id).toBe('generic')
