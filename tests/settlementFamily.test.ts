@@ -151,3 +151,94 @@ describe('settlement generation: notable family', () => {
     expect(stillPromoted.relatives).toBe(originalRelatives)
   })
 })
+
+function lastWord(name: string): string {
+  const parts = name.trim().split(' ')
+  return parts[parts.length - 1]
+}
+
+describe('settlement generation: family surname sharing', () => {
+  const baseOptions: GenerationOptions = {
+    population: 4000,
+    sizeId: 'city',
+    districts: [{ id: 'main', name: 'Main District', buildingTypeBoosts: [] }],
+    raceDistribution: [{ race: 'human', percent: 100 }],
+    wealthTiers: defaultWealthTiers(),
+    religionDistribution: [{ religion: 'None', percent: 100 }],
+    buildingTypes: defaultBuildingTypes(),
+    raceLifeStages: [HUMAN_LIFE_STAGE]
+  }
+
+  it("gives every child the notable's own surname", () => {
+    const result = generateSettlement(baseOptions, undefined, seededRng(3), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    const withChildren = notables.filter((r) => r.relatives.some((rel) => rel.relation === 'child'))
+    expect(withChildren.length).toBeGreaterThan(0)
+    for (const notable of withChildren) {
+      const notableSurname = lastWord(notable.name)
+      for (const child of notable.relatives.filter((rel) => rel.relation === 'child')) {
+        expect(lastWord(child.name)).toBe(notableSurname)
+      }
+    }
+  })
+
+  it("doesn't deliberately share the notable's surname with a spouse — any match is pure chance from the finite name pool, not the design's doing", () => {
+    const result = generateSettlement(baseOptions, undefined, seededRng(5), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    const spouses = notables.flatMap((r) => r.relatives.filter((rel) => rel.relation === 'spouse').map((s) => ({ notable: r, spouse: s })))
+    expect(spouses.length).toBeGreaterThan(20)
+    // Unlike children (always 1.0) or parents/grandparents (at least one
+    // guaranteed), a spouse is never deliberately given the family
+    // surname — so the observed share-rate here should sit far below
+    // those, close to whatever a same-pool coincidence rate would produce
+    // on its own, not systematically forced to match.
+    const shareFraction = spouses.filter((s) => lastWord(s.spouse.name) === lastWord(s.notable.name)).length / spouses.length
+    expect(shareFraction).toBeLessThan(0.2)
+  })
+
+  it("gives at least one parent (when any exist) the notable's own surname, but not always both", () => {
+    const result = generateSettlement(baseOptions, undefined, seededRng(9), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    let sawBothShare = false
+    let sawOnlyOneShare = false
+    for (const notable of notables) {
+      const notableSurname = lastWord(notable.name)
+      const parents = notable.relatives.filter((rel) => rel.relation === 'parent')
+      if (parents.length === 0) continue
+      const sharingCount = parents.filter((p) => lastWord(p.name) === notableSurname).length
+      expect(sharingCount).toBeGreaterThanOrEqual(1)
+      if (parents.length === 2 && sharingCount === 2) sawBothShare = true
+      if (parents.length === 2 && sharingCount === 1) sawOnlyOneShare = true
+    }
+    // Confirms the "second parent has just a chance, not a guarantee" design
+    // actually produces both outcomes across this sample.
+    expect(sawBothShare).toBe(true)
+    expect(sawOnlyOneShare).toBe(true)
+  })
+
+  it("gives at least one grandparent (when any exist) the notable's own surname", () => {
+    const result = generateSettlement(baseOptions, undefined, seededRng(15), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    let checkedAny = false
+    for (const notable of notables) {
+      const notableSurname = lastWord(notable.name)
+      const grandparents = notable.relatives.filter((rel) => rel.relation === 'grandparent')
+      if (grandparents.length === 0) continue
+      checkedAny = true
+      expect(grandparents.some((g) => lastWord(g.name) === notableSurname)).toBe(true)
+    }
+    expect(checkedAny).toBe(true)
+  })
+
+  it('lets some but not all siblings share the surname across a large sample (not 0% and not 100%)', () => {
+    const result = generateSettlement(baseOptions, undefined, seededRng(21), sequenceIds('r'))
+    const notables = result.residents.filter((r) => r.notable)
+    const siblingPairs = notables.flatMap((r) =>
+      r.relatives.filter((rel) => rel.relation === 'sibling').map((s) => ({ shares: lastWord(s.name) === lastWord(r.name) }))
+    )
+    expect(siblingPairs.length).toBeGreaterThan(20)
+    const shareFraction = siblingPairs.filter((p) => p.shares).length / siblingPairs.length
+    expect(shareFraction).toBeGreaterThan(0)
+    expect(shareFraction).toBeLessThan(1)
+  })
+})

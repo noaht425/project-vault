@@ -451,8 +451,27 @@ function relativeAgeOrDeceased(targetAge: number, stage: RaceLifeStage): { age: 
   return targetAge > stage.maxAge ? { age: targetAge, livingStatus: 'deceased' } : { age: targetAge, livingStatus: 'alive' }
 }
 
+// The last space-separated word of a generated "First Last" name (or the
+// second synthesized word for a phonetic-profile custom race — see
+// phoneticNames.ts's generateSyntheticName, which has the same two-word
+// shape even though it isn't drawing from a lastNames pool). Treated as a
+// stand-in "family name" purely for keeping blood relatives visually
+// consistent — not a claim that every race's naming convention has a
+// surname in the real-world sense.
+function surnameOf(fullName: string): string {
+  const parts = fullName.trim().split(' ')
+  return parts[parts.length - 1]
+}
+
+function withSurname(fullName: string, surname: string): string {
+  const parts = fullName.trim().split(' ')
+  if (parts.length <= 1) return `${fullName} ${surname}`.trim()
+  parts[parts.length - 1] = surname
+  return parts.join(' ')
+}
+
 function generateFamily(
-  notable: { race: string; gender: string; age: number },
+  notable: { name: string; race: string; gender: string; age: number },
   raceLifeStages: RaceLifeStage[],
   nameFor: (race: string, gender: string) => string,
   pickGender: () => string,
@@ -460,13 +479,20 @@ function generateFamily(
   idFactory: () => string
 ): NotableRelative[] {
   const stage = resolveLifeStage(notable.race, raceLifeStages)
+  const familySurname = surnameOf(notable.name)
   const relatives: NotableRelative[] = []
 
-  const addRelative = (relation: RelationType, age: number, livingStatus: 'alive' | 'deceased' = 'alive'): void => {
+  const addRelative = (
+    relation: RelationType,
+    age: number,
+    livingStatus: 'alive' | 'deceased' = 'alive',
+    shareSurname = false
+  ): void => {
     const gender = pickGender()
+    const rolledName = nameFor(notable.race, gender)
     relatives.push({
       id: idFactory(),
-      name: nameFor(notable.race, gender),
+      name: shareSurname ? withSurname(rolledName, familySurname) : rolledName,
       relation,
       gender,
       age: Math.max(0, Math.round(age)),
@@ -476,40 +502,57 @@ function generateFamily(
   }
 
   // Spouse — roughly the notable's own generation, both already adults.
+  // Never shares the family surname (married in from a different family),
+  // same asymmetry as a real-world "maiden name" convention.
   if (rng() < 0.6) {
     addRelative('spouse', Math.max(stage.adulthood, notable.age + randomInt(-10, 10, rng)))
   }
 
   // Children — each at least stage.adulthood years younger than the
   // notable, i.e. the notable was already an adult when they were born.
+  // Always share the family surname — a child not carrying their own
+  // parent's household name would be the unusual case, not the default.
   const childCount = pickByPercent(CHILD_COUNT_WEIGHTS, rng)?.count ?? 0
   for (let i = 0; i < childCount; i++) {
-    addRelative('child', randomInt(0, Math.max(0, notable.age - stage.adulthood), rng))
+    addRelative('child', randomInt(0, Math.max(0, notable.age - stage.adulthood), rng), 'alive', true)
   }
 
-  // Siblings — same rough generation, offset either direction.
+  // Siblings — same rough generation, offset either direction. SOME (not
+  // all) share the family surname — full siblings usually would, but never
+  // forcing every single one leaves room for half-siblings/blended-family
+  // flavor without modeling that explicitly.
   const siblingCount = pickByPercent(SIBLING_COUNT_WEIGHTS, rng)?.count ?? 0
   for (let i = 0; i < siblingCount; i++) {
-    addRelative('sibling', Math.max(0, notable.age + randomInt(-15, 15, rng)))
+    addRelative('sibling', Math.max(0, notable.age + randomInt(-15, 15, rng)), 'alive', rng() < 0.65)
   }
 
   // Parents — each old enough to have had the notable as an adult
   // themselves; frequently deceased for an older notable, which is
-  // realistic rather than a bug (see relativeAgeOrDeceased).
+  // realistic rather than a bug (see relativeAgeOrDeceased). AT LEAST ONE
+  // parent (whichever is generated first) always shares the family
+  // surname — a second parent, if generated, has a smaller independent
+  // chance of sharing it too, rather than it being guaranteed for both.
+  let parentShared = false
   for (let i = 0; i < 2; i++) {
     if (rng() >= 0.85) continue
     const gap = randomInt(stage.adulthood, stage.adulthood + 25, rng)
     const { age, livingStatus } = relativeAgeOrDeceased(notable.age + gap, stage)
-    addRelative('parent', age, livingStatus)
+    const shareSurname = !parentShared || rng() < 0.3
+    if (shareSurname) parentShared = true
+    addRelative('parent', age, livingStatus, shareSurname)
   }
 
   // Grandparents — one more generation back, almost always deceased by the
-  // time a notable is old enough to run a business.
+  // time a notable is old enough to run a business. Same "at least one
+  // shares" rule as parents.
+  let grandparentShared = false
   const grandparentCount = randomInt(0, 2, rng)
   for (let i = 0; i < grandparentCount; i++) {
     const gap = randomInt(2 * stage.adulthood, 2 * stage.adulthood + 40, rng)
     const { age, livingStatus } = relativeAgeOrDeceased(notable.age + gap, stage)
-    addRelative('grandparent', age, livingStatus)
+    const shareSurname = !grandparentShared || rng() < 0.3
+    if (shareSurname) grandparentShared = true
+    addRelative('grandparent', age, livingStatus, shareSurname)
   }
 
   return relatives
@@ -745,9 +788,10 @@ export function generateSettlement(
     const race = pickRace()
     const gender = pickGender()
     const age = randomAdultAge(resolveLifeStage(race, raceLifeStages), rng)
+    const name = nameFor(race, gender)
     residents.push({
       id: idFactory(),
-      name: nameFor(race, gender),
+      name,
       race,
       age,
       gender,
@@ -770,7 +814,7 @@ export function generateSettlement(
       stats: rollAbilityScores(buildingType, rng),
       proficiencies: pickProficiencies(buildingType, rng),
       appearance: generateAppearance(race, gender, rng, customRaces),
-      relatives: generateFamily({ race, gender, age }, raceLifeStages, nameFor, pickGender, rng, idFactory),
+      relatives: generateFamily({ name, race, gender, age }, raceLifeStages, nameFor, pickGender, rng, idFactory),
       linkedNoteTitle: null
     })
   }
