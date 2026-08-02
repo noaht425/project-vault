@@ -40,6 +40,20 @@ interface TravelModesState {
   save: (modes: TravelMode[]) => Promise<void>
 }
 
+// MapSheet, MapTripCalculator, and TravelModesEditor each mount their own
+// "if (!noteId && !loading) load()" effect whenever a map note opens, all
+// checking at once. Each effect closes over its OWN render's snapshot of
+// `loading` — Zustand's set() inside the first caller's load() updates the
+// store synchronously, but the other two effects already captured `false`
+// before that happened, so all three call load() and each independently
+// fails to find the others'-not-yet-created note, creating up to 3
+// duplicate "Travel Modes" notes from one map open. This module-level
+// in-flight promise makes concurrent callers share one actual find-or-
+// create instead of each racing to it — fixing the cause, not just papering
+// over it by reordering the effects (which wouldn't survive the next
+// caller added to a map sheet later).
+let inFlightLoad: Promise<void> | null = null
+
 export const useTravelModesStore = create<TravelModesState>((set, get) => ({
   noteId: null,
   version: 0,
@@ -47,22 +61,31 @@ export const useTravelModesStore = create<TravelModesState>((set, get) => ({
   loading: false,
 
   load: async () => {
-    set({ loading: true })
-    try {
-      const tree = (await window.cloudApi.getCachedTree()) ?? (await window.cloudApi.refreshTree())
-      const existing = findTravelModesNode(tree)
+    if (inFlightLoad) return inFlightLoad
+    if (get().noteId) return
 
-      if (existing) {
-        const note = await window.cloudApi.getNote(existing.id)
-        set({ noteId: note.id, version: note.version, frontmatter: travelModesFrontmatterSchema.parse(note.frontmatter), loading: false })
-      } else {
-        const frontmatter = defaultTravelModesFrontmatter()
-        const note = await window.cloudApi.createNote({ name: TRAVEL_MODES_NOTE_NAME, frontmatter })
-        set({ noteId: note.id, version: note.version, frontmatter, loading: false })
+    inFlightLoad = (async () => {
+      set({ loading: true })
+      try {
+        const tree = (await window.cloudApi.getCachedTree()) ?? (await window.cloudApi.refreshTree())
+        const existing = findTravelModesNode(tree)
+
+        if (existing) {
+          const note = await window.cloudApi.getNote(existing.id)
+          set({ noteId: note.id, version: note.version, frontmatter: travelModesFrontmatterSchema.parse(note.frontmatter), loading: false })
+        } else {
+          const frontmatter = defaultTravelModesFrontmatter()
+          const note = await window.cloudApi.createNote({ name: TRAVEL_MODES_NOTE_NAME, frontmatter })
+          set({ noteId: note.id, version: note.version, frontmatter, loading: false })
+        }
+      } catch {
+        set({ loading: false })
+      } finally {
+        inFlightLoad = null
       }
-    } catch {
-      set({ loading: false })
-    }
+    })()
+
+    return inFlightLoad
   },
 
   save: async (modes) => {
