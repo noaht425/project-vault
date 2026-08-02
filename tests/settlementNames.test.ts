@@ -115,7 +115,16 @@ describe('resolveNameBank', () => {
         lastNames: [{ name: 'Dubois', weight: 1 }]
       }
     ]
-    const customRaces = [{ id: 'gnome', name: 'Gnome', inspirationSourceIds: ['germanic', 'french'], phoneticProfileIds: [] }]
+    const customRaces = [
+      {
+        id: 'gnome',
+        name: 'Gnome',
+        inspirationSourceIds: ['germanic', 'french'],
+        phoneticProfileIds: [],
+        heightRangeCm: [90, 120] as [number, number],
+        specialFeatures: []
+      }
+    ]
     const bank = resolveNameBank('gnome', customRaces, sources)
     expect(bank.firstNamesMale.map((w) => w.name)).toEqual(['Heinrich', 'Étienne'])
     expect(bank.firstNamesFemale.map((w) => w.name)).toEqual(['Greta', 'Camille'])
@@ -123,7 +132,16 @@ describe('resolveNameBank', () => {
   })
 
   it('pools real inspiration sources (Nordic + Central African) for a custom race', () => {
-    const customRaces = [{ id: 'wanderer-folk', name: 'Wanderer-folk', inspirationSourceIds: ['nordic', 'central-african'], phoneticProfileIds: [] }]
+    const customRaces = [
+      {
+        id: 'wanderer-folk',
+        name: 'Wanderer-folk',
+        inspirationSourceIds: ['nordic', 'central-african'],
+        phoneticProfileIds: [],
+        heightRangeCm: [150, 190] as [number, number],
+        specialFeatures: []
+      }
+    ]
     const bank = resolveNameBank('wanderer-folk', customRaces, NAME_INSPIRATION_SOURCES)
     const nordic = NAME_INSPIRATION_SOURCES.find((s) => s.id === 'nordic')!
     const centralAfrican = NAME_INSPIRATION_SOURCES.find((s) => s.id === 'central-african')!
@@ -133,7 +151,9 @@ describe('resolveNameBank', () => {
   })
 
   it('falls back to a generic bank for an unconfigured custom race', () => {
-    const customRaces = [{ id: 'gnome', name: 'Gnome', inspirationSourceIds: [], phoneticProfileIds: [] }]
+    const customRaces = [
+      { id: 'gnome', name: 'Gnome', inspirationSourceIds: [], phoneticProfileIds: [], heightRangeCm: [90, 120] as [number, number], specialFeatures: [] }
+    ]
     const bank = resolveNameBank('gnome', customRaces, [])
     expect(bank.id).toBe('generic')
   })

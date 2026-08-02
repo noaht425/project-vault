@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { generateAppearance } from '../src/common/settlementAppearance'
 import { BASELINE_RACES } from '../src/common/settlementNames'
+import type { CustomRaceDef } from '../src/common/noteTypes/settlement'
 
 function seededRng(seed: number): () => number {
   let a = seed
@@ -87,5 +88,55 @@ describe('generateAppearance', () => {
     const a = generateAppearance('goliath', 'Nonbinary', seededRng(8))
     const b = generateAppearance('goliath', 'Nonbinary', seededRng(8))
     expect(a).toBe(b)
+  })
+})
+
+describe('generateAppearance with custom races', () => {
+  function customRace(overrides: Partial<CustomRaceDef> = {}): CustomRaceDef {
+    return {
+      id: 'lizardfolk',
+      name: 'Lizardfolk',
+      inspirationSourceIds: [],
+      phoneticProfileIds: [],
+      heightRangeCm: [150, 190],
+      specialFeatures: [],
+      ...overrides
+    }
+  }
+
+  it("uses the custom race's own height range instead of the human fallback range", () => {
+    const race = customRace({ heightRangeCm: [300, 310] }) // deliberately outside the human range
+    const rng = seededRng(1)
+    for (let i = 0; i < 20; i++) {
+      const text = generateAppearance('lizardfolk', 'Male', rng, [race])
+      const heightMatch = text.match(/Stands (\d+)cm/)
+      expect(heightMatch).not.toBeNull()
+      const height = Number(heightMatch![1])
+      expect(height).toBeGreaterThanOrEqual(300)
+      expect(height).toBeLessThanOrEqual(310)
+    }
+  })
+
+  it("eventually mentions one of the custom race's own special features", () => {
+    const race = customRace({ specialFeatures: ['a ridge of small horns', 'faintly iridescent scales'] })
+    const rng = seededRng(2)
+    let sawFeature = false
+    for (let i = 0; i < 30; i++) {
+      const text = generateAppearance('lizardfolk', 'Female', rng, [race])
+      if (text.includes('horns') || text.includes('scales')) sawFeature = true
+    }
+    expect(sawFeature).toBe(true)
+  })
+
+  it('never mentions a special feature when the custom race has none configured', () => {
+    const race = customRace({ specialFeatures: [] })
+    const rng = seededRng(3)
+    for (let i = 0; i < 20; i++) {
+      expect(generateAppearance('lizardfolk', 'Male', rng, [race])).not.toMatch(/^Has .*(horn|scale|tusk|tail)/m)
+    }
+  })
+
+  it('falls back to the human profile when the race id matches no custom race either', () => {
+    expect(() => generateAppearance('totally-unregistered', 'Male', seededRng(4), [customRace()])).not.toThrow()
   })
 })

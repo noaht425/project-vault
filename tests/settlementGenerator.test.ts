@@ -216,7 +216,16 @@ describe('phonetic-profile custom races', () => {
   it('synthesizes resident names from the phonetic profile instead of a name-list pool', () => {
     const options = baseOptions({
       raceDistribution: [{ race: 'sylvani', percent: 100 }],
-      customRaces: [{ id: 'sylvani', name: 'Sylvani', inspirationSourceIds: [], phoneticProfileIds: ['elvish-leaning'] }]
+      customRaces: [
+        {
+          id: 'sylvani',
+          name: 'Sylvani',
+          inspirationSourceIds: [],
+          phoneticProfileIds: ['elvish-leaning'],
+          heightRangeCm: [150, 190],
+          specialFeatures: []
+        }
+      ]
     })
     const result = generateSettlement(options, undefined, seededRng(11), sequenceIds('r'))
     // A synthesized name should never collide with the baseline human bank's
@@ -242,7 +251,16 @@ describe('phonetic-profile custom races', () => {
       population: 4000,
       sizeId: 'city',
       raceDistribution: [{ race: 'sylvani', percent: 100 }],
-      customRaces: [{ id: 'sylvani', name: 'Sylvani', inspirationSourceIds: [], phoneticProfileIds: ['elvish-leaning', 'harsh-guttural'] }]
+      customRaces: [
+        {
+          id: 'sylvani',
+          name: 'Sylvani',
+          inspirationSourceIds: [],
+          phoneticProfileIds: ['elvish-leaning', 'harsh-guttural'],
+          heightRangeCm: [150, 190],
+          specialFeatures: []
+        }
+      ]
     })
     const result = generateSettlement(options, undefined, seededRng(23), sequenceIds('r'))
     const names = result.residents.map((r) => r.name)

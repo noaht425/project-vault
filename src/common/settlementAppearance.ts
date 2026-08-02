@@ -4,6 +4,8 @@
 // this feature; a first pass meant to be iterated on, not a finished
 // linguistics-grade generator.
 
+import type { CustomRaceDef } from './noteTypes/settlement'
+
 export interface AppearanceProfile {
   // Dragonborn have scales, not hair — hasHair:false swaps the opening line
   // for a scale-color one and skips the separate skin-tone line entirely
@@ -112,8 +114,26 @@ const APPEARANCE_PROFILES: Record<string, AppearanceProfile> = {
 
 const FALLBACK_APPEARANCE_PROFILE: AppearanceProfile = APPEARANCE_PROFILES.human
 
-function resolveAppearanceProfile(race: string): AppearanceProfile {
-  return APPEARANCE_PROFILES[race] ?? FALLBACK_APPEARANCE_PROFILE
+/**
+ * Baseline races resolve to their hardcoded profile above. A custom race
+ * (see noteTypes/settlement.ts's CustomRaceDef) has no seeded profile, so
+ * this builds one from whatever the user configured — height range and
+ * special features (horns, scales, etc., same free-text concept as a
+ * baseline race's own specialFeatures) — layered onto the human profile's
+ * hair/eye/skin pools for everything the user didn't ask to customize.
+ * Falls back to the human profile outright for an unrecognized race id
+ * (same as before this function knew about custom races at all).
+ */
+function resolveAppearanceProfile(race: string, customRaces: CustomRaceDef[] = []): AppearanceProfile {
+  const baseline = APPEARANCE_PROFILES[race]
+  if (baseline) return baseline
+
+  const custom = customRaces.find((r) => r.id === race)
+  if (custom) {
+    return { ...FALLBACK_APPEARANCE_PROFILE, specialFeatures: custom.specialFeatures, heightRangeCm: custom.heightRangeCm }
+  }
+
+  return FALLBACK_APPEARANCE_PROFILE
 }
 
 function pick<T>(items: T[], rng: () => number): T {
@@ -131,8 +151,8 @@ function cmToFeetInches(cm: number): string {
   return `${feet}′ ${inches}″`
 }
 
-export function generateAppearance(race: string, gender: string, rng: () => number = Math.random): string {
-  const profile = resolveAppearanceProfile(race)
+export function generateAppearance(race: string, gender: string, rng: () => number = Math.random, customRaces: CustomRaceDef[] = []): string {
+  const profile = resolveAppearanceProfile(race, customRaces)
   const lines: string[] = []
 
   if (profile.hasHair) {

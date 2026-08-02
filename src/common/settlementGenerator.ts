@@ -647,7 +647,7 @@ export function generateSettlement(
       goal: generateGoal(rng),
       stats: rollAbilityScores(buildingType, rng),
       proficiencies: pickProficiencies(buildingType, rng),
-      appearance: generateAppearance(race, gender, rng),
+      appearance: generateAppearance(race, gender, rng, customRaces),
       linkedNoteTitle: null
     })
   }

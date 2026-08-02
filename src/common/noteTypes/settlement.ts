@@ -74,7 +74,15 @@ export const customRaceDefSchema = z.object({
   id: z.string(),
   name: z.string(),
   inspirationSourceIds: z.array(z.string()).catch([]),
-  phoneticProfileIds: z.array(z.string()).catch([])
+  phoneticProfileIds: z.array(z.string()).catch([]),
+  // Appearance-generation inputs for this race's Notable NPCs (see
+  // settlementAppearance.ts) — the same two things baseline races get a
+  // hardcoded profile for (a height range, plus distinctive features like
+  // tusks/horns/scales), just user-editable here since a custom race has
+  // no seeded profile to fall back on otherwise. Height defaults to a
+  // roughly human range rather than something arbitrary.
+  heightRangeCm: z.tuple([z.coerce.number(), z.coerce.number()]).catch([150, 190]),
+  specialFeatures: z.array(z.string()).catch([])
 })
 export type CustomRaceDef = z.infer<typeof customRaceDefSchema>
 

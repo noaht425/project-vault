@@ -593,7 +593,10 @@ function RaceCard({
     if (newRaceId === '__new_custom__') {
       const newId = crypto.randomUUID()
       updateFrontmatter({
-        customRaces: [...data.customRaces, { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileIds: [] }],
+        customRaces: [
+          ...data.customRaces,
+          { id: newId, name: 'New Race', inspirationSourceIds: [], phoneticProfileIds: [], heightRangeCm: [150, 190], specialFeatures: [] }
+        ],
         raceDistribution: data.raceDistribution.map((x, xi) => (xi === index ? { ...x, race: newId } : x)),
         raceLifeStages: renameLifeStage(newId)
       })
@@ -657,6 +660,61 @@ function RaceCard({
           Custom race name
           <input value={customRace.name} onChange={(e) => updateCustomRaceField({ name: e.target.value })} />
         </label>
+      )}
+
+      {customRace && (
+        <div style={{ marginTop: 6 }}>
+          <div className="sheet-row">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              Height range (cm)
+              <input
+                type="number"
+                style={{ width: 60 }}
+                value={customRace.heightRangeCm[0]}
+                onChange={(e) => updateCustomRaceField({ heightRangeCm: [Number(e.target.value), customRace.heightRangeCm[1]] })}
+              />
+              to
+              <input
+                type="number"
+                style={{ width: 60 }}
+                value={customRace.heightRangeCm[1]}
+                onChange={(e) => updateCustomRaceField({ heightRangeCm: [customRace.heightRangeCm[0], Number(e.target.value)] })}
+              />
+            </label>
+          </div>
+
+          <div style={{ marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Special features — distinctive traits (horns, scales, tusks, ...) a Notable NPC of this race might have
+            </span>
+            {customRace.specialFeatures.map((feature, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                <input
+                  style={{ flex: 1 }}
+                  value={feature}
+                  onChange={(e) =>
+                    updateCustomRaceField({
+                      specialFeatures: customRace.specialFeatures.map((f, fi) => (fi === i ? e.target.value : f))
+                    })
+                  }
+                />
+                <button
+                  onClick={() =>
+                    updateCustomRaceField({ specialFeatures: customRace.specialFeatures.filter((_, fi) => fi !== i) })
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              style={{ marginTop: 4 }}
+              onClick={() => updateCustomRaceField({ specialFeatures: [...customRace.specialFeatures, 'New trait'] })}
+            >
+              + Add trait
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="sheet-row" style={{ marginTop: 6 }}>
