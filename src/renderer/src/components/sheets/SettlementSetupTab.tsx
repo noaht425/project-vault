@@ -10,6 +10,12 @@ import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from
 import { BASELINE_RACES, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 import { feetAndInchesToInches, inchesToFeetAndInches } from '../../../../common/settlementAppearance'
+import {
+  defaultSettlementPresetFrontmatter,
+  extractPresetFields,
+  presetFieldsFromPreset,
+  settlementPresetFrontmatterSchema
+} from '../../../../common/noteTypes/settlementPreset'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
 // All the generation-input editors, mirroring GenerationOptions field for
@@ -34,6 +40,16 @@ export function SettlementSetupTab({
   const [religionFolder, setReligionFolder] = useState('')
   const [lastFolderAdd, setLastFolderAdd] = useState<string | null>(null)
   const [climateOptions, setClimateOptions] = useState<string[]>([])
+  const [presetOptions, setPresetOptions] = useState<string[]>([])
+  const [newPresetName, setNewPresetName] = useState('')
+  const [presetSaveError, setPresetSaveError] = useState<string | null>(null)
+  const [lastPresetSaved, setLastPresetSaved] = useState<string | null>(null)
+  const [presetToApply, setPresetToApply] = useState('')
+  const [presetApplyError, setPresetApplyError] = useState<string | null>(null)
+
+  const refreshPresetOptions = (): void => {
+    void noteRefApi.searchTitles('', 'settlement-preset').then((matches) => setPresetOptions(matches.map((m) => m.title)))
+  }
 
   useEffect(() => {
     // No type filter — a religion's source note could be any note type (an
@@ -42,8 +58,49 @@ export function SettlementSetupTab({
     void noteRefApi.searchTitles('').then((matches) => setReligionNoteOptions(matches.map((m) => m.title)))
     void noteRefApi.listFolderPaths().then(setFolderPathOptions)
     void noteRefApi.searchTitles('', 'climate').then((matches) => setClimateOptions(matches.map((m) => m.title)))
+    refreshPresetOptions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const savePreset = async (): Promise<void> => {
+    const name = newPresetName.trim()
+    if (!name) return
+    setPresetSaveError(null)
+    try {
+      await noteRefApi.createNote(name, { ...defaultSettlementPresetFrontmatter(), ...extractPresetFields(data) })
+      setNewPresetName('')
+      setLastPresetSaved(`Saved preset "${name}".`)
+      refreshPresetOptions()
+    } catch (err) {
+      setPresetSaveError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const applyPreset = async (): Promise<void> => {
+    const name = presetToApply.trim()
+    if (!name) return
+    setPresetApplyError(null)
+
+    const frontmatter = await noteRefApi.readFrontmatterByTitle(name, 'settlement-preset')
+    if (!frontmatter) {
+      setPresetApplyError(`No preset named "${name}" yet.`)
+      return
+    }
+    const parsed = settlementPresetFrontmatterSchema.safeParse(frontmatter)
+    if (!parsed.success) {
+      setPresetApplyError(`"${name}" doesn't look like a valid settlement preset.`)
+      return
+    }
+
+    if (data.buildings.length > 0 || data.residents.length > 0) {
+      const proceed = window.confirm(
+        `Apply preset "${name}"? This replaces this settlement's current Setup fields (race/wealth/religion/building/specialty ` +
+          'settings) — already-generated people and buildings are untouched until you regenerate.'
+      )
+      if (!proceed) return
+    }
+    updateFrontmatter(presetFieldsFromPreset(parsed.data))
+  }
 
   const openClimate = async (): Promise<void> => {
     if (!data.climateNoteTitle?.trim()) return
@@ -152,6 +209,48 @@ export function SettlementSetupTab({
         >
           Open ↗
         </button>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Presets</strong>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          Save this settlement's Setup fields (size, districts, race/wealth/religion distribution, building types,
+          specialties) as a reusable preset, then apply it from another settlement to skip re-configuring a similar
+          one from scratch. Saving never overwrites an existing preset with the same name — pick a new name, or
+          delete the old one from the file tree first.
+        </p>
+        <div className="sheet-row" style={{ flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <label className="sheet-field" style={{ flex: '0 0 220px' }}>
+            Save as preset
+            <input value={newPresetName} onChange={(e) => setNewPresetName(e.target.value)} placeholder="e.g. Coastal Human Village" />
+          </label>
+          <button type="button" className="sheet-open-ref-button" onClick={() => void savePreset()} disabled={!newPresetName.trim()}>
+            Save
+          </button>
+        </div>
+        {presetSaveError && <p className="right-panel-note">{presetSaveError}</p>}
+        {lastPresetSaved && !presetSaveError && <p className="right-panel-note">{lastPresetSaved}</p>}
+
+        <div className="sheet-row" style={{ flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <label className="sheet-field" style={{ flex: '0 0 220px' }}>
+            Apply preset
+            <input
+              list="settlement-preset-options"
+              value={presetToApply}
+              onChange={(e) => setPresetToApply(e.target.value)}
+              placeholder="Pick a saved preset…"
+            />
+            <datalist id="settlement-preset-options">
+              {presetOptions.map((title) => (
+                <option key={title} value={title} />
+              ))}
+            </datalist>
+          </label>
+          <button type="button" className="sheet-open-ref-button" onClick={() => void applyPreset()} disabled={!presetToApply.trim()}>
+            Apply
+          </button>
+        </div>
+        {presetApplyError && <p className="right-panel-note">{presetApplyError}</p>}
       </div>
 
       <div style={{ marginTop: 12 }}>

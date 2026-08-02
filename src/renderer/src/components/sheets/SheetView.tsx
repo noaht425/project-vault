@@ -12,6 +12,7 @@ import { LanguageSheet } from './LanguageSheet'
 import { FamilyTreeSheet } from './FamilyTreeSheet'
 import { MapSheet } from './MapSheet'
 import { SettlementSheet } from './SettlementSheet'
+import { SettlementPresetSheet } from './SettlementPresetSheet'
 import { CalendarSheet } from './CalendarSheet'
 import { ClimateSheet } from './ClimateSheet'
 
@@ -57,6 +58,8 @@ export function SheetView({
       return <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
     case 'settlement':
       return <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+    case 'settlement-preset':
+      return <SettlementPresetSheet content={content} />
     case 'calendar':
       return <CalendarSheet content={content} onContentChange={onContentChange} />
     case 'climate':
