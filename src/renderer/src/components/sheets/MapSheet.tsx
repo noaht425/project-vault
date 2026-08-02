@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { mapFrontmatterSchema } from '../../../../common/noteTypes/map'
 import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../../../../common/noteTypes/map'
@@ -28,8 +28,14 @@ export function MapSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = mapFrontmatterSchema.parse(frontmatter)
+  // Memoized on content — same reasoning as SettlementSheet.tsx: without
+  // this, the zod parse re-ran on every render, including every local UI
+  // state change in this component (drawing a zone/line, typing in a form
+  // field), not just on real edits to the map. It also kept `data` (and
+  // e.g. `data.pins`) a fresh reference every render, which defeated
+  // MapTripCalculator's own memoization of the trip path/geometry sweep.
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => mapFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

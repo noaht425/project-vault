@@ -3,16 +3,25 @@ import { runContradictionCheck } from '../../src/renderer/src/lib/contradictionC
 import type { NoteRefApi } from '../../src/renderer/src/lib/noteRefApi'
 
 function makeNoteRefApi(overrides: Partial<NoteRefApi> = {}): NoteRefApi {
-  return {
+  const base: NoteRefApi = {
     searchTitles: vi.fn().mockResolvedValue([]),
     openByTitle: vi.fn(),
     readBodyByTitle: vi.fn().mockResolvedValue(null),
     readFrontmatterByTitle: vi.fn().mockResolvedValue(null),
+    // Composed from the two mocks above by default (like createNoteRefApi's
+    // own fallback), so tests that only override readFrontmatterByTitle/
+    // readBodyByTitle don't also need to duplicate that into readNoteByTitle.
+    readNoteByTitle: vi.fn(async (title: string, type?: string) => {
+      const [frontmatter, body] = await Promise.all([base.readFrontmatterByTitle(title, type), base.readBodyByTitle(title, type)])
+      if (frontmatter === null && body === null) return null
+      return { frontmatter: frontmatter ?? {}, body: body ?? '' }
+    }),
     createNote: vi.fn(),
     listNotesInFolder: vi.fn().mockResolvedValue([]),
     listFolderPaths: vi.fn().mockResolvedValue([]),
     ...overrides
   }
+  return base
 }
 
 describe('runContradictionCheck', () => {

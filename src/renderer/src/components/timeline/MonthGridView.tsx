@@ -21,6 +21,11 @@ interface ClimateRosterEntry {
 
 const MAX_EVENT_CHIPS_PER_DAY = 3
 const UPCOMING_COUNT = 5
+// See EventsPillTimelineView.tsx's identical constant — listEvents() alone
+// re-scans the whole vault, and this view's load() does even more (a
+// searchTitles + readFrontmatterByTitle round trip per location/settlement
+// for climate), so coalescing a burst of saves matters more here, not less.
+const RELOAD_DEBOUNCE_MS = 400
 
 /** Which calendar/month this view should open on: the campaign date's month (if it
  * resolves on `calendarTitle`), else the latest event's month on this calendar, else
@@ -104,8 +109,15 @@ export function MonthGridView({ onOpenEvent }: { onOpenEvent: (path: string) => 
       }
     }
     void load()
-    const off = window.vaultApi.onTreeUpdated(() => void load())
-    return () => off()
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined
+    const off = window.vaultApi.onTreeUpdated(() => {
+      clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
+    })
+    return () => {
+      off()
+      clearTimeout(reloadTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

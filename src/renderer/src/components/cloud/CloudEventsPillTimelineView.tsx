@@ -25,6 +25,10 @@ function estimatePillWidth(title: string): number {
   return Math.max(70, Math.min(220, title.length * 6.5 + 28))
 }
 const ZOOM_WHEEL_SENSITIVITY = 0.015
+// See EventsPillTimelineView.tsx's identical constant — listEvents() reads
+// and parses every note, so a burst of saves in quick succession would
+// otherwise trigger one full re-scan per save instead of one for the burst.
+const RELOAD_DEBOUNCE_MS = 400
 
 // Cloud counterpart of EventsPillTimelineView.tsx — same layout/logic,
 // swapping vaultApi for cloudApi and path identity for id (see that file
@@ -79,8 +83,15 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
       }
     }
     void load()
-    const off = window.cloudApi.onTreeUpdated(() => void load())
-    return () => off()
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined
+    const off = window.cloudApi.onTreeUpdated(() => {
+      clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
+    })
+    return () => {
+      off()
+      clearTimeout(reloadTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

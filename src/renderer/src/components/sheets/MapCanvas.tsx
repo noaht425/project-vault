@@ -111,6 +111,62 @@ export function MapCanvas({
   const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
   const pinRadius = Math.max(6, Math.min(imageWidth, imageHeight) * 0.01)
 
+  // This component re-renders on every mousemove tick while panning and
+  // every wheel event while zooming (both just update viewBox). Without
+  // memoizing these, a map with a lot of drawn detail (many zones/lines,
+  // each with many points) re-ran a `.map().join(' ')` point-string build
+  // for every polygon/polyline on every one of those ticks, even though
+  // panning/zooming never changes the underlying shapes — only the SVG's
+  // viewBox, which the browser already remaps for free.
+  const landmassElements = useMemo(
+    () =>
+      landmasses.map((landmass) => (
+        <polygon
+          key={landmass.id}
+          points={landmass.points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill="#2a6f97"
+          fillOpacity={0.06}
+          stroke="#2a6f97"
+          strokeOpacity={0.8}
+          strokeWidth={2}
+          strokeDasharray="6,4"
+        />
+      )),
+    [landmasses]
+  )
+
+  const zoneElements = useMemo(
+    () =>
+      zones.map((zone) => (
+        <polygon
+          key={zone.id}
+          points={zone.points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill={terrainTypesById.get(zone.terrainTypeId)?.color ?? '#888'}
+          fillOpacity={0.35}
+          stroke={terrainTypesById.get(zone.terrainTypeId)?.color ?? '#888'}
+          strokeWidth={2}
+        />
+      )),
+    [zones, terrainTypesById]
+  )
+
+  const lineElements = useMemo(
+    () =>
+      lines.map((line) => (
+        <polyline
+          key={line.id}
+          points={line.points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill="none"
+          stroke={lineTypesById.get(line.lineTypeId)?.color ?? '#888'}
+          strokeOpacity={0.6}
+          strokeWidth={line.widthPixels}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )),
+    [lines, lineTypesById]
+  )
+
   // A freshly (re)loaded image gets a fresh full-image view; switching modes
   // discards any in-progress calibration/zone draft so it can't leak in
   // half-finished.
@@ -271,47 +327,12 @@ export function MapCanvas({
             a land/water backdrop, not a paintable region themselves, so a
             dashed outline with near-zero fill keeps whatever's drawn inside
             (or the base map image) fully legible. */}
-        {landmasses.map((landmass) => (
-          <polygon
-            key={landmass.id}
-            points={landmass.points.map((p) => `${p.x},${p.y}`).join(' ')}
-            fill="#2a6f97"
-            fillOpacity={0.06}
-            stroke="#2a6f97"
-            strokeOpacity={0.8}
-            strokeWidth={2}
-            strokeDasharray="6,4"
-          />
-        ))}
+        {landmassElements}
       </g>
 
-      <g>
-        {zones.map((zone) => (
-          <polygon
-            key={zone.id}
-            points={zone.points.map((p) => `${p.x},${p.y}`).join(' ')}
-            fill={terrainTypesById.get(zone.terrainTypeId)?.color ?? '#888'}
-            fillOpacity={0.35}
-            stroke={terrainTypesById.get(zone.terrainTypeId)?.color ?? '#888'}
-            strokeWidth={2}
-          />
-        ))}
-      </g>
+      <g>{zoneElements}</g>
 
-      <g>
-        {lines.map((line) => (
-          <polyline
-            key={line.id}
-            points={line.points.map((p) => `${p.x},${p.y}`).join(' ')}
-            fill="none"
-            stroke={lineTypesById.get(line.lineTypeId)?.color ?? '#888'}
-            strokeOpacity={0.6}
-            strokeWidth={line.widthPixels}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
-      </g>
+      <g>{lineElements}</g>
 
       {mode === 'paint-zone' && zoneDraft.length > 0 && (
         <g>

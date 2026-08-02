@@ -21,6 +21,11 @@ interface PlacedEventData {
 
 const LANE_HEIGHT = 30
 const BASE_CONNECTOR_HEIGHT = 8
+// listEvents() reads and parses every note in the vault — onTreeUpdated
+// fires once per save, so a burst of several saves in quick succession
+// (e.g. bulk-editing a few notes) would otherwise trigger that same
+// full-vault re-scan once per save instead of once for the whole burst.
+const RELOAD_DEBOUNCE_MS = 400
 // No live DOM measurement in this pure-data pipeline — a rough estimate
 // from title length keeps lane-stacking from either over-stacking short
 // titles or overlapping long ones. Padding/clamped to a sane pixel range.
@@ -85,8 +90,15 @@ export function EventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (path: st
       }
     }
     void load()
-    const off = window.vaultApi.onTreeUpdated(() => void load())
-    return () => off()
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined
+    const off = window.vaultApi.onTreeUpdated(() => {
+      clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
+    })
+    return () => {
+      off()
+      clearTimeout(reloadTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

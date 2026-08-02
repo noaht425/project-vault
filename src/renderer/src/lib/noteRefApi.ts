@@ -21,6 +21,13 @@ export interface NoteRefApi {
   // needs a referenced calendar note's actual era/month/week definitions to
   // populate its dropdowns, not just its body text like readBodyByTitle.
   readFrontmatterByTitle(title: string, type?: string): Promise<Record<string, unknown> | null>
+  // Combines the two reads above into one title-resolve + one note read —
+  // used by the contradiction checker, which needs both frontmatter and body
+  // for every event note it scans. Calling readBodyByTitle and
+  // readFrontmatterByTitle separately for the same title did the exact-match
+  // search twice and read the note twice (for Cloud, that's up to 4 network
+  // round trips per note instead of 2).
+  readNoteByTitle(title: string, type?: string): Promise<{ frontmatter: Record<string, unknown>; body: string } | null>
   // Used by the Settlement Populator's "promote to real note" action — the
   // only place in the app that creates a note from inside a sheet rather
   // than the file tree. Lands in the vault/workspace root for both backends
@@ -49,7 +56,14 @@ export function createNoteRefApi(
   createNoteImpl: (name: string, frontmatter: Record<string, unknown>, body: string) => Promise<{ title: string }>,
   readFrontmatterByRef: (ref: string) => Promise<Record<string, unknown>>,
   listNotesInFolderImpl: (folderPath: string) => Promise<{ title: string }[]> = async () => [],
-  listFolderPathsImpl: () => Promise<string[]> = async () => []
+  listFolderPathsImpl: () => Promise<string[]> = async () => [],
+  // Defaults to the naive "call both separately" behavior so existing
+  // callers/tests that don't pass this still work — the two real hooks below
+  // override it with a genuinely combined single-read implementation.
+  readNoteByRef: (ref: string) => Promise<{ frontmatter: Record<string, unknown>; body: string }> = async (ref) => {
+    const [frontmatter, body] = await Promise.all([readFrontmatterByRef(ref), readBodyByRef(ref)])
+    return { frontmatter, body }
+  }
 ): NoteRefApi {
   async function findExact(title: string, type?: string): Promise<{ title: string; ref: string } | undefined> {
     const matches = await searchTitles(title, type)
@@ -78,6 +92,10 @@ export function createNoteRefApi(
     async readFrontmatterByTitle(title, type) {
       const exact = await findExact(title, type)
       return exact ? readFrontmatterByRef(exact.ref) : null
+    },
+    async readNoteByTitle(title, type) {
+      const exact = await findExact(title, type)
+      return exact ? readNoteByRef(exact.ref) : null
     },
     async createNote(name, frontmatter, body = '') {
       return createNoteImpl(name, frontmatter, body)
@@ -117,7 +135,9 @@ export function useLocalNoteRefApi(): NoteRefApi {
         },
         async (path) => parseNote((await window.vaultApi.readNote(path)).content).frontmatter,
         async (folderPath) => listNoteTitlesInFolder(tree, folderPath).map((title) => ({ title })),
-        async () => listFolderPaths(tree)
+        async () => listFolderPaths(tree),
+        // One readNote + one parse instead of two of each.
+        async (path) => parseNote((await window.vaultApi.readNote(path)).content)
       ),
     [openNote, vaultPath, tree]
   )
@@ -139,7 +159,13 @@ export function useCloudNoteRefApi(): NoteRefApi {
         },
         async (id) => (await window.cloudApi.getNote(id)).frontmatter,
         async (folderPath) => listNoteTitlesInFolder(tree ?? [], folderPath).map((title) => ({ title })),
-        async () => listFolderPaths(tree ?? [])
+        async () => listFolderPaths(tree ?? []),
+        // One getNote call instead of two — CloudNoteData already carries
+        // both frontmatter and body together.
+        async (id) => {
+          const note = await window.cloudApi.getNote(id)
+          return { frontmatter: note.frontmatter, body: note.body }
+        }
       ),
     [openNote, tree]
   )

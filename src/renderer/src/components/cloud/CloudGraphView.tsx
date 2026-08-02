@@ -81,8 +81,27 @@ export function CloudGraphView({ onOpenNode }: { onOpenNode: (id: string) => voi
     return degrees
   }, [graph])
 
+  // Same topology-diffing fix as the local GraphView (see its comment for
+  // the measured ~380ms cost) — onTreeUpdated fires after every save
+  // anywhere in the vault, but almost none of those change which notes/edges
+  // exist, so re-simulating from scratch every time was pure waste.
+  const prevTopologyRef = useRef<string | null>(null)
+  const prevSimNodesRef = useRef<SimNode[] | null>(null)
+
   useEffect(() => {
     if (!graph) return
+    const topologyKey =
+      graph.nodes.map((n) => n.id).sort().join(',') + '|' + graph.edges.map((e) => `${e.source}>${e.target}`).sort().join(',')
+
+    if (topologyKey === prevTopologyRef.current && prevSimNodesRef.current) {
+      const prevById = new Map(prevSimNodesRef.current.map((n) => [n.id, n]))
+      const merged = graph.nodes.map((n) => ({ ...(prevById.get(n.id) ?? {}), ...n }) as SimNode)
+      prevSimNodesRef.current = merged
+      setNodes(merged)
+      return
+    }
+    prevTopologyRef.current = topologyKey
+
     const simNodes: SimNode[] = graph.nodes.map((n) => ({ ...n }))
     const simLinks = graph.edges.map((e) => ({ source: e.source, target: e.target }))
 
@@ -107,6 +126,7 @@ export function CloudGraphView({ onOpenNode }: { onOpenNode: (id: string) => voi
       .stop()
 
     for (let i = 0; i < TICKS; i++) simulation.tick()
+    prevSimNodesRef.current = simNodes
     setNodes(simNodes)
     setViewBox({ x: 0, y: 0, w: WORLD_WIDTH, h: WORLD_HEIGHT })
   }, [graph, degreeById])

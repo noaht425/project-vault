@@ -41,14 +41,13 @@ export async function runContradictionCheck(listFacts: () => Promise<FactSource[
 
   const events: EventForCheck[] = await Promise.all(
     eventMatches.map(async (match): Promise<EventForCheck> => {
-      const [frontmatter, body] = await Promise.all([
-        noteRefApi.readFrontmatterByTitle(match.title, 'event'),
-        noteRefApi.readBodyByTitle(match.title, 'event')
-      ])
+      // A single title-resolve + single read per note (see NoteRefApi.readNoteByTitle)
+      // instead of separately resolving+reading for frontmatter and for body.
+      const note = await noteRefApi.readNoteByTitle(match.title, 'event')
       return {
         title: match.title,
-        date: typeof frontmatter?.date === 'string' ? frontmatter.date : '',
-        linkedTitles: extractWikiLinkTitles(body ?? '')
+        date: typeof note?.frontmatter.date === 'string' ? note.frontmatter.date : '',
+        linkedTitles: extractWikiLinkTitles(note?.body ?? '')
       }
     })
   )

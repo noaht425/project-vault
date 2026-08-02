@@ -20,6 +20,10 @@ interface ClimateRosterEntry {
 
 const MAX_EVENT_CHIPS_PER_DAY = 3
 const UPCOMING_COUNT = 5
+// See EventsPillTimelineView.tsx's identical constant — coalesces a burst
+// of saves into one reload instead of one full re-scan (plus a per-place
+// climate lookup round trip) per save.
+const RELOAD_DEBOUNCE_MS = 400
 
 function resolveInitialMonthRef(
   calendar: CalendarFrontmatter,
@@ -98,8 +102,15 @@ export function CloudMonthGridView({ onOpenEvent }: { onOpenEvent: (id: string) 
       }
     }
     void load()
-    const off = window.cloudApi.onTreeUpdated(() => void load())
-    return () => off()
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined
+    const off = window.cloudApi.onTreeUpdated(() => {
+      clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
+    })
+    return () => {
+      off()
+      clearTimeout(reloadTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

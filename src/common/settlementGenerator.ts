@@ -827,12 +827,17 @@ export function generateSettlement(
   const notableCount = residents.length
   const remainingPopulation = Math.max(0, population - notableCount)
   let homeCursor = 0
-  const nextHomeBuildingId = (occupantIndex: number): string | null => {
+  // Returns the building itself, not just its id — the old version returned
+  // only the id and then immediately did `residenceBuildings.find(b => b.id
+  // === homeBuildingId)` to look the same building back up, an O(residents ×
+  // residenceBuildings) re-scan for information this function already had in
+  // hand before it returned.
+  const nextHomeBuilding = (occupantIndex: number): SettlementBuilding | null => {
     if (residenceBuildings.length === 0) return null
     if (occupantIndex >= residenceBuildings.length * AVG_HOUSEHOLD_SIZE) return null
     const home = residenceBuildings[homeCursor % residenceBuildings.length]
     homeCursor++
-    return home.id
+    return home
   }
 
   for (let i = 0; i < remainingPopulation; i++) {
@@ -840,8 +845,8 @@ export function generateSettlement(
     const gender = pickGender()
     const lifeStage = resolveLifeStage(race, raceLifeStages)
     const age = randomLifespanAge(lifeStage, rng)
-    const homeBuildingId = nextHomeBuildingId(i)
-    const home = homeBuildingId ? residenceBuildings.find((b) => b.id === homeBuildingId) : undefined
+    const home = nextHomeBuilding(i)
+    const homeBuildingId = home?.id ?? null
     const wealthTierId = home?.wealthTierId ?? pickWealthTierId()
 
     const employed = staffedBuildings.length > 0 && rng() < employmentProbability(age, lifeStage)

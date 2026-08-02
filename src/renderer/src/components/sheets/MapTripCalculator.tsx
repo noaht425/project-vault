@@ -69,7 +69,18 @@ export function MapTripCalculator({
   // "Sailing"/"Boat" mode set up yet still behaves exactly as before.
   const waterTravelMode = (landmasses.length > 0 && modes.find((m) => m.id === waterModeId)) || landTravelMode
 
-  const effectivePath: Point[] | null = drawnPath ?? (from && to && from.id !== to.id ? [from, to] : null)
+  // Memoized on from/to (themselves stable across renders unless `pins`
+  // actually changes, e.g. a drag or fromId/toId edit) — without this,
+  // `[from, to]` was a fresh array literal every render, which defeated the
+  // `trip` useMemo below (effectivePath was always "new") and re-ran the
+  // full geometry sweep on every unrelated re-render of this component (e.g.
+  // any keystroke elsewhere in the map editor). Depending on `from`/`to`
+  // rather than just their ids keeps this correct if a pin's position moves
+  // without its id changing.
+  const effectivePath: Point[] | null = useMemo(
+    () => drawnPath ?? (from && to && from.id !== to.id ? [from, to] : null),
+    [drawnPath, from, to]
+  )
 
   const trip = useMemo(() => {
     if (!effectivePath || effectivePath.length < 2 || !landTravelMode || !waterTravelMode || !scale) return null

@@ -1,5 +1,5 @@
-import { Fragment, useState } from 'react'
-import type { SettlementBuilding, SettlementFrontmatter } from '../../../../common/noteTypes/settlement'
+import { Fragment, useMemo, useState } from 'react'
+import type { SettlementBuilding, SettlementFrontmatter, SettlementResident } from '../../../../common/noteTypes/settlement'
 import { buildPromotedLocationFrontmatter } from '../../../../common/settlementPromotion'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
@@ -10,6 +10,7 @@ type SortDir = 'asc' | 'desc'
 // actual cause of "clicking feels slow" for a large settlement, not the
 // click handler itself.
 const PAGE_SIZE = 50
+const EMPTY_RESIDENTS: SettlementResident[] = []
 
 function getSortValue(
   b: SettlementBuilding,
@@ -71,34 +72,63 @@ export function SettlementBuildingsTab({
   const [page, setPage] = useState(0)
   const [pageJump, setPageJump] = useState('')
 
-  const districtNameById = new Map(data.districts.map((d) => [d.id, d.name]))
-  const wealthTierNameById = new Map(data.wealthTiers.map((t) => [t.id, t.name]))
-  const wealthTierRankById = new Map(data.wealthTiers.map((t, i) => [t.id, i]))
-  const buildingTypeById = new Map(data.buildingTypes.map((t) => [t.id, t]))
-  const buildingTypeNameById = new Map(data.buildingTypes.map((t) => [t.id, t.name]))
+  // Same reasoning as SettlementPeopleTab.tsx's identical memoization: without
+  // it, any local state change (e.g. expanding a row) re-filtered/re-sorted
+  // the whole buildings array, and residentsByBuildingId below re-scanned the
+  // entire (potentially tens-of-thousands-long) residents array once per
+  // visible row on every render, not just when a row was actually expanded.
+  const districtNameById = useMemo(() => new Map(data.districts.map((d) => [d.id, d.name])), [data.districts])
+  const wealthTierNameById = useMemo(() => new Map(data.wealthTiers.map((t) => [t.id, t.name])), [data.wealthTiers])
+  const wealthTierRankById = useMemo(() => new Map(data.wealthTiers.map((t, i) => [t.id, i])), [data.wealthTiers])
+  const buildingTypeById = useMemo(() => new Map(data.buildingTypes.map((t) => [t.id, t])), [data.buildingTypes])
+  const buildingTypeNameById = useMemo(() => new Map(data.buildingTypes.map((t) => [t.id, t.name])), [data.buildingTypes])
 
-  const filtered = data.buildings.filter((b) => {
-    if (typeFilter && b.buildingTypeId !== typeFilter) return false
-    if (wealthFilter && b.wealthTierId !== wealthFilter) return false
-    if (districtFilter && b.districtId !== districtFilter) return false
-    return true
-  })
+  const residentsByBuildingId = useMemo(() => {
+    const map = new Map<string, SettlementResident[]>()
+    for (const r of data.residents) {
+      for (const buildingId of new Set([r.homeBuildingId, r.professionBuildingId])) {
+        if (!buildingId) continue
+        const list = map.get(buildingId)
+        if (list) list.push(r)
+        else map.set(buildingId, [r])
+      }
+    }
+    return map
+  }, [data.residents])
 
-  const sorted = sortKey
-    ? [...filtered].sort((a, b) => {
-        const va = getSortValue(a, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
-        const vb = getSortValue(b, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
-        const cmp =
-          typeof va === 'string' && typeof vb === 'string'
-            ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
-            : va < vb ? -1 : va > vb ? 1 : 0
-        return sortDir === 'asc' ? cmp : -cmp
-      })
-    : filtered
+  const filtered = useMemo(
+    () =>
+      data.buildings.filter((b) => {
+        if (typeFilter && b.buildingTypeId !== typeFilter) return false
+        if (wealthFilter && b.wealthTierId !== wealthFilter) return false
+        if (districtFilter && b.districtId !== districtFilter) return false
+        return true
+      }),
+    [data.buildings, typeFilter, wealthFilter, districtFilter]
+  )
+
+  const sorted = useMemo(
+    () =>
+      sortKey
+        ? [...filtered].sort((a, b) => {
+            const va = getSortValue(a, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
+            const vb = getSortValue(b, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
+            const cmp =
+              typeof va === 'string' && typeof vb === 'string'
+                ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
+                : va < vb ? -1 : va > vb ? 1 : 0
+            return sortDir === 'asc' ? cmp : -cmp
+          })
+        : filtered,
+    [filtered, sortKey, sortDir, buildingTypeNameById, wealthTierRankById, districtNameById]
+  )
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const clampedPage = Math.min(page, totalPages - 1)
-  const pageItems = sorted.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE)
+  const pageItems = useMemo(
+    () => sorted.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE),
+    [sorted, clampedPage]
+  )
 
   const goToPage = (): void => {
     const n = Number(pageJump)
@@ -205,7 +235,7 @@ export function SettlementBuildingsTab({
             </thead>
             <tbody>
               {pageItems.map((b) => {
-                const residentsHere = data.residents.filter((r) => r.homeBuildingId === b.id || r.professionBuildingId === b.id)
+                const residentsHere = residentsByBuildingId.get(b.id) ?? EMPTY_RESIDENTS
                 return (
                   <Fragment key={b.id}>
                     <tr onClick={() => setExpandedId(expandedId === b.id ? null : b.id)} style={{ cursor: 'pointer' }}>
