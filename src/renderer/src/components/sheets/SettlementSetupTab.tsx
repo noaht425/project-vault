@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   BUILDING_CATEGORIES,
   SETTLEMENT_SIZE_IDS,
+  defaultBuildingTypes,
   defaultDistrictsForSize,
   defaultRaceLifeStages,
   resolveEducatedWealthTierIds,
@@ -937,6 +938,24 @@ export function SettlementSetupTab({
           }
         >
           + Add building type
+        </button>
+        <button
+          style={{ marginTop: 6, marginLeft: 6 }}
+          onClick={() => {
+            // A settlement note's buildingTypes is its OWN snapshot, frozen
+            // in at creation time (or whenever last replaced) — editing the
+            // seeded defaults in code never retroactively reaches an
+            // existing settlement, since Generate always reads THIS note's
+            // buildingTypes, not the current code's defaultBuildingTypes().
+            // This is how a user gets newly-added item-pool content/pricing/
+            // building types into an already-created settlement.
+            const proceed = window.confirm(
+              `Replace all ${data.buildingTypes.length} current building type(s) with today's defaults? Any customizations (weights, min. sizes, added/removed types) are discarded. This can't be undone.`
+            )
+            if (proceed) updateFrontmatter({ buildingTypes: defaultBuildingTypes() })
+          }}
+        >
+          Reset to current defaults
         </button>
       </details>
 
