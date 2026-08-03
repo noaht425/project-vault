@@ -1071,6 +1071,23 @@ button.active {
   color: var(--text-muted);
 }
 
+.word-dictionary-list {
+  overflow-y: auto;
+}
+
+.word-dictionary-resize-handle {
+  height: 6px;
+  margin-top: 2px;
+  border-radius: 3px;
+  cursor: row-resize;
+  background: transparent;
+}
+
+.word-dictionary-resize-handle:hover,
+.word-dictionary-resize-handle:active {
+  background: var(--accent);
+}
+
 .word-entry {
   margin-bottom: 10px;
 }
