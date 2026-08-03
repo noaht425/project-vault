@@ -549,6 +549,7 @@ button.active {
 .search-view {
   grid-column: 3 / span 2;
   overflow-y: auto;
+  min-height: 0;
   padding: 24px 32px;
 }
 
@@ -811,6 +812,7 @@ button.active {
 .tree {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
   padding: 4px 0;
 }
 
@@ -1216,6 +1218,7 @@ button.active {
 .cm-container {
   flex: 1;
   overflow: auto;
+  min-height: 0;
 }
 
 .cm-container .cm-editor {
@@ -1231,6 +1234,7 @@ button.active {
 .preview-pane {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
   padding: 16px 24px;
   line-height: 1.6;
 }
@@ -1349,6 +1353,7 @@ button.active {
 .initiative-view {
   grid-column: 3 / span 2;
   overflow-y: auto;
+  min-height: 0;
   padding: 24px 32px;
 }
 
