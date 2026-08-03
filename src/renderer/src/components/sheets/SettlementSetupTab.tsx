@@ -976,6 +976,22 @@ function PairRelationTable({
   }
 
   const percentFor = (a: string, b: string): number => findPairPercent(relations, a, b) ?? defaultPercent(a, b)
+  // Computed independently, NOT assumed equal to each other — the grid
+  // looks symmetric once every cell is explicitly stored, but an
+  // unconfigured cell's defaultPercent isn't necessarily symmetric itself
+  // (Gender Relations' default is "an independent draw from the Genders
+  // list," which reads a DIFFERENT number depending on argument order —
+  // defaultPercent('Male','Female') is Female's own share, while
+  // defaultPercent('Female','Male') is Male's). Each row's total is what
+  // actually needs to read 100 (it's "given this row's gender/race, the
+  // full spouse distribution"); the column total is shown for the same
+  // at-a-glance convenience, not because it's guaranteed to match.
+  const rowTotal = (rowKey: string): number => keys.reduce((sum, colKey) => sum + percentFor(rowKey, colKey), 0)
+  const columnTotal = (colKey: string): number => keys.reduce((sum, rowKey) => sum + percentFor(rowKey, colKey), 0)
+  const totalStyle = (total: number): React.CSSProperties => ({
+    fontWeight: 'bold',
+    color: total === 100 ? undefined : '#c0392b'
+  })
 
   return (
     <div style={{ overflowX: 'auto', marginTop: 4 }}>
@@ -988,6 +1004,7 @@ function PairRelationTable({
                 {labelFor(colKey)}
               </th>
             ))}
+            <th style={{ fontSize: 12, fontWeight: 'normal', padding: '2px 4px', whiteSpace: 'nowrap' }}>Total</th>
           </tr>
         </thead>
         <tbody>
@@ -1006,8 +1023,18 @@ function PairRelationTable({
                   />
                 </td>
               ))}
+              <td style={{ padding: '2px 6px', textAlign: 'right', ...totalStyle(rowTotal(rowKey)) }}>{rowTotal(rowKey)}%</td>
             </tr>
           ))}
+          <tr>
+            <th style={{ fontSize: 12, fontWeight: 'normal', textAlign: 'right', paddingRight: 6, whiteSpace: 'nowrap' }}>Total</th>
+            {keys.map((colKey) => (
+              <td key={colKey} style={{ padding: '2px 6px', textAlign: 'center', ...totalStyle(columnTotal(colKey)) }}>
+                {columnTotal(colKey)}%
+              </td>
+            ))}
+            <td></td>
+          </tr>
         </tbody>
       </table>
     </div>
