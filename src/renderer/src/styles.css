@@ -927,6 +927,19 @@ button.active {
 .sheet-view {
   padding: 4px 24px 14px;
   border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* When a sheet is present, the raw-markdown body below it (cm-container in
+   edit mode, preview-pane in preview mode) has flex: 1 and would otherwise
+   freely claim any leftover space in a small window, crowding out the sheet
+   itself — the sheet is the primary content for a typed note, the markdown
+   body is secondary. Scoped to a sheet's sibling so plain markdown notes
+   (no `type`, no .sheet-view rendered) keep the full-height editor. */
+.sheet-view ~ .cm-container,
+.sheet-view ~ .preview-pane {
+  max-height: 35%;
 }
 
 .sheet-row {
