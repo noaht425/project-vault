@@ -1,9 +1,10 @@
 import { Fragment, useMemo, useState } from 'react'
-import type { SettlementBuilding, SettlementFrontmatter, SettlementResident } from '../../../../common/noteTypes/settlement'
+import type { BuildingTypeDef, SettlementBuilding, SettlementFrontmatter, SettlementResident } from '../../../../common/noteTypes/settlement'
+import { BUILDING_SUPERTYPES, BUILDING_SUPERTYPE_LABELS, getBuildingSupertype } from '../../../../common/noteTypes/settlement'
 import { buildPromotedLocationFrontmatter } from '../../../../common/settlementPromotion'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
-type SortKey = 'name' | 'type' | 'wealth' | 'district'
+type SortKey = 'name' | 'supertype' | 'type' | 'wealth' | 'district'
 type SortDir = 'asc' | 'desc'
 
 // Same reasoning as SettlementPeopleTab.tsx: an unpaginated table is the
@@ -15,15 +16,20 @@ const EMPTY_RESIDENTS: SettlementResident[] = []
 function getSortValue(
   b: SettlementBuilding,
   key: SortKey,
-  buildingTypeNameById: Map<string, string>,
+  buildingTypeById: Map<string, BuildingTypeDef>,
   wealthTierRankById: Map<string, number>,
   districtNameById: Map<string, string>
 ): string | number {
   switch (key) {
     case 'name':
       return b.name.toLowerCase()
+    case 'supertype':
+      // Ranked by BUILDING_SUPERTYPES order (Residences, Shops, Others)
+      // rather than alphabetically, so "Others" doesn't sort before
+      // "Residences"/"Shops".
+      return BUILDING_SUPERTYPES.indexOf(getBuildingSupertype(buildingTypeById.get(b.buildingTypeId)?.category ?? ''))
     case 'type':
-      return (buildingTypeNameById.get(b.buildingTypeId) ?? b.buildingTypeId).toLowerCase()
+      return (buildingTypeById.get(b.buildingTypeId)?.name ?? b.buildingTypeId).toLowerCase()
     case 'wealth':
       return wealthTierRankById.get(b.wealthTierId) ?? Number.MAX_SAFE_INTEGER
     case 'district':
@@ -61,6 +67,7 @@ export function SettlementBuildingsTab({
   updateFrontmatter: (patch: Record<string, unknown>) => Promise<void>
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
+  const [supertypeFilter, setSupertypeFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [wealthFilter, setWealthFilter] = useState('')
   const [districtFilter, setDistrictFilter] = useState('')
@@ -81,7 +88,6 @@ export function SettlementBuildingsTab({
   const wealthTierNameById = useMemo(() => new Map(data.wealthTiers.map((t) => [t.id, t.name])), [data.wealthTiers])
   const wealthTierRankById = useMemo(() => new Map(data.wealthTiers.map((t, i) => [t.id, i])), [data.wealthTiers])
   const buildingTypeById = useMemo(() => new Map(data.buildingTypes.map((t) => [t.id, t])), [data.buildingTypes])
-  const buildingTypeNameById = useMemo(() => new Map(data.buildingTypes.map((t) => [t.id, t.name])), [data.buildingTypes])
 
   const residentsByBuildingId = useMemo(() => {
     const map = new Map<string, SettlementResident[]>()
@@ -99,20 +105,21 @@ export function SettlementBuildingsTab({
   const filtered = useMemo(
     () =>
       data.buildings.filter((b) => {
+        if (supertypeFilter && getBuildingSupertype(buildingTypeById.get(b.buildingTypeId)?.category ?? '') !== supertypeFilter) return false
         if (typeFilter && b.buildingTypeId !== typeFilter) return false
         if (wealthFilter && b.wealthTierId !== wealthFilter) return false
         if (districtFilter && b.districtId !== districtFilter) return false
         return true
       }),
-    [data.buildings, typeFilter, wealthFilter, districtFilter]
+    [data.buildings, buildingTypeById, supertypeFilter, typeFilter, wealthFilter, districtFilter]
   )
 
   const sorted = useMemo(
     () =>
       sortKey
         ? [...filtered].sort((a, b) => {
-            const va = getSortValue(a, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
-            const vb = getSortValue(b, sortKey, buildingTypeNameById, wealthTierRankById, districtNameById)
+            const va = getSortValue(a, sortKey, buildingTypeById, wealthTierRankById, districtNameById)
+            const vb = getSortValue(b, sortKey, buildingTypeById, wealthTierRankById, districtNameById)
             const cmp =
               typeof va === 'string' && typeof vb === 'string'
                 ? va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' })
@@ -120,7 +127,7 @@ export function SettlementBuildingsTab({
             return sortDir === 'asc' ? cmp : -cmp
           })
         : filtered,
-    [filtered, sortKey, sortDir, buildingTypeNameById, wealthTierRankById, districtNameById]
+    [filtered, sortKey, sortDir, buildingTypeById, wealthTierRankById, districtNameById]
   )
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
@@ -170,6 +177,20 @@ export function SettlementBuildingsTab({
   return (
     <div>
       <div className="sheet-row" style={{ flexWrap: 'wrap' }}>
+        <select
+          value={supertypeFilter}
+          onChange={(e) => {
+            setSupertypeFilter(e.target.value)
+            setPage(0)
+          }}
+        >
+          <option value="">All groups</option>
+          {BUILDING_SUPERTYPES.map((s) => (
+            <option key={s} value={s}>
+              {BUILDING_SUPERTYPE_LABELS[s]}
+            </option>
+          ))}
+        </select>
         <select
           value={typeFilter}
           onChange={(e) => {
@@ -227,6 +248,7 @@ export function SettlementBuildingsTab({
             <thead>
               <tr style={{ textAlign: 'left' }}>
                 <SortableHeader label="Name" sortKeyValue="name" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Group" sortKeyValue="supertype" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Type" sortKeyValue="type" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Wealth" sortKeyValue="wealth" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="District" sortKeyValue="district" activeSortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -240,6 +262,7 @@ export function SettlementBuildingsTab({
                   <Fragment key={b.id}>
                     <tr onClick={() => setExpandedId(expandedId === b.id ? null : b.id)} style={{ cursor: 'pointer' }}>
                       <td>{b.name}</td>
+                      <td>{BUILDING_SUPERTYPE_LABELS[getBuildingSupertype(buildingTypeById.get(b.buildingTypeId)?.category ?? '')]}</td>
                       <td>{buildingTypeById.get(b.buildingTypeId)?.name ?? b.buildingTypeId}</td>
                       <td>{wealthTierNameById.get(b.wealthTierId) ?? ''}</td>
                       <td>{districtNameById.get(b.districtId) ?? ''}</td>
@@ -255,7 +278,7 @@ export function SettlementBuildingsTab({
                     </tr>
                     {expandedId === b.id && (
                       <tr>
-                        <td colSpan={5} style={{ background: 'rgba(127,127,127,0.08)', padding: 8 }}>
+                        <td colSpan={6} style={{ background: 'rgba(127,127,127,0.08)', padding: 8 }}>
                           {residentsHere.length === 0 ? (
                             <div className="right-panel-note">No residents live or work here.</div>
                           ) : (

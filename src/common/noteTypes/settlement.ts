@@ -160,6 +160,25 @@ export type CustomRaceDef = z.infer<typeof customRaceDefSchema>
 export const BUILDING_CATEGORIES = ['residence', 'shop', 'civic', 'religious', 'tavern'] as const
 export type BuildingCategory = (typeof BUILDING_CATEGORIES)[number]
 
+// A coarser grouping ABOVE category, for the Buildings tab's sort/filter —
+// civic/religious/tavern all collapse to 'other' rather than getting their
+// own bucket, since none of them is common enough on its own to be worth a
+// dedicated column the way Residences/Shops are. Derived from category
+// rather than stored on the building type, so existing settlements don't
+// need a data migration and a category's grouping can't drift out of sync.
+export const BUILDING_SUPERTYPES = ['residence', 'shop', 'other'] as const
+export type BuildingSupertype = (typeof BUILDING_SUPERTYPES)[number]
+
+export const BUILDING_SUPERTYPE_LABELS: Record<BuildingSupertype, string> = {
+  residence: 'Residences',
+  shop: 'Shops',
+  other: 'Others'
+}
+
+export function getBuildingSupertype(category: string): BuildingSupertype {
+  return category === 'residence' || category === 'shop' ? category : 'other'
+}
+
 // Ordered smallest to largest — settlementGenerator.ts compares a
 // settlement's current size against a building type's minSizeId by index
 // into this list, not by population directly, so a custom/renamed size

@@ -343,7 +343,7 @@ export function MapSheet({
           )}
           {mode === 'place-pin' && !pendingPinPoint && <p className="right-panel-note">Click a spot on the map to place a pin.</p>}
 
-          <div style={{ position: 'relative', height: 480, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ position: 'relative', height: 864, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
             <MapCanvas
               imageUrl={imageUrl}
               imageWidth={data.image.width}
