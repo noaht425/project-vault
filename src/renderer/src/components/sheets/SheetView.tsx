@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { parseNote } from '../../../../common/frontmatter'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { PcSheet } from './PcSheet'
@@ -30,7 +31,12 @@ export function SheetView({
    *  note-to-note resolution. */
   noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
-  const { frontmatter } = parseNote(content)
+  // Memoized on content — this used to re-parse on every render regardless
+  // of whether content actually changed (unlike SheetView's per-type
+  // children, which already memoize their own parse), which for a large
+  // Settlement note meant paying a real parse cost (over a second at
+  // Metropolis scale) on every unrelated re-render just to read one field.
+  const { frontmatter } = useMemo(() => parseNote(content), [content])
   const type = typeof frontmatter.type === 'string' ? frontmatter.type : undefined
 
   switch (type) {

@@ -129,6 +129,16 @@ app.on('window-all-closed', () => {
 // to have already fired.
 let quitConfirmed = false
 
+// Generous on purpose: the renderer can't even start processing this
+// event until whatever synchronous work it was doing (e.g. the frontmatter
+// stringify a Settlement Generate triggers — see common/frontmatter.ts's
+// noRefs comment, ~1s at Metropolis scale after that fix, but slower
+// machines or an even larger settlement could still take a few seconds)
+// finishes and control returns to its event loop. A save landing a few
+// seconds late is a vastly better outcome than the old short timeout
+// forcing a quit before the flush ever got a chance to run.
+const QUIT_FLUSH_TIMEOUT_MS = 30000
+
 async function flushRendererAndQuit(): Promise<void> {
   if (!mainWindow || mainWindow.isDestroyed()) {
     quitConfirmed = true
@@ -137,7 +147,7 @@ async function flushRendererAndQuit(): Promise<void> {
   }
 
   const outcome = await new Promise<'done' | 'cancelled' | 'timeout'>((resolve) => {
-    const timer = setTimeout(() => resolve('timeout'), 8000)
+    const timer = setTimeout(() => resolve('timeout'), QUIT_FLUSH_TIMEOUT_MS)
     const onComplete = (): void => {
       clearTimeout(timer)
       ipcMain.removeListener('app:cancelQuit', onCancel)
