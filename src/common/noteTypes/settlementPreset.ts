@@ -6,6 +6,7 @@ import {
   raceLifeStageSchema,
   wealthTierSchema,
   religionShareSchema,
+  genderShareSchema,
   buildingTypeDefSchema,
   specialtyDefSchema,
   defaultDistricts,
@@ -13,6 +14,7 @@ import {
   defaultWealthTiers,
   defaultBuildingTypes,
   defaultSpecialties,
+  defaultGenderDistribution,
   type SettlementFrontmatter
 } from './settlement'
 
@@ -38,9 +40,14 @@ export const settlementPresetFrontmatterSchema = z
     raceLifeStages: z.array(raceLifeStageSchema).catch(() => defaultRaceLifeStages()),
     wealthTiers: z.array(wealthTierSchema).catch(() => defaultWealthTiers()),
     religionDistribution: z.array(religionShareSchema).catch([]),
+    genderDistribution: z.array(genderShareSchema).catch(() => defaultGenderDistribution()),
     buildingTypes: z.array(buildingTypeDefSchema).catch(() => defaultBuildingTypes()),
     specialties: z.array(specialtyDefSchema).catch(() => defaultSpecialties()),
-    activeSpecialtyIds: z.array(z.string()).catch([])
+    activeSpecialtyIds: z.array(z.string()).catch([]),
+    religiousWorkerMultiplier: z.coerce.number().catch(1),
+    religiousPracticePercent: z.coerce.number().catch(90),
+    customEducation: z.boolean().catch(false),
+    educatedWealthTierIds: z.array(z.string()).catch([])
   })
   .passthrough()
 
@@ -60,9 +67,14 @@ export type SettlementPresetFields = Pick<
   | 'raceLifeStages'
   | 'wealthTiers'
   | 'religionDistribution'
+  | 'genderDistribution'
   | 'buildingTypes'
   | 'specialties'
   | 'activeSpecialtyIds'
+  | 'religiousWorkerMultiplier'
+  | 'religiousPracticePercent'
+  | 'customEducation'
+  | 'educatedWealthTierIds'
 >
 
 /** Pulls just the reusable Setup-tab fields out of a real settlement's frontmatter — the "Save as preset" action's job. */
@@ -76,9 +88,14 @@ export function extractPresetFields(data: SettlementFrontmatter): SettlementPres
     raceLifeStages: data.raceLifeStages,
     wealthTiers: data.wealthTiers,
     religionDistribution: data.religionDistribution,
+    genderDistribution: data.genderDistribution,
     buildingTypes: data.buildingTypes,
     specialties: data.specialties,
-    activeSpecialtyIds: data.activeSpecialtyIds
+    activeSpecialtyIds: data.activeSpecialtyIds,
+    religiousWorkerMultiplier: data.religiousWorkerMultiplier,
+    religiousPracticePercent: data.religiousPracticePercent,
+    customEducation: data.customEducation,
+    educatedWealthTierIds: data.educatedWealthTierIds
   }
 }
 
@@ -93,8 +110,13 @@ export function presetFieldsFromPreset(preset: SettlementPresetFrontmatter): Set
     raceLifeStages: preset.raceLifeStages,
     wealthTiers: preset.wealthTiers,
     religionDistribution: preset.religionDistribution,
+    genderDistribution: preset.genderDistribution,
     buildingTypes: preset.buildingTypes,
     specialties: preset.specialties,
-    activeSpecialtyIds: preset.activeSpecialtyIds
+    activeSpecialtyIds: preset.activeSpecialtyIds,
+    religiousWorkerMultiplier: preset.religiousWorkerMultiplier,
+    religiousPracticePercent: preset.religiousPracticePercent,
+    customEducation: preset.customEducation,
+    educatedWealthTierIds: preset.educatedWealthTierIds
   }
 }

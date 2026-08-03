@@ -18,6 +18,10 @@ export function SettlementPresetSheet({ content }: { content: string }): React.J
     .map((r) => `${raceLabel(r.race, data.customRaces)} ${r.percent}%`)
     .join(', ')
   const wealthSummary = data.wealthTiers.map((t) => `${t.name} ${t.percent}%`).join(', ')
+  const genderSummary = data.genderDistribution
+    .filter((g) => g.percent > 0)
+    .map((g) => `${g.gender} ${g.percent}%`)
+    .join(', ')
   const religionSummary = data.religionDistribution
     .filter((r) => r.percent > 0)
     .map((r) => `${r.religion} ${r.percent}%`)
@@ -56,7 +60,18 @@ export function SettlementPresetSheet({ content }: { content: string }): React.J
           <strong>Wealth tiers:</strong> {wealthSummary || '—'}
         </div>
         <div>
+          <strong>Genders:</strong> {genderSummary || '—'}
+        </div>
+        <div>
           <strong>Religion distribution:</strong> {religionSummary || '—'}
+        </div>
+        <div>
+          <strong>Religious workers:</strong> {data.religiousWorkerMultiplier}× · <strong>Practice religion:</strong>{' '}
+          {data.religiousPracticePercent}%
+        </div>
+        <div>
+          <strong>Education:</strong>{' '}
+          {data.customEducation ? `Custom (${data.educatedWealthTierIds.length} tier(s))` : 'Automatic (top half of wealth tiers)'}
         </div>
         <div>
           <strong>Building types:</strong> {data.buildingTypes.length.toLocaleString()}

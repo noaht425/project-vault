@@ -137,6 +137,7 @@ describe('generateSettlement', () => {
       proficiencies: [],
       appearance: '',
       relatives: [],
+      educated: false,
       linkedNoteTitle: 'Old Tomas'
     }
     const unpromotedResident: SettlementResident = { ...promotedResident, id: 'unpromoted', linkedNoteTitle: null }

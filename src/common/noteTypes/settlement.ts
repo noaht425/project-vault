@@ -55,6 +55,32 @@ export const religionShareSchema = z.object({
 })
 export type ReligionShare = z.infer<typeof religionShareSchema>
 
+// User-editable now (used to be a hardcoded 3-entry constant in
+// settlementGenerator.ts) — same percent-list shape as race/wealth/religion
+// distribution, edited the same way in SettlementSetupTab.tsx. `id` (unlike
+// race/religion's own plain-string identity) exists so renaming a gender
+// label in place doesn't need special-case key handling, same reasoning as
+// wealthTierSchema's own id field. NOTE: settlementNames.ts's genderPool
+// still only recognizes the exact strings 'Male'/'Female' for gendered
+// name-pool selection — renaming those two, or adding further custom
+// labels, falls through to the combined/neutral name pool rather than
+// erroring, same graceful-fallback spirit as everywhere else in this file.
+export const genderShareSchema = z.object({
+  id: z.string(),
+  gender: z.string(),
+  percent: z.coerce.number().catch(0)
+})
+export type GenderShare = z.infer<typeof genderShareSchema>
+
+export function defaultGenderDistribution(): GenderShare[] {
+  return [
+    { id: 'male', gender: 'Male', percent: 47 },
+    { id: 'female', gender: 'Female', percent: 47 },
+    { id: 'nonbinary', gender: 'Non-binary', percent: 5 },
+    { id: 'agender', gender: 'Agender', percent: 1 }
+  ]
+}
+
 // A custom race a user adds beyond the 8 seeded baseline races (see
 // settlementNames.ts). Name generation uses EITHER of two mechanisms, never
 // both at once (kept as two separate fields rather than a tagged union so a
@@ -283,6 +309,11 @@ export const settlementResidentSchema = z.object({
   // Notable only, same cost/scope lever as stats/appearance — see
   // notableRelativeSchema above and settlementGenerator.ts's generateFamily.
   relatives: z.array(notableRelativeSchema).catch([]),
+  // Unlike notable-only fields above, computed for EVERY resident (notable
+  // and stub alike) from the Education tab's wealth-tier settings — see
+  // resolveEducatedWealthTierIds. Cheap boolean, no meaningful generation
+  // cost even at Metropolis scale.
+  educated: z.boolean().catch(false),
   // Set once a user "promotes" this background record to a real `npc` note.
   linkedNoteTitle: z.string().nullable().catch(null)
 })
@@ -326,12 +357,40 @@ export const settlementFrontmatterSchema = z
     raceLifeStages: z.array(raceLifeStageSchema).catch(() => defaultRaceLifeStages()),
     wealthTiers: z.array(wealthTierSchema).catch(() => defaultWealthTiers()),
     religionDistribution: z.array(religionShareSchema).catch([]),
+    genderDistribution: z.array(genderShareSchema).catch(() => defaultGenderDistribution()),
     buildingTypes: z.array(buildingTypeDefSchema).catch(() => defaultBuildingTypes()),
     specialties: z.array(specialtyDefSchema).catch(() => defaultSpecialties()),
     // Which of `specialties` are actually active for THIS settlement — a
     // settlement can lean into more than one at once (e.g. Port Town +
     // Trade Hub), each stacking its boosts multiplicatively.
     activeSpecialtyIds: z.array(z.string()).catch([]),
+    // "Worshippers" (settlementGenerator.ts's Worshippers tab UI). The
+    // dropdown (None/Fewer/Normal/More/Custom) is a pure UI convenience for
+    // setting this one number to a preset (0/0.5/1/2) — there's no separate
+    // stored "mode" field, the UI just shows "Custom" whenever the value
+    // doesn't match a known preset. Multiplies religious building types'
+    // effective weight in the same weighted-allocation pool every other
+    // staffed building type competes in, so it's a bias, not a separate
+    // counting system — "None" (0) is a hard exclusion since multiplying by
+    // exactly zero really does zero out that category's share.
+    religiousWorkerMultiplier: z.coerce.number().catch(1),
+    // What fraction of the population practices ANY religion at all — the
+    // religionDistribution percentages above describe the split AMONG that
+    // group, not the whole population. The remainder gets no religion
+    // (resident.religion === ''), same "empty string = none" convention
+    // buildPromotedNpcFrontmatter's `resident.religion ? ... : ''` already
+    // uses. Defaults to 90 for a NEW settlement (matches the reference this
+    // was modeled on) — the generator itself falls back to 100 when this
+    // field is entirely absent, matching the old always-religious behavior
+    // for settlements/tests that predate this field.
+    religiousPracticePercent: z.coerce.number().catch(90),
+    // "Education" tab — which wealth tiers count as educated. customEducation
+    // false (the default) uses resolveEducatedWealthTierIds' own built-in
+    // default rule (top half of wealthTiers by list-order rank) instead of
+    // educatedWealthTierIds below, same "off means auto, on means override"
+    // shape as everywhere else editable-with-a-sensible-default in this app.
+    customEducation: z.boolean().catch(false),
+    educatedWealthTierIds: z.array(z.string()).catch([]),
     buildings: z.array(settlementBuildingSchema).catch([]),
     residents: z.array(settlementResidentSchema).catch([])
   })
@@ -470,6 +529,28 @@ export function defaultWealthTiers(): WealthTier[] {
     // homelessness rolls against without any code change.
     { id: 'destitute', name: 'Destitute', percent: 10 }
   ]
+}
+
+/**
+ * The Education tab's "which wealth tiers are educated" set — shared by the
+ * generator (computing each resident's `educated` flag) and the Setup tab UI
+ * (rendering the checkbox list, including its disabled/default-checked state
+ * when "Custom education" is off) so there's exactly one definition of the
+ * default rule. customEducation true trusts educatedWealthTierIds outright
+ * (even if empty — an explicit "nobody's educated" is a valid choice once
+ * the user has taken the wheel). False uses the top half of wealthTiers by
+ * list-order rank (same "list order = rank" convention as the lowest-tier
+ * homelessness check above) — round UP so an odd tier count still educates
+ * a real majority-adjacent share rather than rounding away a tier.
+ */
+export function resolveEducatedWealthTierIds(
+  wealthTiers: WealthTier[],
+  customEducation: boolean,
+  educatedWealthTierIds: string[]
+): Set<string> {
+  if (customEducation) return new Set(educatedWealthTierIds)
+  const educatedCount = Math.ceil(wealthTiers.length / 2)
+  return new Set(wealthTiers.slice(0, educatedCount).map((t) => t.id))
 }
 
 // ~30 generic archetypes across every BUILDING_CATEGORIES entry — round,

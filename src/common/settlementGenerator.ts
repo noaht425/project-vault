@@ -1,9 +1,12 @@
 import { ABILITY_KEYS, type AbilityScores } from './noteTypes/creatureStats'
 import {
   SETTLEMENT_SIZE_IDS,
+  defaultGenderDistribution,
+  resolveEducatedWealthTierIds,
   type BuildingTypeDef,
   type CustomRaceDef,
   type District,
+  type GenderShare,
   type NotableRelative,
   type RaceLifeStage,
   type RaceShare,
@@ -121,17 +124,10 @@ const AVG_HOUSEHOLD_SIZE = 4
 // staffed types are defined.
 const POPULATION_PER_STAFFED_BUILDING = 40
 
-// A generic default gender mix for generated residents — not exposed as a
-// per-settlement editable list (unlike race/wealth/religion) since nothing
-// requested that granularity yet; tune here if it ever needs to be. Male/
-// Female draw from their own name pool plus the bank's unisex pool (see
-// settlementNames.ts's genderPool); Nonbinary draws from all three pools
-// combined for maximum variety despite being the smallest slice.
-const GENDER_DISTRIBUTION: { gender: string; percent: number }[] = [
-  { gender: 'Male', percent: 47 },
-  { gender: 'Female', percent: 47 },
-  { gender: 'Nonbinary', percent: 6 }
-]
+// Fallback only, for a caller/test that doesn't pass options.genderDistribution
+// at all — the real default now lives in noteTypes/settlement.ts's
+// defaultGenderDistribution() and is user-editable (Settlement Setup tab's
+// Genders section), same as race/wealth/religion distribution already are.
 
 function randomInt(min: number, max: number, rng: () => number): number {
   return Math.floor(rng() * (max - min + 1)) + min
@@ -574,12 +570,27 @@ export interface GenerationOptions {
   phoneticProfiles?: PhoneticProfile[]
   wealthTiers: WealthTier[]
   religionDistribution: ReligionShare[]
+  // Defaults to defaultGenderDistribution() when omitted (Male 47/Female
+  // 47/Non-binary 5/Agender 1) — the pre-this-field hardcoded behavior used
+  // Male/Female/Nonbinary 47/47/6, close enough that no existing test
+  // asserting on gender-mix shape should need to change.
+  genderDistribution?: GenderShare[]
   buildingTypes: BuildingTypeDef[]
   specialties?: SpecialtyDef[]
   activeSpecialtyIds?: string[]
   // Defaults to [] when omitted, which makes resolveLifeStage fall straight
   // to its hardcoded human default for every race.
   raceLifeStages?: RaceLifeStage[]
+  // Worshippers tab — see settlementFrontmatterSchema's own comments for
+  // what each of these means. Both default to the pre-these-fields
+  // behavior (every religious building type competes at its normal weight;
+  // every resident gets some religion) when omitted, for backward
+  // compatibility with callers/tests that predate this section.
+  religiousWorkerMultiplier?: number
+  religiousPracticePercent?: number
+  // Education tab.
+  customEducation?: boolean
+  educatedWealthTierIds?: string[]
 }
 
 export interface ExistingSettlementData {
@@ -629,9 +640,18 @@ export function generateSettlement(
   const specialties = options.specialties ?? []
   const activeSpecialtyIds = options.activeSpecialtyIds ?? []
   const raceLifeStages = options.raceLifeStages ?? []
+  const genderDistribution: GenderShare[] =
+    options.genderDistribution && options.genderDistribution.length > 0 ? options.genderDistribution : defaultGenderDistribution()
+  // Worshippers tab — see GenerationOptions' own comments.
+  const religiousWorkerMultiplier = options.religiousWorkerMultiplier ?? 1
+  const religiousPracticeFraction = (options.religiousPracticePercent ?? 100) / 100
+  const educatedTierIds = resolveEducatedWealthTierIds(wealthTiers, options.customEducation ?? false, options.educatedWealthTierIds ?? [])
 
   const effectiveWeight = (type: BuildingTypeDef): number =>
-    type.weight * sizeGateMultiplier(sizeId, type.minSizeId) * specialtyMultiplier(type.id, specialties, activeSpecialtyIds)
+    type.weight *
+    sizeGateMultiplier(sizeId, type.minSizeId) *
+    specialtyMultiplier(type.id, specialties, activeSpecialtyIds) *
+    (type.category === 'religious' ? religiousWorkerMultiplier : 1)
 
   let districtCursor = 0
   const nextDistrictId = (): string => {
@@ -664,8 +684,14 @@ export function generateSettlement(
 
   const pickWealthTierId = (): string => pickByPercent(wealthTiers, rng)?.id ?? ''
   const pickRace = (): string => pickByPercent(options.raceDistribution, rng)?.race ?? 'human'
-  const pickReligion = (): string => pickByPercent(options.religionDistribution, rng)?.religion ?? ''
-  const pickGender = (): string => pickByPercent(GENDER_DISTRIBUTION, rng)?.gender ?? 'Male'
+  // religiousPracticeFraction gates whether this resident practices ANY
+  // religion at all — religionDistribution's own percentages only describe
+  // the split among practitioners, not the whole population (see
+  // GenerationOptions' comment). '' (no religion) reuses the same "empty
+  // string = none" convention buildPromotedNpcFrontmatter already relies on.
+  const pickReligion = (): string => (rng() < religiousPracticeFraction ? (pickByPercent(options.religionDistribution, rng)?.religion ?? '') : '')
+  const pickGender = (): string => pickByPercent(genderDistribution, rng)?.gender ?? 'Male'
+  const isEducated = (wealthTierId: string): boolean => educatedTierIds.has(wealthTierId)
   // A custom race with phoneticProfileIds set is synthesized from tagged
   // syllables (see phoneticNames.ts) instead of picking from a name-list
   // pool — checked first, per CustomRaceDef's "either/or, not both" design.
@@ -815,6 +841,7 @@ export function generateSettlement(
       proficiencies: pickProficiencies(buildingType, rng),
       appearance: generateAppearance(race, gender, rng, customRaces),
       relatives: generateFamily({ name, race, gender, age }, raceLifeStages, nameFor, pickGender, rng, idFactory),
+      educated: isEducated(building.wealthTierId),
       linkedNoteTitle: null
     })
   }
@@ -883,6 +910,7 @@ export function generateSettlement(
       proficiencies: [],
       appearance: '',
       relatives: [],
+      educated: isEducated(wealthTierId),
       linkedNoteTitle: null
     })
   }

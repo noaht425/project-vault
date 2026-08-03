@@ -4,6 +4,7 @@ import {
   SETTLEMENT_SIZE_IDS,
   defaultDistrictsForSize,
   defaultRaceLifeStages,
+  resolveEducatedWealthTierIds,
   type SettlementFrontmatter
 } from '../../../../common/noteTypes/settlement'
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
@@ -17,6 +18,19 @@ import {
   settlementPresetFrontmatterSchema
 } from '../../../../common/noteTypes/settlementPreset'
 import type { NoteRefApi } from '../../lib/noteRefApi'
+
+// Worshippers tab's "Amount of religious workers" dropdown — a pure UI
+// convenience over the one real stored number (religiousWorkerMultiplier).
+// Picking a preset sets that number directly; typing any other value into
+// the multiplier field itself just shows as "Custom" (see the dropdown's
+// value below, computed by matching against this list) rather than needing
+// a separate stored "mode" field.
+const RELIGIOUS_WORKER_PRESETS = [
+  { id: 'none', label: 'None', multiplier: 0 },
+  { id: 'fewer', label: 'Fewer than normal', multiplier: 0.5 },
+  { id: 'normal', label: 'Normal, based on size', multiplier: 1 },
+  { id: 'more', label: 'More than normal', multiplier: 2 }
+] as const
 
 // All the generation-input editors, mirroring GenerationOptions field for
 // field, plus the Generate button. Every "+ Add" button inserts a row with
@@ -142,6 +156,8 @@ export function SettlementSetupTab({
   const raceTotal = data.raceDistribution.reduce((sum, r) => sum + r.percent, 0)
   const wealthTotal = data.wealthTiers.reduce((sum, t) => sum + t.percent, 0)
   const religionTotal = data.religionDistribution.reduce((sum, r) => sum + r.percent, 0)
+  const genderTotal = data.genderDistribution.reduce((sum, g) => sum + g.percent, 0)
+  const educatedTierIds = resolveEducatedWealthTierIds(data.wealthTiers, data.customEducation, data.educatedWealthTierIds)
 
   const handleGenerate = (): void => {
     if (data.buildings.length > 0 || data.residents.length > 0) {
@@ -423,6 +439,48 @@ export function SettlementSetupTab({
       </div>
 
       <div style={{ marginTop: 12 }}>
+        <strong>Genders</strong>{' '}
+        <span className="right-panel-note">
+          Total: {genderTotal}%{genderTotal !== 100 ? ' (should total 100)' : ''}
+        </span>
+        <p className="right-panel-note">
+          "Male" and "Female" specifically get gendered first names from each race's name bank — any other label
+          (including a renamed one) draws from the combined pool instead.
+        </p>
+        {data.genderDistribution.map((g) => (
+          <div key={g.id} style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+            <input
+              style={{ flex: 1 }}
+              value={g.gender}
+              onChange={(e) =>
+                updateFrontmatter({ genderDistribution: data.genderDistribution.map((x) => (x.id === g.id ? { ...x, gender: e.target.value } : x)) })
+              }
+            />
+            <input
+              type="number"
+              style={{ width: 60 }}
+              value={g.percent}
+              onChange={(e) =>
+                updateFrontmatter({
+                  genderDistribution: data.genderDistribution.map((x) => (x.id === g.id ? { ...x, percent: Number(e.target.value) } : x))
+                })
+              }
+            />
+            %
+            <button onClick={() => updateFrontmatter({ genderDistribution: data.genderDistribution.filter((x) => x.id !== g.id) })}>✕</button>
+          </div>
+        ))}
+        <button
+          style={{ marginTop: 4 }}
+          onClick={() =>
+            updateFrontmatter({ genderDistribution: [...data.genderDistribution, { id: crypto.randomUUID(), gender: 'New Gender', percent: 0 }] })
+          }
+        >
+          + Add gender
+        </button>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
         <strong>Wealth tiers</strong>{' '}
         <span className="right-panel-note">
           Total: {wealthTotal}%{wealthTotal !== 100 ? ' (should total 100)' : ''}
@@ -452,6 +510,40 @@ export function SettlementSetupTab({
         >
           + Add wealth tier
         </button>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Education</strong>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          Which wealth tiers count as educated. Off (the default), the top half of your wealth tiers (by the order
+          they're listed above) are educated automatically. Turn on "Custom education" to pick exactly which tiers
+          count, including none at all.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={data.customEducation}
+            onChange={(e) => updateFrontmatter({ customEducation: e.target.checked })}
+          />
+          Custom education
+        </label>
+        <div className="sheet-row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
+          {data.wealthTiers.map((t) => {
+            const checked = educatedTierIds.has(t.id)
+            const toggle = (): void => {
+              if (!data.customEducation) return
+              updateFrontmatter({
+                educatedWealthTierIds: checked ? data.educatedWealthTierIds.filter((id) => id !== t.id) : [...data.educatedWealthTierIds, t.id]
+              })
+            }
+            return (
+              <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 4, opacity: data.customEducation ? 1 : 0.5 }}>
+                <input type="checkbox" checked={checked} disabled={!data.customEducation} onChange={toggle} />
+                {t.name}
+              </label>
+            )
+          })}
+        </div>
       </div>
 
       <div style={{ marginTop: 12 }}>
@@ -547,6 +639,63 @@ export function SettlementSetupTab({
           appears next to it above, and a promoted resident's "Follows" line becomes a [[wiki-link]] back to it.
           Folder-add is a one-time snapshot, safe to re-run: it skips any note already added, and picks up notes in
           subfolders too.
+        </p>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Worshippers</strong>
+        <div className="sheet-row" style={{ marginTop: 4 }}>
+          <label className="sheet-field" style={{ maxWidth: 260 }}>
+            Amount of religious workers
+            <select
+              value={RELIGIOUS_WORKER_PRESETS.find((p) => p.multiplier === data.religiousWorkerMultiplier)?.id ?? 'custom'}
+              onChange={(e) => {
+                const preset = RELIGIOUS_WORKER_PRESETS.find((p) => p.id === e.target.value)
+                if (preset) updateFrontmatter({ religiousWorkerMultiplier: preset.multiplier })
+              }}
+            >
+              {RELIGIOUS_WORKER_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+              <option value="custom" disabled>
+                Custom
+              </option>
+            </select>
+          </label>
+          <label className="sheet-field" style={{ maxWidth: 140 }}>
+            Multiplier
+            <input
+              type="number"
+              step={0.1}
+              min={0}
+              value={data.religiousWorkerMultiplier}
+              onChange={(e) => updateFrontmatter({ religiousWorkerMultiplier: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          Scales how many religious buildings (and their staff) get built, relative to their normal weight against
+          every other shop/civic/tavern building type — 0 means none at all, 1 is normal, 2 is double. Picking a
+          preset sets the multiplier for you; typing any other value shows as "Custom" above.
+        </p>
+
+        <div className="sheet-row" style={{ marginTop: 8 }}>
+          <label className="sheet-field" style={{ maxWidth: 220 }}>
+            Percentage of people who practice religion
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={data.religiousPracticePercent}
+              onChange={(e) => updateFrontmatter({ religiousPracticePercent: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          The religion distribution above describes the split among practitioners, not the whole population — the
+          rest of the population gets no religion at all.
         </p>
       </div>
 

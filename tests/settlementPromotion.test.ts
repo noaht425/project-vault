@@ -25,6 +25,7 @@ function makeNotable(overrides: Partial<SettlementResident> = {}): SettlementRes
     proficiencies: ["Smith's Tools", 'Athletics'],
     appearance: 'Has short, thick, gray hair, and blue eyes.',
     relatives: [],
+    educated: false,
     linkedNoteTitle: null,
     ...overrides
   }
@@ -96,6 +97,14 @@ describe('buildPromotedNpcFrontmatter', () => {
     expect(body).toContain('Lives in Main District.')
     expect(body).toContain('Middle class.')
     expect(body).toContain('Follows [[The Old Faith]].')
+  })
+
+  it('includes an Educated. fact only when the resident is marked educated', () => {
+    const educatedBody = buildPromotedNpcFrontmatter(makeNotable({ educated: true }), 'Main District', 'Middle').body
+    expect(educatedBody).toContain('Educated.')
+
+    const uneducatedBody = buildPromotedNpcFrontmatter(makeNotable({ educated: false }), 'Main District', 'Middle').body
+    expect(uneducatedBody).not.toContain('Educated.')
   })
 
   it('includes proficiencies and an Appearance section when present', () => {

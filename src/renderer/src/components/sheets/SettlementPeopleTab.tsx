@@ -322,6 +322,7 @@ export function SettlementPeopleTab({
                         <div className="right-panel-note" style={{ marginTop: 4 }}>
                           {r.employmentStatus === 'unemployed' && !r.notable ? 'Unemployed. ' : ''}
                           {r.homeless ? 'Homeless. ' : ''}
+                          {r.educated ? 'Educated. ' : ''}
                           {r.religion ? `Follows ${r.religion}.` : ''}
                         </div>
                       </td>

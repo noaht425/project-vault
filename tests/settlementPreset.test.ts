@@ -36,9 +36,14 @@ describe('settlementPreset', () => {
       raceLifeStages: settlement.raceLifeStages,
       wealthTiers: settlement.wealthTiers,
       religionDistribution: settlement.religionDistribution,
+      genderDistribution: settlement.genderDistribution,
       buildingTypes: settlement.buildingTypes,
       specialties: settlement.specialties,
-      activeSpecialtyIds: settlement.activeSpecialtyIds
+      activeSpecialtyIds: settlement.activeSpecialtyIds,
+      religiousWorkerMultiplier: settlement.religiousWorkerMultiplier,
+      religiousPracticePercent: settlement.religiousPracticePercent,
+      customEducation: settlement.customEducation,
+      educatedWealthTierIds: settlement.educatedWealthTierIds
     })
     // Explicitly NOT carried into a preset — per-settlement flavor and
     // generated output, not reusable "kind of settlement" configuration.
