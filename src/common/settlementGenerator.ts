@@ -4,8 +4,10 @@ import {
   defaultGenderDistribution,
   resolveEducatedWealthTierIds,
   type BuildingTypeDef,
+  type CustomFactionDef,
   type CustomRaceDef,
   type District,
+  type Faction,
   type GenderShare,
   type NotableRelative,
   type RaceLifeStage,
@@ -17,7 +19,15 @@ import {
   type SpecialtyDef,
   type WealthTier
 } from './noteTypes/settlement'
-import { generateFlavorTag, generateGoal, generateName, generatePersonalityLine, resolveNameBank, type NameBank } from './settlementNames'
+import {
+  FACTION_NAME_POOL,
+  generateFlavorTag,
+  generateGoal,
+  generateName,
+  generatePersonalityLine,
+  resolveNameBank,
+  type NameBank
+} from './settlementNames'
 import { generateSyntheticName, PHONETIC_PROFILES, type PhoneticProfile } from './phoneticNames'
 import { generateAppearance } from './settlementAppearance'
 
@@ -198,6 +208,71 @@ const POPULATION_JITTER_SD_FRACTION = 0.01
 function jitterPopulation(target: number, rng: () => number): number {
   const sd = Math.max(1, target * POPULATION_JITTER_SD_FRACTION)
   return Math.max(1, Math.round(target + sd * normalRandom(rng)))
+}
+
+// -------------------- Factions --------------------
+
+// "Somewhere close to" a faction's maxMembers, per the user's own spec —
+// biased at-or-under the max (a half-normal shortfall, never an overshoot)
+// since "maximum" is a real ceiling, not just a target to jitter both ways
+// around like jitterPopulation does for the whole settlement.
+const FACTION_MEMBER_JITTER_SD_FRACTION = 0.15
+
+function factionMemberCount(maxMembers: number, rng: () => number): number {
+  const sd = Math.max(1, maxMembers * FACTION_MEMBER_JITTER_SD_FRACTION)
+  const shortfall = Math.abs(sd * normalRandom(rng))
+  return Math.max(1, Math.min(maxMembers, Math.round(maxMembers - shortfall)))
+}
+
+// Used only when useRandomFactionDefaults is true — scales with the
+// settlement so a hamlet's random factions aren't sized like a
+// Metropolis's. Generic placeholder ratio (2% of population, floor of 5),
+// same "round, clearly-tunable starting point" spirit as every other
+// default constant in this file.
+function defaultRandomFactionMaxMembers(population: number): number {
+  return Math.max(5, Math.round(population * 0.02))
+}
+
+/**
+ * Custom factions (Setup-tab config, persistent) always get generated;
+ * random ones pick `randomFactionCount` distinct names from
+ * FACTION_NAME_POOL (user-supplied, not invented here — see that pool's own
+ * comment) each Generate. Neither kind is preserved across regeneration the
+ * way promoted buildings/residents are — factions have no "promote" concept
+ * (yet), so this always returns a fresh list built from current config.
+ */
+function generateFactions(
+  customFactions: CustomFactionDef[],
+  useRandomDefaults: boolean,
+  randomCount: number,
+  randomMaxMembers: number,
+  population: number,
+  rng: () => number,
+  idFactory: () => string
+): Faction[] {
+  const customGenerated: Faction[] = customFactions.map((cf) => ({
+    id: idFactory(),
+    name: cf.name,
+    maxMembers: cf.maxMembers,
+    memberCount: factionMemberCount(cf.maxMembers, rng)
+  }))
+
+  const effectiveRandomMax = useRandomDefaults ? defaultRandomFactionMaxMembers(population) : randomMaxMembers
+  const pool = [...FACTION_NAME_POOL]
+  const count = Math.max(0, Math.min(Math.round(randomCount), pool.length))
+  const randomGenerated: Faction[] = []
+  for (let i = 0; i < count; i++) {
+    const index = Math.floor(rng() * pool.length)
+    const name = pool.splice(index, 1)[0]
+    randomGenerated.push({
+      id: idFactory(),
+      name,
+      maxMembers: effectiveRandomMax,
+      memberCount: factionMemberCount(effectiveRandomMax, rng)
+    })
+  }
+
+  return [...customGenerated, ...randomGenerated]
 }
 
 const ABILITY_MEAN = 10
@@ -591,6 +666,15 @@ export interface GenerationOptions {
   // Education tab.
   customEducation?: boolean
   educatedWealthTierIds?: string[]
+  // Factions tab — see customFactionDefSchema/factionSchema's comments in
+  // noteTypes/settlement.ts. All default to "no factions at all" when
+  // omitted (empty customFactions, randomFactionCount 0 falls out of
+  // Math.min(0, pool.length) below), for backward compatibility with
+  // callers/tests that predate this section.
+  customFactions?: CustomFactionDef[]
+  useRandomFactionDefaults?: boolean
+  randomFactionCount?: number
+  randomFactionMaxMembers?: number
 }
 
 export interface ExistingSettlementData {
@@ -601,6 +685,7 @@ export interface ExistingSettlementData {
 export interface GeneratedSettlementData {
   buildings: SettlementBuilding[]
   residents: SettlementResident[]
+  factions: Faction[]
 }
 
 /**
@@ -915,8 +1000,19 @@ export function generateSettlement(
     })
   }
 
+  const factions = generateFactions(
+    options.customFactions ?? [],
+    options.useRandomFactionDefaults ?? true,
+    options.randomFactionCount ?? 0,
+    options.randomFactionMaxMembers ?? 50,
+    population,
+    rng,
+    idFactory
+  )
+
   return {
     buildings: [...keptBuildings, ...buildings],
-    residents: [...keptResidents, ...residents]
+    residents: [...keptResidents, ...residents],
+    factions
   }
 }

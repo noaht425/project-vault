@@ -43,7 +43,11 @@ describe('settlementPreset', () => {
       religiousWorkerMultiplier: settlement.religiousWorkerMultiplier,
       religiousPracticePercent: settlement.religiousPracticePercent,
       customEducation: settlement.customEducation,
-      educatedWealthTierIds: settlement.educatedWealthTierIds
+      educatedWealthTierIds: settlement.educatedWealthTierIds,
+      customFactions: settlement.customFactions,
+      useRandomFactionDefaults: settlement.useRandomFactionDefaults,
+      randomFactionCount: settlement.randomFactionCount,
+      randomFactionMaxMembers: settlement.randomFactionMaxMembers
     })
     // Explicitly NOT carried into a preset — per-settlement flavor and
     // generated output, not reusable "kind of settlement" configuration.

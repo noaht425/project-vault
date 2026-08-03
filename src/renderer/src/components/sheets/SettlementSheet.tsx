@@ -5,8 +5,9 @@ import type { NoteRefApi } from '../../lib/noteRefApi'
 import { SettlementSetupTab } from './SettlementSetupTab'
 import { SettlementPeopleTab } from './SettlementPeopleTab'
 import { SettlementBuildingsTab } from './SettlementBuildingsTab'
+import { SettlementFactionsTab } from './SettlementFactionsTab'
 
-type SettlementTab = 'setup' | 'people' | 'buildings'
+type SettlementTab = 'setup' | 'people' | 'buildings' | 'factions'
 
 // Same "content string IS the state" pattern as every other sheet (see
 // MapSheet.tsx) — no local store for the settlement data itself, only for
@@ -47,11 +48,15 @@ export function SettlementSheet({
         <button className={tab === 'buildings' ? 'active' : ''} onClick={() => setTab('buildings')}>
           Buildings ({data.buildings.length})
         </button>
+        <button className={tab === 'factions' ? 'active' : ''} onClick={() => setTab('factions')}>
+          Factions ({data.factions.length})
+        </button>
       </div>
 
       {tab === 'setup' && <SettlementSetupTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'people' && <SettlementPeopleTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'buildings' && <SettlementBuildingsTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
+      {tab === 'factions' && <SettlementFactionsTab data={data} />}
     </div>
   )
 }

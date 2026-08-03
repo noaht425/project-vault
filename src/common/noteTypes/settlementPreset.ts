@@ -9,6 +9,7 @@ import {
   genderShareSchema,
   buildingTypeDefSchema,
   specialtyDefSchema,
+  customFactionDefSchema,
   defaultDistricts,
   defaultRaceLifeStages,
   defaultWealthTiers,
@@ -21,8 +22,10 @@ import {
 // Holds exactly the Settlement Setup tab's generation-INPUT fields (see
 // SettlementSetupTab.tsx) — everything except summary/climateNoteTitle
 // (per-settlement flavor, not a reusable "kind of settlement" trait) and,
-// obviously, buildings/residents (generated output, never an input). Saved
-// from one settlement's current Setup tab via "Save as preset", then
+// obviously, buildings/residents/factions (generated output, never an
+// input — customFactions/randomFaction* config below IS carried, same
+// "config yes, generated output no" split as buildingTypes vs buildings).
+// Saved from one settlement's current Setup tab via "Save as preset", then
 // applied to prefill another settlement's Setup tab via "Apply preset" — a
 // preset is its own note (not a setting buried in app config) so it can be
 // named, browsed, renamed, and reused like anything else in the vault, and
@@ -47,7 +50,11 @@ export const settlementPresetFrontmatterSchema = z
     religiousWorkerMultiplier: z.coerce.number().catch(1),
     religiousPracticePercent: z.coerce.number().catch(90),
     customEducation: z.boolean().catch(false),
-    educatedWealthTierIds: z.array(z.string()).catch([])
+    educatedWealthTierIds: z.array(z.string()).catch([]),
+    customFactions: z.array(customFactionDefSchema).catch([]),
+    useRandomFactionDefaults: z.boolean().catch(true),
+    randomFactionCount: z.coerce.number().catch(3),
+    randomFactionMaxMembers: z.coerce.number().catch(50)
   })
   .passthrough()
 
@@ -75,6 +82,10 @@ export type SettlementPresetFields = Pick<
   | 'religiousPracticePercent'
   | 'customEducation'
   | 'educatedWealthTierIds'
+  | 'customFactions'
+  | 'useRandomFactionDefaults'
+  | 'randomFactionCount'
+  | 'randomFactionMaxMembers'
 >
 
 /** Pulls just the reusable Setup-tab fields out of a real settlement's frontmatter — the "Save as preset" action's job. */
@@ -95,7 +106,11 @@ export function extractPresetFields(data: SettlementFrontmatter): SettlementPres
     religiousWorkerMultiplier: data.religiousWorkerMultiplier,
     religiousPracticePercent: data.religiousPracticePercent,
     customEducation: data.customEducation,
-    educatedWealthTierIds: data.educatedWealthTierIds
+    educatedWealthTierIds: data.educatedWealthTierIds,
+    customFactions: data.customFactions,
+    useRandomFactionDefaults: data.useRandomFactionDefaults,
+    randomFactionCount: data.randomFactionCount,
+    randomFactionMaxMembers: data.randomFactionMaxMembers
   }
 }
 
@@ -117,6 +132,10 @@ export function presetFieldsFromPreset(preset: SettlementPresetFrontmatter): Set
     religiousWorkerMultiplier: preset.religiousWorkerMultiplier,
     religiousPracticePercent: preset.religiousPracticePercent,
     customEducation: preset.customEducation,
-    educatedWealthTierIds: preset.educatedWealthTierIds
+    educatedWealthTierIds: preset.educatedWealthTierIds,
+    customFactions: preset.customFactions,
+    useRandomFactionDefaults: preset.useRandomFactionDefaults,
+    randomFactionCount: preset.randomFactionCount,
+    randomFactionMaxMembers: preset.randomFactionMaxMembers
   }
 }

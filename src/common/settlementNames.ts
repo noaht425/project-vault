@@ -991,3 +991,26 @@ export const FLAVOR_TAG_TEMPLATES: string[] = [
 export function generateFlavorTag(rng: () => number = Math.random): string {
   return FLAVOR_TAG_TEMPLATES[Math.floor(rng() * FLAVOR_TAG_TEMPLATES.length)]
 }
+
+// User-supplied, not AI-generated — same category as NOTABLE_TRAITS/
+// NOTABLE_GOALS above. A random faction (settlementGenerator.ts's
+// generateFactions) picks names from this pool verbatim rather than
+// inventing any text; a custom faction is named directly by the user in
+// SettlementSetupTab.tsx and never touches this list at all.
+export const FACTION_NAME_POOL: string[] = [
+  'Trade Guild',
+  'Political Faction',
+  'Mercenary Band',
+  "Thieves' Guild",
+  'Cult',
+  'Druidic Circle',
+  'Secret Society',
+  'Military Organization',
+  'Revolutionary Movement',
+  'Academic Society',
+  'Theater Troupe',
+  "Merchants' Guild",
+  'Archivists',
+  'Cartographers',
+  'Religious Group'
+]

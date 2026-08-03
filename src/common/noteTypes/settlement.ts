@@ -216,6 +216,32 @@ export const specialtyDefSchema = z.object({
 })
 export type SpecialtyDef = z.infer<typeof specialtyDefSchema>
 
+// A user-added faction, edited directly in SettlementSetupTab.tsx's
+// Factions section — persistent config, like buildingTypes/specialties,
+// not regenerated data. maxMembers is a target, not an exact count: the
+// generator rolls the real membership somewhere near it (see
+// settlementGenerator.ts's generateFactions), same "jitter around a
+// target" spirit as jitterPopulation.
+export const customFactionDefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  maxMembers: z.coerce.number().catch(50)
+})
+export type CustomFactionDef = z.infer<typeof customFactionDefSchema>
+
+// A generated faction — one per customFactionDefSchema entry, plus however
+// many random ones settlementGenerator.ts's generateFactions picks from
+// FACTION_NAME_POOL. Lives alongside buildings/residents as generator
+// OUTPUT (regenerated fresh on every Generate, unlike customFactions
+// above), not Setup-tab config.
+export const factionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  maxMembers: z.coerce.number().catch(50),
+  memberCount: z.coerce.number().catch(0)
+})
+export type Faction = z.infer<typeof factionSchema>
+
 export const settlementBuildingSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -391,6 +417,16 @@ export const settlementFrontmatterSchema = z
     // shape as everywhere else editable-with-a-sensible-default in this app.
     customEducation: z.boolean().catch(false),
     educatedWealthTierIds: z.array(z.string()).catch([]),
+    // Factions — see customFactionDefSchema/factionSchema's own comments
+    // for the config-vs-generated-output split. randomFactionMaxMembers is
+    // only used when useRandomFactionDefaults is false (same "off means
+    // auto, on means override" shape as customEducation above) — when true,
+    // generateFactions computes a population-scaled default instead.
+    customFactions: z.array(customFactionDefSchema).catch([]),
+    useRandomFactionDefaults: z.boolean().catch(true),
+    randomFactionCount: z.coerce.number().catch(3),
+    randomFactionMaxMembers: z.coerce.number().catch(50),
+    factions: z.array(factionSchema).catch([]),
     buildings: z.array(settlementBuildingSchema).catch([]),
     residents: z.array(settlementResidentSchema).catch([])
   })

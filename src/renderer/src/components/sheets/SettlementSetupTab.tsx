@@ -8,7 +8,7 @@ import {
   type SettlementFrontmatter
 } from '../../../../common/noteTypes/settlement'
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
-import { BASELINE_RACES, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
+import { BASELINE_RACES, FACTION_NAME_POOL, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 import { feetAndInchesToInches, inchesToFeetAndInches } from '../../../../common/settlementAppearance'
 import {
@@ -177,16 +177,25 @@ export function SettlementSetupTab({
         phoneticProfiles: PHONETIC_PROFILES,
         wealthTiers: data.wealthTiers,
         religionDistribution: data.religionDistribution,
+        genderDistribution: data.genderDistribution,
         buildingTypes: data.buildingTypes,
         specialties: data.specialties,
         activeSpecialtyIds: data.activeSpecialtyIds,
-        raceLifeStages: data.raceLifeStages
+        raceLifeStages: data.raceLifeStages,
+        religiousWorkerMultiplier: data.religiousWorkerMultiplier,
+        religiousPracticePercent: data.religiousPracticePercent,
+        customEducation: data.customEducation,
+        educatedWealthTierIds: data.educatedWealthTierIds,
+        customFactions: data.customFactions,
+        useRandomFactionDefaults: data.useRandomFactionDefaults,
+        randomFactionCount: data.randomFactionCount,
+        randomFactionMaxMembers: data.randomFactionMaxMembers
       },
       { buildings: data.buildings, residents: data.residents },
       Math.random,
       () => crypto.randomUUID()
     )
-    updateFrontmatter({ buildings: result.buildings, residents: result.residents })
+    updateFrontmatter({ buildings: result.buildings, residents: result.residents, factions: result.factions })
     setLastGenerated(`Generated ${result.residents.length.toLocaleString()} residents across ${result.buildings.length.toLocaleString()} buildings.`)
   }
 
@@ -697,6 +706,88 @@ export function SettlementSetupTab({
           The religion distribution above describes the split among practitioners, not the whole population — the
           rest of the population gets no religion at all.
         </p>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Factions</strong>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          Custom factions are named by you and always generated; random ones are picked fresh each Generate from a
+          fixed pool of faction types. Actual membership lands somewhere close to (at or under) each faction's Max
+          members, not exactly on it. See the Factions tab to view what got generated.
+        </p>
+
+        <div style={{ marginTop: 6 }}>
+          {data.customFactions.map((f) => (
+            <div key={f.id} style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+              <input
+                style={{ flex: 1 }}
+                value={f.name}
+                onChange={(e) => updateFrontmatter({ customFactions: data.customFactions.map((x) => (x.id === f.id ? { ...x, name: e.target.value } : x)) })}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                Max members
+                <input
+                  type="number"
+                  style={{ width: 80 }}
+                  value={f.maxMembers}
+                  onChange={(e) =>
+                    updateFrontmatter({
+                      customFactions: data.customFactions.map((x) => (x.id === f.id ? { ...x, maxMembers: Number(e.target.value) } : x))
+                    })
+                  }
+                />
+              </label>
+              <button onClick={() => updateFrontmatter({ customFactions: data.customFactions.filter((x) => x.id !== f.id) })}>✕</button>
+            </div>
+          ))}
+          <button
+            style={{ marginTop: 4 }}
+            onClick={() =>
+              updateFrontmatter({ customFactions: [...data.customFactions, { id: crypto.randomUUID(), name: 'New Faction', maxMembers: 50 }] })
+            }
+          >
+            + Add faction
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={data.useRandomFactionDefaults}
+              onChange={(e) => updateFrontmatter({ useRandomFactionDefaults: e.target.checked })}
+            />
+            Use random faction defaults
+          </label>
+          <div className="sheet-row" style={{ marginTop: 4, flexWrap: 'wrap' }}>
+            <label className="sheet-field" style={{ maxWidth: 200 }}>
+              Number of random factions
+              <input
+                type="number"
+                min={0}
+                max={FACTION_NAME_POOL.length}
+                value={data.randomFactionCount}
+                onChange={(e) => updateFrontmatter({ randomFactionCount: Number(e.target.value) })}
+              />
+            </label>
+            {!data.useRandomFactionDefaults && (
+              <label className="sheet-field" style={{ maxWidth: 200 }}>
+                Max members per random faction
+                <input
+                  type="number"
+                  value={data.randomFactionMaxMembers}
+                  onChange={(e) => updateFrontmatter({ randomFactionMaxMembers: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          {data.useRandomFactionDefaults && (
+            <p className="right-panel-note" style={{ marginTop: 2 }}>
+              Max members per random faction scales automatically with settlement size. Turn this off to set an exact
+              number instead.
+            </p>
+          )}
+        </div>
       </div>
 
       <details style={{ marginTop: 8 }}>
