@@ -273,7 +273,11 @@ export function SettlementBuildingsTab({
                           {b.inventory.length > 0 && (
                             <div style={{ marginTop: residentsHere.length > 0 ? 8 : 0 }}>
                               <strong>In stock</strong>
-                              <div className="right-panel-note">{b.inventory.join(', ')}</div>
+                              {/* Semicolons, not commas — several item names
+                                  contain their own commas (e.g. "Ladder,
+                                  10-foot", "Rope, silk, 50 feet"), so a
+                                  comma-joined list read as one confusing run-on. */}
+                              <div className="right-panel-note">{b.inventory.join('; ')}</div>
                             </div>
                           )}
                         </td>
