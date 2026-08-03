@@ -37,6 +37,7 @@ export default function App(): React.JSX.Element {
   const hydrateFromCurrent = useVaultStore((s) => s.hydrateFromCurrent)
   const setTree = useVaultStore((s) => s.setTree)
   const saveNow = useEditorStore((s) => s.saveNow)
+  const dirty = useEditorStore((s) => s.dirty)
   const markExternalChangePending = useEditorStore((s) => s.markExternalChangePending)
   const openNote = useEditorStore((s) => s.openNote)
   const checkCloudSession = useCloudStore((s) => s.checkSession)
@@ -46,6 +47,8 @@ export default function App(): React.JSX.Element {
   const refreshCloudTree = useCloudStore((s) => s.refreshTree)
   const signedIn = useCloudStore((s) => s.signedIn)
   const cloudOpenNote = useCloudEditorStore((s) => s.openNote)
+  const cloudSaveNow = useCloudEditorStore((s) => s.saveNow)
+  const cloudDirty = useCloudEditorStore((s) => s.dirty)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
   const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative' | 'contradictions'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
@@ -121,16 +124,28 @@ export default function App(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signedIn])
 
+  // Saves whichever of the two independent editor stores (local vault,
+  // Cloud Workspace) is actually dirty — each saveNow() is already a no-op
+  // when its own store isn't dirty, so this is safe to call unconditionally
+  // regardless of which workspaceSource is currently displayed. This is
+  // the app's own explicit "save everything that's pending" action — an
+  // always-available manual trigger, not dependent on the passive
+  // debounced autosave noticing a change.
+  const saveAll = async (): Promise<void> => {
+    await Promise.allSettled([saveNow(), cloudSaveNow()])
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
-        void saveNow()
+        void saveAll()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveNow])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveNow, cloudSaveNow])
 
   // Quitting the app (see main/index.ts's before-quit handler) now waits
   // on this instead of trusting the passive autosave debounce to have
@@ -231,6 +246,9 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
         <div className="title-bar-group">
+          <button onClick={() => void saveAll()} disabled={!dirty && !cloudDirty} title="Save now (⌘S) — the currently open local and/or Cloud note">
+            {dirty || cloudDirty ? 'Save*' : 'Save'}
+          </button>
           <DiceRoller />
         </div>
       </div>
