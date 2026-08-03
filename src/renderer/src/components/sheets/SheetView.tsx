@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { parseNote } from '../../../../common/frontmatter'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { PcSheet } from './PcSheet'
@@ -16,6 +16,12 @@ import { SettlementSheet } from './SettlementSheet'
 import { SettlementPresetSheet } from './SettlementPresetSheet'
 import { CalendarSheet } from './CalendarSheet'
 import { ClimateSheet } from './ClimateSheet'
+
+const SHEET_COLLAPSED_KEY = 'sheetCollapsed'
+
+function loadSheetCollapsed(): boolean {
+  return localStorage.getItem(SHEET_COLLAPSED_KEY) === 'true'
+}
 
 export function SheetView({
   content,
@@ -38,39 +44,83 @@ export function SheetView({
   // Metropolis scale) on every unrelated re-render just to read one field.
   const { frontmatter } = useMemo(() => parseNote(content), [content])
   const type = typeof frontmatter.type === 'string' ? frontmatter.type : undefined
+  // A collapse toggle, not per-note — a sheet that runs long (a Language
+  // note's dictionary, a big Settlement) can squeeze the raw-markdown
+  // editor down to its bare min-height (see .cm-container/.preview-pane in
+  // styles.css); this lets that space be reclaimed on demand. Kept as one
+  // app-wide preference rather than persisted per note, same as
+  // sidebarWidth in App.tsx, since it's a density preference more than a
+  // per-note setting.
+  const [collapsed, setCollapsed] = useState(loadSheetCollapsed)
 
+  let sheet: React.JSX.Element | null
   switch (type) {
     case 'pc':
-      return <PcSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <PcSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     case 'npc':
-      return <NpcSheet content={content} onContentChange={onContentChange} />
+      sheet = <NpcSheet content={content} onContentChange={onContentChange} />
+      break
     case 'class-reference':
-      return <ClassReferenceSheet content={content} onContentChange={onContentChange} />
+      sheet = <ClassReferenceSheet content={content} onContentChange={onContentChange} />
+      break
     case 'session':
-      return <SessionSheet content={content} onContentChange={onContentChange} />
+      sheet = <SessionSheet content={content} onContentChange={onContentChange} />
+      break
     case 'event':
-      return <EventSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <EventSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     case 'faction':
-      return <FactionSheet content={content} onContentChange={onContentChange} />
+      sheet = <FactionSheet content={content} onContentChange={onContentChange} />
+      break
     case 'item':
-      return <ItemSheet content={content} onContentChange={onContentChange} />
+      sheet = <ItemSheet content={content} onContentChange={onContentChange} />
+      break
     case 'location':
-      return <LocationSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <LocationSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     case 'language':
-      return <LanguageSheet content={content} onContentChange={onContentChange} />
+      sheet = <LanguageSheet content={content} onContentChange={onContentChange} />
+      break
     case 'family-tree':
-      return <FamilyTreeSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <FamilyTreeSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     case 'map':
-      return <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     case 'settlement':
-      return <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     case 'settlement-preset':
-      return <SettlementPresetSheet content={content} />
+      sheet = <SettlementPresetSheet content={content} />
+      break
     case 'calendar':
-      return <CalendarSheet content={content} onContentChange={onContentChange} />
+      sheet = <CalendarSheet content={content} onContentChange={onContentChange} />
+      break
     case 'climate':
-      return <ClimateSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <ClimateSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      break
     default:
-      return null
+      sheet = null
   }
+
+  if (!sheet) return null
+
+  const toggleCollapsed = (): void => {
+    setCollapsed((c) => {
+      localStorage.setItem(SHEET_COLLAPSED_KEY, String(!c))
+      return !c
+    })
+  }
+
+  return (
+    <div className={collapsed ? 'sheet-collapsible sheet-collapsed' : 'sheet-collapsible'}>
+      <button type="button" className="sheet-collapse-toggle" onClick={toggleCollapsed}>
+        {collapsed ? '▸' : '▾'} Sheet
+      </button>
+      <div className="sheet-collapsible-body" style={{ display: collapsed ? 'none' : undefined }}>
+        {sheet}
+      </div>
+    </div>
+  )
 }

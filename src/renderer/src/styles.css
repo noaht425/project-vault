@@ -936,10 +936,49 @@ button.active {
    freely claim any leftover space in a small window, crowding out the sheet
    itself — the sheet is the primary content for a typed note, the markdown
    body is secondary. Scoped to a sheet's sibling so plain markdown notes
-   (no `type`, no .sheet-view rendered) keep the full-height editor. */
-.sheet-view ~ .cm-container,
-.sheet-view ~ .preview-pane {
+   (no `type`, no .sheet-collapsible rendered) keep the full-height editor.
+   Suppressed while collapsed (see .sheet-collapsible below) — collapsing is
+   the user asking for that space back, so the editor should get all of it,
+   not just 35%. */
+.sheet-collapsible:not(.sheet-collapsed) ~ .cm-container,
+.sheet-collapsible:not(.sheet-collapsed) ~ .preview-pane {
   max-height: 35%;
+}
+
+.sheet-collapsible {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sheet-collapsible-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.sheet-collapse-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 5px 24px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: left;
+  cursor: pointer;
+  flex: none;
+}
+
+.sheet-collapse-toggle:hover {
+  color: var(--text-normal);
+  background: var(--bg-hover);
 }
 
 .sheet-row {
