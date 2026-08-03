@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findPairPercent, resolvePairRelationTable, upsertPairRelation, type PairRelation } from '../src/common/noteTypes/settlement'
+import { findPairPercent, upsertPairRelation, type PairRelation } from '../src/common/noteTypes/settlement'
 
 describe('findPairPercent', () => {
   it('finds a stored pair regardless of which order it was stored in', () => {
@@ -30,27 +30,5 @@ describe('upsertPairRelation', () => {
     const relations: PairRelation[] = [{ a: 'human', b: 'elf', percent: 10 }]
     upsertPairRelation(relations, 'human', 'elf', 99)
     expect(relations[0].percent).toBe(10)
-  })
-})
-
-describe('resolvePairRelationTable', () => {
-  it('includes every unique pair among the keys, including self-pairs, exactly once', () => {
-    const rows = resolvePairRelationTable(['human', 'elf', 'dwarf'], [], () => 0)
-    const pairKeys = rows.map((r) => [r.a, r.b].sort().join(','))
-    expect(pairKeys.sort()).toEqual(['dwarf,dwarf', 'dwarf,elf', 'dwarf,human', 'elf,elf', 'elf,human', 'human,human'].sort())
-  })
-
-  it('uses the stored percent when a pair has one, and defaultPercent otherwise', () => {
-    const relations: PairRelation[] = [{ a: 'human', b: 'elf', percent: 15 }]
-    const rows = resolvePairRelationTable(['human', 'elf'], relations, (a, b) => (a === b ? 100 : 0))
-
-    const humanElf = rows.find((r) => (r.a === 'human' && r.b === 'elf') || (r.a === 'elf' && r.b === 'human'))!
-    const humanHuman = rows.find((r) => r.a === 'human' && r.b === 'human')!
-    expect(humanElf.percent).toBe(15)
-    expect(humanHuman.percent).toBe(100)
-  })
-
-  it('returns an empty table for an empty key list', () => {
-    expect(resolvePairRelationTable([], [], () => 0)).toEqual([])
   })
 })

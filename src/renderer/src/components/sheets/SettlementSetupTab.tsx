@@ -5,7 +5,7 @@ import {
   defaultDistrictsForSize,
   defaultRaceLifeStages,
   resolveEducatedWealthTierIds,
-  resolvePairRelationTable,
+  findPairPercent,
   upsertPairRelation,
   type PairRelation,
   type SettlementFrontmatter
@@ -948,11 +948,16 @@ export function SettlementSetupTab({
 // renames the matching life-stage entry in the same update rather than
 // leaving an orphaned one behind.
 // Shared by the Race Relations and Gender Relations sections above — same
-// table shape (an unordered pair + a percent), just with a different key
+// grid shape (an unordered pair + a percent), just with a different key
 // list, label function, and default-when-unedited rule (see
-// resolvePairRelationTable's own comment for why the default differs
-// between the two). No pagination like People/Buildings need: even a
-// generous race/gender list keeps this at a few dozen rows, not thousands.
+// findPairPercent's own comment for why the default differs between the
+// two). An N×N grid — same `keys` list on both axes — rather than a flat
+// list of C(n,2)+n rows, since a grid stays scannable as the race/gender
+// list grows (5 races -> 5×5, 10 races -> 10×10, ...) where a flat list
+// would just keep getting longer. Cell (row, col) and cell (col, row)
+// read/write the exact same underlying value (the pair is unordered in
+// storage), so the grid is deliberately symmetric across its diagonal
+// rather than storing the same data twice.
 function PairRelationTable({
   keys,
   labelFor,
@@ -970,35 +975,42 @@ function PairRelationTable({
     return <p className="right-panel-note">Add at least one entry above to configure pairings.</p>
   }
 
-  const rows = resolvePairRelationTable(keys, relations, defaultPercent)
+  const percentFor = (a: string, b: string): number => findPairPercent(relations, a, b) ?? defaultPercent(a, b)
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th style={{ textAlign: 'left' }}>Pair</th>
-          <th style={{ textAlign: 'left' }}>Percent</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={`${row.a}::${row.b}`}>
-            <td>
-              {labelFor(row.a)} – {labelFor(row.b)}
-            </td>
-            <td>
-              <input
-                type="number"
-                style={{ width: 70 }}
-                value={row.percent}
-                onChange={(e) => onChange(upsertPairRelation(relations, row.a, row.b, Number(e.target.value)))}
-              />
-              %
-            </td>
+    <div style={{ overflowX: 'auto', marginTop: 4 }}>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            {keys.map((colKey) => (
+              <th key={colKey} style={{ fontSize: 12, fontWeight: 'normal', padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                {labelFor(colKey)}
+              </th>
+            ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {keys.map((rowKey) => (
+            <tr key={rowKey}>
+              <th style={{ fontSize: 12, fontWeight: 'normal', textAlign: 'right', paddingRight: 6, whiteSpace: 'nowrap' }}>
+                {labelFor(rowKey)}
+              </th>
+              {keys.map((colKey) => (
+                <td key={colKey} style={{ padding: 2 }}>
+                  <input
+                    type="number"
+                    style={{ width: 55 }}
+                    value={percentFor(rowKey, colKey)}
+                    onChange={(e) => onChange(upsertPairRelation(relations, rowKey, colKey, Number(e.target.value)))}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

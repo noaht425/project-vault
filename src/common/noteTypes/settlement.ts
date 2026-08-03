@@ -86,10 +86,13 @@ export function defaultGenderDistribution(): GenderShare[] {
 // pairing happens. Stored SPARSE (only pairs the user has actually edited)
 // rather than fully materializing every combination up front, specifically
 // so this never needs to be kept in sync when raceDistribution/
-// genderDistribution gain or lose an entry — resolvePairRelationTable/
-// findPairPercent below just treat "no stored row for this pair" as "use
-// the default," which stays correct no matter what the current race/gender
-// list looks like.
+// genderDistribution gain or lose an entry — findPairPercent below just
+// treats "no stored row for this pair" as "use the default," which stays
+// correct no matter what the current race/gender list looks like. The UI
+// renders this as an N×N grid (SettlementSetupTab.tsx's PairRelationTable)
+// rather than materializing every combination into a flat list — cell
+// (row, col) and cell (col, row) both resolve to the exact same stored
+// value here, since the pair itself is unordered.
 export const pairRelationSchema = z.object({
   a: z.string(),
   b: z.string(),
@@ -97,37 +100,18 @@ export const pairRelationSchema = z.object({
 })
 export type PairRelation = z.infer<typeof pairRelationSchema>
 
-function findPairRelation(relations: PairRelation[], a: string, b: string): PairRelation | undefined {
-  return relations.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a))
-}
-
-/** The stored percent for (a,b), or `undefined` if this exact pair has never been edited — callers decide their own fallback (see settlementGenerator.ts's pickSpouseRace/pickSpouseGender, which fall back differently for race vs gender). */
-export function findPairPercent(relations: PairRelation[], a: string, b: string): number | undefined {
-  return findPairRelation(relations, a, b)?.percent
-}
-
 /**
- * Every unique pair among `keys` (including self-pairs, e.g. Human-Human),
- * with each row's percent resolved from `relations` if explicitly stored,
- * else `defaultPercent(a, b)` — for rendering a full, always-consistent
- * table in the UI. `defaultPercent` is a parameter (not hardcoded here)
- * because Race Relations and Gender Relations have DIFFERENT pre-this-
- * feature default behaviors to stay backward compatible with: race always
- * defaulted to 100% same-race pairing, while gender was always an
- * independent draw from genderDistribution with no pairing concept at all
- * — see SettlementSetupTab.tsx's two call sites.
+ * The stored percent for (a,b), or `undefined` if this exact pair has
+ * never been edited — callers decide their own fallback (see
+ * settlementGenerator.ts's pickSpouseRace/pickSpouseGender, which fall
+ * back differently for race vs gender: race always defaulted to 100%
+ * same-race pairing before this feature existed, while gender was always
+ * an independent draw from genderDistribution with no pairing concept at
+ * all — see SettlementSetupTab.tsx's two call sites for the UI's matching
+ * defaultPercent functions).
  */
-export function resolvePairRelationTable(keys: string[], relations: PairRelation[], defaultPercent: (a: string, b: string) => number): PairRelation[] {
-  const rows: PairRelation[] = []
-  for (let i = 0; i < keys.length; i++) {
-    for (let j = i; j < keys.length; j++) {
-      const a = keys[i]
-      const b = keys[j]
-      const stored = findPairRelation(relations, a, b)
-      rows.push({ a, b, percent: stored ? stored.percent : defaultPercent(a, b) })
-    }
-  }
-  return rows
+export function findPairPercent(relations: PairRelation[], a: string, b: string): number | undefined {
+  return relations.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a))?.percent
 }
 
 /** Sets (a,b)'s percent, replacing an existing row for that unordered pair if one exists, otherwise appending a new one. */
