@@ -47,10 +47,11 @@ export function SettlementSetupTab({
   noteRefApi
 }: {
   data: SettlementFrontmatter
-  updateFrontmatter: (patch: Record<string, unknown>) => void
+  updateFrontmatter: (patch: Record<string, unknown>) => Promise<void>
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const [lastGenerated, setLastGenerated] = useState<string | null>(null)
+  const [generateError, setGenerateError] = useState<string | null>(null)
   const [religionNoteOptions, setReligionNoteOptions] = useState<string[]>([])
   const [folderPathOptions, setFolderPathOptions] = useState<string[]>([])
   const [newReligionNote, setNewReligionNote] = useState('')
@@ -153,7 +154,7 @@ export function SettlementSetupTab({
     )
   }
 
-  const updateBuildingType = (id: string, patch: Record<string, unknown>): void =>
+  const updateBuildingType = (id: string, patch: Record<string, unknown>): Promise<void> =>
     updateFrontmatter({ buildingTypes: data.buildingTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)) })
 
   const raceTotal = data.raceDistribution.reduce((sum, r) => sum + r.percent, 0)
@@ -162,7 +163,9 @@ export function SettlementSetupTab({
   const genderTotal = data.genderDistribution.reduce((sum, g) => sum + g.percent, 0)
   const educatedTierIds = resolveEducatedWealthTierIds(data.wealthTiers, data.customEducation, data.educatedWealthTierIds)
 
-  const handleGenerate = (): void => {
+  const [generating, setGenerating] = useState(false)
+
+  const handleGenerate = async (): Promise<void> => {
     if (data.buildings.length > 0 || data.residents.length > 0) {
       const proceed = window.confirm(
         'Regenerate this settlement? Promoted (linked) residents and buildings are kept — everything else is replaced.'
@@ -200,8 +203,16 @@ export function SettlementSetupTab({
       Math.random,
       () => crypto.randomUUID()
     )
-    updateFrontmatter({ buildings: result.buildings, residents: result.residents, factions: result.factions })
-    setLastGenerated(`Generated ${result.residents.length.toLocaleString()} residents across ${result.buildings.length.toLocaleString()} buildings.`)
+    setGenerateError(null)
+    setGenerating(true)
+    try {
+      await updateFrontmatter({ buildings: result.buildings, residents: result.residents, factions: result.factions })
+      setLastGenerated(`Generated ${result.residents.length.toLocaleString()} residents across ${result.buildings.length.toLocaleString()} buildings.`)
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGenerating(false)
+    }
   }
 
   return (
@@ -364,7 +375,9 @@ export function SettlementSetupTab({
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, paddingLeft: 8 }}>
                 {data.buildingTypes.map((bt) => {
                   const boost = d.buildingTypeBoosts.find((b) => b.buildingTypeId === bt.id)
-                  const setBoosts = (boosts: SettlementFrontmatter['districts'][number]['buildingTypeBoosts']): void =>
+                  const setBoosts = (
+                    boosts: SettlementFrontmatter['districts'][number]['buildingTypeBoosts']
+                  ): Promise<void> =>
                     updateFrontmatter({ districts: data.districts.map((x) => (x.id === d.id ? { ...x, buildingTypeBoosts: boosts } : x)) })
                   return (
                     <label key={bt.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -928,10 +941,11 @@ export function SettlementSetupTab({
       </details>
 
       <div style={{ marginTop: 16 }}>
-        <button className="sheet-open-ref-button" onClick={handleGenerate}>
-          Generate
+        <button className="sheet-open-ref-button" disabled={generating} onClick={() => void handleGenerate()}>
+          {generating ? 'Generating…' : 'Generate'}
         </button>
         {lastGenerated && <p className="right-panel-note">{lastGenerated}</p>}
+        {generateError && <p className="right-panel-note">{generateError}</p>}
       </div>
     </div>
   )

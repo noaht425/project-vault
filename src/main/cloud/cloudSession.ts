@@ -4,6 +4,7 @@ import { extname } from 'node:path'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { readRefreshToken, writeRefreshToken, clearRefreshToken } from './cloudSessionStore'
 import { readCachedTree, writeCachedTree } from './cloudTreeCache'
+import type { SettlementBuilding, SettlementResident } from '../../common/noteTypes/settlement'
 import type {
   CloudBacklink,
   CloudEventSummary,
@@ -30,6 +31,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_uQP5hIZcHJdQyFnx7wk4Cg_SDXZvP0z'
 const API_BASE_URL = 'https://project-vault-cloud.vercel.app'
 
 const MAP_IMAGES_BUCKET = 'map-images'
+const SETTLEMENT_DATA_BUCKET = 'settlement-data'
 const SIGNED_URL_TTL_SECONDS = 60 * 60
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -435,8 +437,58 @@ export class CloudSession {
     return data.signedUrl
   }
 
+  // Cloud Workspace-only counterpart to residents/buildings staying inline
+  // in a settlement note's frontmatter — see settlementBulkData.ts's
+  // shouldOffloadBulkData and docs/plans/2026-08-03-cloud-settlement-
+  // storage-offload.md. A Metropolis-scale settlement's residents/buildings
+  // can run 30+MB of JSON, nowhere close to fitting in a PATCH
+  // /api/notes/[id] body under Vercel's ~4.5MB limit — this uploads/
+  // downloads that data directly against Supabase Storage instead, the same
+  // "skip the Vercel hop entirely" approach uploadMapImage/getMapImageUrl
+  // already use for map images. Downloads (rather than a signed URL like
+  // getMapImageUrl) since the caller here is this same main process, not a
+  // <img src> in the renderer — no reason to hand back a URL just to fetch
+  // it again.
+  async uploadSettlementBulkData(
+    residents: SettlementResident[],
+    buildings: SettlementBuilding[]
+  ): Promise<{ path: string }> {
+    if (!this.userId) throw new Error('Not signed in')
+    const objectPath = `${this.userId}/${randomUUID()}.json`
+    const bytes = Buffer.from(JSON.stringify({ residents, buildings }))
+
+    const { error } = await this.storageClient()
+      .storage.from(SETTLEMENT_DATA_BUCKET)
+      .upload(objectPath, bytes, { contentType: 'application/json' })
+    if (error) throw new Error(error.message)
+
+    return { path: objectPath }
+  }
+
+  async getSettlementBulkData(path: string): Promise<{ residents: SettlementResident[]; buildings: SettlementBuilding[] }> {
+    const { data, error } = await this.storageClient().storage.from(SETTLEMENT_DATA_BUCKET).download(path)
+    if (error || !data) throw new Error(error?.message ?? 'Failed to download settlement data')
+    return JSON.parse(await data.text()) as { residents: SettlementResident[]; buildings: SettlementBuilding[] }
+  }
+
   private async parseOrThrow<T>(res: Response): Promise<T> {
-    const data: unknown = await res.json()
+    const text = await res.text()
+    let data: unknown
+    try {
+      data = text ? JSON.parse(text) : undefined
+    } catch {
+      // Not JSON — a platform-level rejection before project-vault-cloud's
+      // own handler ever ran (e.g. Vercel's plain-text 413 "Request Entity
+      // Too Large" for an oversized PATCH body), not a bug in the API's own
+      // error handling. Without this, res.json() throws a raw
+      // "SyntaxError: Unexpected token 'R', "Request En"..." straight out
+      // to the UI — confusing to a user who has no idea what a 413 is, and
+      // this bit the user directly while diagnosing the settlement-save
+      // issue this fix is part of.
+      throw new Error(
+        res.status === 413 ? 'That request was too large for the server to accept.' : `Request failed (${res.status})`
+      )
+    }
     if (!res.ok) {
       const message = (data as { error?: string })?.error ?? `Request failed (${res.status})`
       throw new Error(message)

@@ -478,7 +478,15 @@ export const settlementFrontmatterSchema = z
     randomFactionMaxMembers: z.coerce.number().catch(50),
     factions: z.array(factionSchema).catch([]),
     buildings: z.array(settlementBuildingSchema).catch([]),
-    residents: z.array(settlementResidentSchema).catch([])
+    residents: z.array(settlementResidentSchema).catch([]),
+    // Set (Cloud Workspace only — see settlementBulkData.ts) when
+    // residents/buildings are too large to fit inline in a note's
+    // frontmatter and have been offloaded to Supabase Storage instead. When
+    // set, `buildings`/`residents` above are cleared to [] and are NOT
+    // authoritative — SettlementSheet.tsx fetches the real arrays from
+    // Storage and merges them in before handing data down to the tabs.
+    // Local Vault has no size limit and never sets this.
+    bulkDataStoragePath: z.string().nullable().catch(null)
   })
   .passthrough()
 

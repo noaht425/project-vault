@@ -4,6 +4,7 @@ import type { NoteRefApi } from '../../src/renderer/src/lib/noteRefApi'
 
 function makeNoteRefApi(overrides: Partial<NoteRefApi> = {}): NoteRefApi {
   const base: NoteRefApi = {
+    isCloud: false,
     searchTitles: vi.fn().mockResolvedValue([]),
     openByTitle: vi.fn(),
     readBodyByTitle: vi.fn().mockResolvedValue(null),

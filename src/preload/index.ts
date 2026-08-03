@@ -30,6 +30,7 @@ import type {
   CloudTreeNode,
   CloudWorkspaceSettings
 } from '../common/cloudTypes'
+import type { SettlementBuilding, SettlementResident } from '../common/noteTypes/settlement'
 
 const vaultApi = {
   openVault: (): Promise<VaultOpenResult | null> => ipcRenderer.invoke('vault:open'),
@@ -161,6 +162,11 @@ const cloudApi = {
   // existing cancel convention.
   pickAndUploadMapImage: (): Promise<{ path: string } | null> => ipcRenderer.invoke('cloud:pickAndUploadMapImage'),
   getMapImageUrl: (path: string): Promise<string> => ipcRenderer.invoke('cloud:getMapImageUrl', path),
+
+  uploadSettlementBulkData: (residents: SettlementResident[], buildings: SettlementBuilding[]): Promise<{ path: string }> =>
+    ipcRenderer.invoke('cloud:uploadSettlementBulkData', { residents, buildings }),
+  getSettlementBulkData: (path: string): Promise<{ residents: SettlementResident[]; buildings: SettlementBuilding[] }> =>
+    ipcRenderer.invoke('cloud:getSettlementBulkData', path),
 
   onTreeUpdated: (callback: (tree: CloudTreeNode[]) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: CloudTreeNode[]): void => callback(payload)

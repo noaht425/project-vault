@@ -73,7 +73,7 @@ export function SettlementPeopleTab({
   noteRefApi
 }: {
   data: SettlementFrontmatter
-  updateFrontmatter: (patch: Record<string, unknown>) => void
+  updateFrontmatter: (patch: Record<string, unknown>) => Promise<void>
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const [search, setSearch] = useState('')
@@ -160,7 +160,7 @@ export function SettlementPeopleTab({
         wealthTierNameById.get(resident.wealthTierId) ?? ''
       )
       const created = await noteRefApi.createNote(resident.name, frontmatter, body)
-      updateFrontmatter({
+      await updateFrontmatter({
         residents: data.residents.map((r) => (r.id === resident.id ? { ...r, linkedNoteTitle: created.title } : r))
       })
     } catch (err) {

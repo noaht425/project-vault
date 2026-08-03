@@ -170,4 +170,19 @@ describe('CloudSession', () => {
     mockFetchOnce(404, { error: 'Not found' })
     await expect(session.getNote('missing')).rejects.toThrow('Not found')
   })
+
+  // Vercel's own 413 "Request Entity Too Large" rejection (hit before
+  // project-vault-cloud's own PATCH handler ever runs on an oversized
+  // settlement save) is plain text, not JSON — parseOrThrow needs to
+  // surface something readable instead of letting res.json() throw a raw
+  // SyntaxError. See docs/plans/2026-08-03-cloud-settlement-storage-offload.md.
+  it('saveNote surfaces a readable error on a plain-text 413 response', async () => {
+    const session = await signedInSession()
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response('Request Entity Too Large', { status: 413 })
+    )
+    await expect(session.saveNote('note-1', { version: 1, body: 'huge' })).rejects.toThrow(
+      'That request was too large for the server to accept.'
+    )
+  })
 })

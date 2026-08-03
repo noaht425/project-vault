@@ -1,5 +1,6 @@
 import { ipcMain, dialog, type BrowserWindow } from 'electron'
 import type { CloudSession } from '../cloud/cloudSession'
+import type { SettlementBuilding, SettlementResident } from '../../common/noteTypes/settlement'
 import type {
   CloudBacklink,
   CloudEventSummary,
@@ -134,4 +135,18 @@ export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow): vo
   })
 
   ipcMain.handle('cloud:getMapImageUrl', async (_event, path: string): Promise<string> => cloud.getMapImageUrl(path))
+
+  ipcMain.handle(
+    'cloud:uploadSettlementBulkData',
+    async (
+      _event,
+      args: { residents: SettlementResident[]; buildings: SettlementBuilding[] }
+    ): Promise<{ path: string }> => cloud.uploadSettlementBulkData(args.residents, args.buildings)
+  )
+
+  ipcMain.handle(
+    'cloud:getSettlementBulkData',
+    async (_event, path: string): Promise<{ residents: SettlementResident[]; buildings: SettlementBuilding[] }> =>
+      cloud.getSettlementBulkData(path)
+  )
 }

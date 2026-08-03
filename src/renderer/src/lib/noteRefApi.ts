@@ -13,6 +13,11 @@ import { useCloudStore } from '../state/cloudStore'
 // the exact case-insensitive match, then act or alert" — this consolidates
 // that into one implementation per backend.
 export interface NoteRefApi {
+  // Cloud Workspace vs. Local Vault — added so a sheet can gate backend-
+  // specific behavior (e.g. SettlementSheet.tsx's Supabase-Storage bulk
+  // data offload, which only makes sense for Cloud, since Local Vault
+  // writes straight to a file with no request-size limit to work around).
+  isCloud: boolean
   searchTitles(query: string, type?: string): Promise<{ title: string }[]>
   openByTitle(title: string, type?: string): Promise<void>
   readBodyByTitle(title: string, type?: string): Promise<string | null>
@@ -63,7 +68,10 @@ export function createNoteRefApi(
   readNoteByRef: (ref: string) => Promise<{ frontmatter: Record<string, unknown>; body: string }> = async (ref) => {
     const [frontmatter, body] = await Promise.all([readFrontmatterByRef(ref), readBodyByRef(ref)])
     return { frontmatter, body }
-  }
+  },
+  // Defaults to false so existing callers/tests that don't pass this (and
+  // don't care about the local/cloud distinction) still work.
+  isCloud = false
 ): NoteRefApi {
   async function findExact(title: string, type?: string): Promise<{ title: string; ref: string } | undefined> {
     const matches = await searchTitles(title, type)
@@ -71,6 +79,7 @@ export function createNoteRefApi(
   }
 
   return {
+    isCloud,
     searchTitles,
     // Callers (PcSheet's Open button, the family-tree diagram's clickable
     // nodes) don't wrap this in their own try/catch, so an IPC/network
@@ -137,7 +146,8 @@ export function useLocalNoteRefApi(): NoteRefApi {
         async (folderPath) => listNoteTitlesInFolder(tree, folderPath).map((title) => ({ title })),
         async () => listFolderPaths(tree),
         // One readNote + one parse instead of two of each.
-        async (path) => parseNote((await window.vaultApi.readNote(path)).content)
+        async (path) => parseNote((await window.vaultApi.readNote(path)).content),
+        false
       ),
     [openNote, vaultPath, tree]
   )
@@ -165,7 +175,8 @@ export function useCloudNoteRefApi(): NoteRefApi {
         async (id) => {
           const note = await window.cloudApi.getNote(id)
           return { frontmatter: note.frontmatter, body: note.body }
-        }
+        },
+        true
       ),
     [openNote, tree]
   )

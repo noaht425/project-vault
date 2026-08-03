@@ -58,7 +58,7 @@ export function SettlementBuildingsTab({
   noteRefApi
 }: {
   data: SettlementFrontmatter
-  updateFrontmatter: (patch: Record<string, unknown>) => void
+  updateFrontmatter: (patch: Record<string, unknown>) => Promise<void>
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState('')
@@ -157,7 +157,7 @@ export function SettlementBuildingsTab({
         wealthTierNameById.get(building.wealthTierId) ?? ''
       )
       const created = await noteRefApi.createNote(building.name, frontmatter, body)
-      updateFrontmatter({
+      await updateFrontmatter({
         buildings: data.buildings.map((b) => (b.id === building.id ? { ...b, linkedNoteTitle: created.title } : b))
       })
     } catch (err) {
