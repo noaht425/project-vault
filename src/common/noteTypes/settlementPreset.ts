@@ -7,6 +7,7 @@ import {
   wealthTierSchema,
   religionShareSchema,
   genderShareSchema,
+  pairRelationSchema,
   buildingTypeDefSchema,
   specialtyDefSchema,
   customFactionDefSchema,
@@ -44,6 +45,8 @@ export const settlementPresetFrontmatterSchema = z
     wealthTiers: z.array(wealthTierSchema).catch(() => defaultWealthTiers()),
     religionDistribution: z.array(religionShareSchema).catch([]),
     genderDistribution: z.array(genderShareSchema).catch(() => defaultGenderDistribution()),
+    raceRelations: z.array(pairRelationSchema).catch([]),
+    genderRelations: z.array(pairRelationSchema).catch([]),
     buildingTypes: z.array(buildingTypeDefSchema).catch(() => defaultBuildingTypes()),
     specialties: z.array(specialtyDefSchema).catch(() => defaultSpecialties()),
     activeSpecialtyIds: z.array(z.string()).catch([]),
@@ -75,6 +78,8 @@ export type SettlementPresetFields = Pick<
   | 'wealthTiers'
   | 'religionDistribution'
   | 'genderDistribution'
+  | 'raceRelations'
+  | 'genderRelations'
   | 'buildingTypes'
   | 'specialties'
   | 'activeSpecialtyIds'
@@ -100,6 +105,8 @@ export function extractPresetFields(data: SettlementFrontmatter): SettlementPres
     wealthTiers: data.wealthTiers,
     religionDistribution: data.religionDistribution,
     genderDistribution: data.genderDistribution,
+    raceRelations: data.raceRelations,
+    genderRelations: data.genderRelations,
     buildingTypes: data.buildingTypes,
     specialties: data.specialties,
     activeSpecialtyIds: data.activeSpecialtyIds,
@@ -126,6 +133,8 @@ export function presetFieldsFromPreset(preset: SettlementPresetFrontmatter): Set
     wealthTiers: preset.wealthTiers,
     religionDistribution: preset.religionDistribution,
     genderDistribution: preset.genderDistribution,
+    raceRelations: preset.raceRelations,
+    genderRelations: preset.genderRelations,
     buildingTypes: preset.buildingTypes,
     specialties: preset.specialties,
     activeSpecialtyIds: preset.activeSpecialtyIds,

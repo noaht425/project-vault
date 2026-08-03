@@ -5,6 +5,9 @@ import {
   defaultDistrictsForSize,
   defaultRaceLifeStages,
   resolveEducatedWealthTierIds,
+  resolvePairRelationTable,
+  upsertPairRelation,
+  type PairRelation,
   type SettlementFrontmatter
 } from '../../../../common/noteTypes/settlement'
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
@@ -178,6 +181,8 @@ export function SettlementSetupTab({
         wealthTiers: data.wealthTiers,
         religionDistribution: data.religionDistribution,
         genderDistribution: data.genderDistribution,
+        raceRelations: data.raceRelations,
+        genderRelations: data.genderRelations,
         buildingTypes: data.buildingTypes,
         specialties: data.specialties,
         activeSpecialtyIds: data.activeSpecialtyIds,
@@ -448,6 +453,22 @@ export function SettlementSetupTab({
       </div>
 
       <div style={{ marginTop: 12 }}>
+        <strong>Race Relations</strong>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          How likely a notable's spouse is to be each race, given their own — drives spouse selection and (for a
+          mixed pairing) which parent's race their children inherit. Leave a race untouched here and it defaults to
+          exactly what happened before this section existed: always pairing with its own race.
+        </p>
+        <PairRelationTable
+          keys={data.raceDistribution.map((r) => r.race)}
+          labelFor={(race) => raceLabel(race, data.customRaces)}
+          relations={data.raceRelations}
+          defaultPercent={(a, b) => (a === b ? 100 : 0)}
+          onChange={(next) => updateFrontmatter({ raceRelations: next })}
+        />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
         <strong>Genders</strong>{' '}
         <span className="right-panel-note">
           Total: {genderTotal}%{genderTotal !== 100 ? ' (should total 100)' : ''}
@@ -487,6 +508,22 @@ export function SettlementSetupTab({
         >
           + Add gender
         </button>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Gender Relations</strong>
+        <p className="right-panel-note" style={{ marginTop: 2 }}>
+          How likely a notable's spouse is to be each gender, given their own. Leave a gender untouched here and it
+          defaults to exactly what happened before this section existed: an independent draw from the Genders list
+          above, with no relation to the notable's own gender at all.
+        </p>
+        <PairRelationTable
+          keys={data.genderDistribution.map((g) => g.gender)}
+          labelFor={(gender) => gender}
+          relations={data.genderRelations}
+          defaultPercent={(_a, b) => data.genderDistribution.find((g) => g.gender === b)?.percent ?? 0}
+          onChange={(next) => updateFrontmatter({ genderRelations: next })}
+        />
       </div>
 
       <div style={{ marginTop: 12 }}>
@@ -910,6 +947,61 @@ export function SettlementSetupTab({
 // place). Changing which race this row represents (the <select>) now
 // renames the matching life-stage entry in the same update rather than
 // leaving an orphaned one behind.
+// Shared by the Race Relations and Gender Relations sections above — same
+// table shape (an unordered pair + a percent), just with a different key
+// list, label function, and default-when-unedited rule (see
+// resolvePairRelationTable's own comment for why the default differs
+// between the two). No pagination like People/Buildings need: even a
+// generous race/gender list keeps this at a few dozen rows, not thousands.
+function PairRelationTable({
+  keys,
+  labelFor,
+  relations,
+  defaultPercent,
+  onChange
+}: {
+  keys: string[]
+  labelFor: (key: string) => string
+  relations: PairRelation[]
+  defaultPercent: (a: string, b: string) => number
+  onChange: (next: PairRelation[]) => void
+}): React.JSX.Element {
+  if (keys.length === 0) {
+    return <p className="right-panel-note">Add at least one entry above to configure pairings.</p>
+  }
+
+  const rows = resolvePairRelationTable(keys, relations, defaultPercent)
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th style={{ textAlign: 'left' }}>Pair</th>
+          <th style={{ textAlign: 'left' }}>Percent</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={`${row.a}::${row.b}`}>
+            <td>
+              {labelFor(row.a)} – {labelFor(row.b)}
+            </td>
+            <td>
+              <input
+                type="number"
+                style={{ width: 70 }}
+                value={row.percent}
+                onChange={(e) => onChange(upsertPairRelation(relations, row.a, row.b, Number(e.target.value)))}
+              />
+              %
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 function RaceCard({
   data,
   updateFrontmatter,

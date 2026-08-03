@@ -74,10 +74,20 @@ export function SettlementPresetSheet({ content }: { content: string }): React.J
           {data.customEducation ? `Custom (${data.educatedWealthTierIds.length} tier(s))` : 'Automatic (top half of wealth tiers)'}
         </div>
         <div>
+          <strong>Race relations:</strong> {data.raceRelations.length > 0 ? `${data.raceRelations.length} pair(s) customized` : 'Default (always same-race)'}
+        </div>
+        <div>
+          <strong>Gender relations:</strong>{' '}
+          {data.genderRelations.length > 0 ? `${data.genderRelations.length} pair(s) customized` : 'Default (independent draw)'}
+        </div>
+        <div>
           <strong>Building types:</strong> {data.buildingTypes.length.toLocaleString()}
         </div>
         <div>
           <strong>Active specialties:</strong> {activeSpecialtyNames || '—'}
+        </div>
+        <div>
+          <strong>Factions:</strong> {data.customFactions.length} custom, {data.randomFactionCount} random
         </div>
       </div>
     </div>

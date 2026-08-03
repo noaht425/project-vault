@@ -37,6 +37,8 @@ describe('settlementPreset', () => {
       wealthTiers: settlement.wealthTiers,
       religionDistribution: settlement.religionDistribution,
       genderDistribution: settlement.genderDistribution,
+      raceRelations: settlement.raceRelations,
+      genderRelations: settlement.genderRelations,
       buildingTypes: settlement.buildingTypes,
       specialties: settlement.specialties,
       activeSpecialtyIds: settlement.activeSpecialtyIds,

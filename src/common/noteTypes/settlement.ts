@@ -81,6 +81,64 @@ export function defaultGenderDistribution(): GenderShare[] {
   ]
 }
 
+// Shared shape for both Race Relations and Gender Relations (Settlement
+// Setup tab) — an unordered pair (a,b) plus how often that specific
+// pairing happens. Stored SPARSE (only pairs the user has actually edited)
+// rather than fully materializing every combination up front, specifically
+// so this never needs to be kept in sync when raceDistribution/
+// genderDistribution gain or lose an entry — resolvePairRelationTable/
+// findPairPercent below just treat "no stored row for this pair" as "use
+// the default," which stays correct no matter what the current race/gender
+// list looks like.
+export const pairRelationSchema = z.object({
+  a: z.string(),
+  b: z.string(),
+  percent: z.coerce.number().catch(0)
+})
+export type PairRelation = z.infer<typeof pairRelationSchema>
+
+function findPairRelation(relations: PairRelation[], a: string, b: string): PairRelation | undefined {
+  return relations.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a))
+}
+
+/** The stored percent for (a,b), or `undefined` if this exact pair has never been edited — callers decide their own fallback (see settlementGenerator.ts's pickSpouseRace/pickSpouseGender, which fall back differently for race vs gender). */
+export function findPairPercent(relations: PairRelation[], a: string, b: string): number | undefined {
+  return findPairRelation(relations, a, b)?.percent
+}
+
+/**
+ * Every unique pair among `keys` (including self-pairs, e.g. Human-Human),
+ * with each row's percent resolved from `relations` if explicitly stored,
+ * else `defaultPercent(a, b)` — for rendering a full, always-consistent
+ * table in the UI. `defaultPercent` is a parameter (not hardcoded here)
+ * because Race Relations and Gender Relations have DIFFERENT pre-this-
+ * feature default behaviors to stay backward compatible with: race always
+ * defaulted to 100% same-race pairing, while gender was always an
+ * independent draw from genderDistribution with no pairing concept at all
+ * — see SettlementSetupTab.tsx's two call sites.
+ */
+export function resolvePairRelationTable(keys: string[], relations: PairRelation[], defaultPercent: (a: string, b: string) => number): PairRelation[] {
+  const rows: PairRelation[] = []
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i; j < keys.length; j++) {
+      const a = keys[i]
+      const b = keys[j]
+      const stored = findPairRelation(relations, a, b)
+      rows.push({ a, b, percent: stored ? stored.percent : defaultPercent(a, b) })
+    }
+  }
+  return rows
+}
+
+/** Sets (a,b)'s percent, replacing an existing row for that unordered pair if one exists, otherwise appending a new one. */
+export function upsertPairRelation(relations: PairRelation[], a: string, b: string, percent: number): PairRelation[] {
+  const idx = relations.findIndex((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a))
+  if (idx === -1) return [...relations, { a, b, percent }]
+  const next = [...relations]
+  next[idx] = { ...next[idx], percent }
+  return next
+}
+
 // A custom race a user adds beyond the 8 seeded baseline races (see
 // settlementNames.ts). Name generation uses EITHER of two mechanisms, never
 // both at once (kept as two separate fields rather than a tagged union so a
@@ -384,6 +442,14 @@ export const settlementFrontmatterSchema = z
     wealthTiers: z.array(wealthTierSchema).catch(() => defaultWealthTiers()),
     religionDistribution: z.array(religionShareSchema).catch([]),
     genderDistribution: z.array(genderShareSchema).catch(() => defaultGenderDistribution()),
+    // Race Relations / Gender Relations tabs — see pairRelationSchema's own
+    // comment for why these are stored sparse. Drives who a notable's
+    // spouse turns out to be (and, for race, their children's race) — see
+    // settlementGenerator.ts's pickSpouseRace/pickSpouseGender. Empty by
+    // default, which reproduces the exact pre-these-fields behavior for
+    // both (see those two functions' own fallback logic).
+    raceRelations: z.array(pairRelationSchema).catch([]),
+    genderRelations: z.array(pairRelationSchema).catch([]),
     buildingTypes: z.array(buildingTypeDefSchema).catch(() => defaultBuildingTypes()),
     specialties: z.array(specialtyDefSchema).catch(() => defaultSpecialties()),
     // Which of `specialties` are actually active for THIS settlement — a

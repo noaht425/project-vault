@@ -10,6 +10,7 @@ import {
   type Faction,
   type GenderShare,
   type NotableRelative,
+  type PairRelation,
   type RaceLifeStage,
   type RaceShare,
   type RelationType,
@@ -541,11 +542,42 @@ function withSurname(fullName: string, surname: string): string {
   return parts.join(' ')
 }
 
+/**
+ * Race Relations tab — falls back to always-same-race (the exact pre-this-
+ * feature behavior) whenever nothing at all has been configured for THIS
+ * specific race, not just when the whole table is empty, so a settlement
+ * that's only customized one race's relations still gets old behavior for
+ * every other race.
+ */
+function pickSpouseRace(notableRace: string, raceRelations: PairRelation[], rng: () => number): string {
+  const relevant = raceRelations.filter((r) => r.a === notableRace || r.b === notableRace)
+  if (relevant.length === 0) return notableRace
+  const weighted = relevant.map((r) => ({ race: r.a === notableRace ? r.b : r.a, percent: r.percent }))
+  return pickByPercent(weighted, rng)?.race ?? notableRace
+}
+
+/**
+ * Gender Relations tab — falls back to an independent draw from
+ * genderDistribution (the exact pre-this-feature behavior: a spouse's
+ * gender had no relation to the notable's own at all) whenever nothing's
+ * configured for this specific gender, same "only affects what's actually
+ * been edited" spirit as pickSpouseRace.
+ */
+function pickSpouseGender(notableGender: string, genderRelations: PairRelation[], genderDistribution: GenderShare[], rng: () => number): string {
+  const relevant = genderRelations.filter((r) => r.a === notableGender || r.b === notableGender)
+  if (relevant.length === 0) return pickByPercent(genderDistribution, rng)?.gender ?? 'Male'
+  const weighted = relevant.map((r) => ({ gender: r.a === notableGender ? r.b : r.a, percent: r.percent }))
+  return pickByPercent(weighted, rng)?.gender ?? notableGender
+}
+
 function generateFamily(
   notable: { name: string; race: string; gender: string; age: number },
   raceLifeStages: RaceLifeStage[],
   nameFor: (race: string, gender: string) => string,
   pickGender: () => string,
+  raceRelations: PairRelation[],
+  genderRelations: PairRelation[],
+  genderDistribution: GenderShare[],
   rng: () => number,
   idFactory: () => string
 ): NotableRelative[] {
@@ -557,35 +589,50 @@ function generateFamily(
     relation: RelationType,
     age: number,
     livingStatus: 'alive' | 'deceased' = 'alive',
-    shareSurname = false
+    shareSurname = false,
+    overrides: { race?: string; gender?: string } = {}
   ): void => {
-    const gender = pickGender()
-    const rolledName = nameFor(notable.race, gender)
+    const gender = overrides.gender ?? pickGender()
+    const race = overrides.race ?? notable.race
+    const rolledName = nameFor(race, gender)
     relatives.push({
       id: idFactory(),
       name: shareSurname ? withSurname(rolledName, familySurname) : rolledName,
       relation,
       gender,
       age: Math.max(0, Math.round(age)),
-      race: notable.race,
+      race,
       livingStatus
     })
   }
 
   // Spouse — roughly the notable's own generation, both already adults.
   // Never shares the family surname (married in from a different family),
-  // same asymmetry as a real-world "maiden name" convention.
+  // same asymmetry as a real-world "maiden name" convention. Race/gender
+  // come from the Race/Gender Relations tables (see pickSpouseRace/
+  // pickSpouseGender's own fallback behavior when unconfigured) — captured
+  // in spouseRace so children below can inherit from either parent.
+  let spouseRace: string | null = null
   if (rng() < 0.6) {
-    addRelative('spouse', Math.max(stage.adulthood, notable.age + randomInt(-10, 10, rng)))
+    spouseRace = pickSpouseRace(notable.race, raceRelations, rng)
+    const spouseGender = pickSpouseGender(notable.gender, genderRelations, genderDistribution, rng)
+    addRelative('spouse', Math.max(stage.adulthood, notable.age + randomInt(-10, 10, rng)), 'alive', false, {
+      race: spouseRace,
+      gender: spouseGender
+    })
   }
 
   // Children — each at least stage.adulthood years younger than the
   // notable, i.e. the notable was already an adult when they were born.
   // Always share the family surname — a child not carrying their own
   // parent's household name would be the unusual case, not the default.
+  // Race: a coin flip between the two parents when they differ (confirmed
+  // with the user — no synthesized "mixed" race id, just inherits one
+  // parent's outright), otherwise trivially the notable's own race.
   const childCount = pickByPercent(CHILD_COUNT_WEIGHTS, rng)?.count ?? 0
   for (let i = 0; i < childCount; i++) {
-    addRelative('child', randomInt(0, Math.max(0, notable.age - stage.adulthood), rng), 'alive', true)
+    const childRace = spouseRace && spouseRace !== notable.race && rng() < 0.5 ? spouseRace : notable.race
+    addRelative('child', randomInt(0, Math.max(0, notable.age - stage.adulthood), rng), 'alive', true, { race: childRace })
   }
 
   // Siblings — same rough generation, offset either direction. SOME (not
@@ -650,6 +697,11 @@ export interface GenerationOptions {
   // Male/Female/Nonbinary 47/47/6, close enough that no existing test
   // asserting on gender-mix shape should need to change.
   genderDistribution?: GenderShare[]
+  // Race Relations / Gender Relations tabs — see pickSpouseRace/
+  // pickSpouseGender for the fallback behavior (matching this app's
+  // pre-these-fields behavior) when omitted/empty.
+  raceRelations?: PairRelation[]
+  genderRelations?: PairRelation[]
   buildingTypes: BuildingTypeDef[]
   specialties?: SpecialtyDef[]
   activeSpecialtyIds?: string[]
@@ -727,6 +779,10 @@ export function generateSettlement(
   const raceLifeStages = options.raceLifeStages ?? []
   const genderDistribution: GenderShare[] =
     options.genderDistribution && options.genderDistribution.length > 0 ? options.genderDistribution : defaultGenderDistribution()
+  // Race Relations / Gender Relations tabs — see pickSpouseRace/
+  // pickSpouseGender's own fallback behavior when empty/unconfigured.
+  const raceRelations = options.raceRelations ?? []
+  const genderRelations = options.genderRelations ?? []
   // Worshippers tab — see GenerationOptions' own comments.
   const religiousWorkerMultiplier = options.religiousWorkerMultiplier ?? 1
   const religiousPracticeFraction = (options.religiousPracticePercent ?? 100) / 100
@@ -925,7 +981,17 @@ export function generateSettlement(
       stats: rollAbilityScores(buildingType, rng),
       proficiencies: pickProficiencies(buildingType, rng),
       appearance: generateAppearance(race, gender, rng, customRaces),
-      relatives: generateFamily({ name, race, gender, age }, raceLifeStages, nameFor, pickGender, rng, idFactory),
+      relatives: generateFamily(
+        { name, race, gender, age },
+        raceLifeStages,
+        nameFor,
+        pickGender,
+        raceRelations,
+        genderRelations,
+        genderDistribution,
+        rng,
+        idFactory
+      ),
       educated: isEducated(building.wealthTierId),
       linkedNoteTitle: null
     })
