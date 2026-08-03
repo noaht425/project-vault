@@ -15,6 +15,18 @@ interface EditorState {
    *  component uses this to know when it must re-sync its own buffer. */
   revision: number
   dirty: boolean
+  /** True for the duration of an in-flight saveNote IPC call — lets the UI
+   *  distinguish "still working on a big save" from "stuck/failed", since
+   *  a large Settlement note's save can genuinely take a while even after
+   *  the stringify itself got fast (see common/frontmatter.ts's noRefs
+   *  comment) — the IPC transfer and disk write of tens of megabytes isn't
+   *  instant either. */
+  saving: boolean
+  /** Set when saveNow's IPC call throws — previously only logged to the
+   *  (invisible to a normal user) devtools console, so a genuinely failing
+   *  save looked identical to "just still working" from the UI. Cleared at
+   *  the start of the next save attempt. */
+  saveError: string | null
   baseVersion: FileVersion | null
   conflict: ConflictInfo | null
   externalChangePending: boolean
@@ -30,11 +42,34 @@ interface EditorState {
 
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 
+// Doesn't cancel the underlying IPC call (there's no clean way to abort an
+// in-flight ipcRenderer.invoke) — it just stops the renderer from waiting
+// on it forever. A save that times out may still land on disk moments
+// later; if a retry ALSO succeeds in the meantime, the existing baseVersion
+// optimistic-concurrency check (the same mechanism that already handles a
+// real external edit) is what keeps that from silently corrupting
+// anything — worst case is a spurious conflict banner, never lost data.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s — the note may be too large, or something else is stuck.`)),
+        ms
+      )
+    )
+  ])
+}
+
+const SAVE_TIMEOUT_MS = 60000
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   activeNotePath: null,
   content: '',
   revision: 0,
   dirty: false,
+  saving: false,
+  saveError: null,
   baseVersion: null,
   conflict: null,
   externalChangePending: false,
@@ -58,6 +93,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       revision: s.revision + 1,
       baseVersion: note.version,
       dirty: false,
+      saveError: null,
       conflict: null,
       externalChangePending: false
     }))
@@ -87,21 +123,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveNow: async () => {
     const { activeNotePath, content, baseVersion, dirty } = get()
     if (!activeNotePath || !dirty) return
+    set({ saving: true, saveError: null })
     try {
-      const result = await window.vaultApi.saveNote({ path: activeNotePath, content, baseVersion })
+      const result = await withTimeout(window.vaultApi.saveNote({ path: activeNotePath, content, baseVersion }), SAVE_TIMEOUT_MS, 'Save')
       if (result.status === 'saved') {
-        set({ baseVersion: result.version, dirty: false, externalChangePending: false })
+        set({ baseVersion: result.version, dirty: false, externalChangePending: false, saving: false, saveError: null })
       } else {
-        set({ conflict: { conflictPath: result.conflictPath }, dirty: false })
+        set({ conflict: { conflictPath: result.conflictPath }, dirty: false, saving: false, saveError: null })
       }
     } catch (err) {
       // Leave dirty:true on failure — nothing else retries a failed save
       // automatically, so the next edit (or the flush-before-quit path in
       // App.tsx) gets another chance instead of the failure being silent
-      // and permanent. A large note (e.g. a generated Settlement) can be
-      // slow enough to serialize/write that a transient failure here is
-      // the difference between the last edit surviving a quit or not.
+      // and permanent. saveError now actually surfaces WHY, instead of
+      // only ever reaching the (invisible to a normal user) devtools
+      // console — this was the actual gap: a failing save looked
+      // identical to "still working" from the UI, with no way to tell
+      // them apart.
+      const message = err instanceof Error ? err.message : String(err)
       console.error('Failed to save note:', err)
+      set({ saving: false, saveError: message })
     }
   },
 
@@ -115,6 +156,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       revision: s.revision + 1,
       baseVersion: note.version,
       dirty: false,
+      saveError: null,
       conflict: null,
       externalChangePending: false
     }))
@@ -136,6 +178,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       content: '',
       revision: s.revision + 1,
       dirty: false,
+      saveError: null,
       baseVersion: null,
       conflict: null,
       externalChangePending: false

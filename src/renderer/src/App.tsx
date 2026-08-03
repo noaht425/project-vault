@@ -49,6 +49,10 @@ export default function App(): React.JSX.Element {
   const cloudOpenNote = useCloudEditorStore((s) => s.openNote)
   const cloudSaveNow = useCloudEditorStore((s) => s.saveNow)
   const cloudDirty = useCloudEditorStore((s) => s.dirty)
+  const saving = useEditorStore((s) => s.saving)
+  const saveError = useEditorStore((s) => s.saveError)
+  const cloudSaving = useCloudEditorStore((s) => s.saving)
+  const cloudSaveError = useCloudEditorStore((s) => s.saveError)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
   const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative' | 'contradictions'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
@@ -246,9 +250,18 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
         <div className="title-bar-group">
-          <button onClick={() => void saveAll()} disabled={!dirty && !cloudDirty} title="Save now (⌘S) — the currently open local and/or Cloud note">
-            {dirty || cloudDirty ? 'Save*' : 'Save'}
+          <button
+            onClick={() => void saveAll()}
+            disabled={saving || cloudSaving || (!dirty && !cloudDirty)}
+            title="Save now (⌘S) — the currently open local and/or Cloud note"
+          >
+            {saving || cloudSaving ? 'Saving…' : dirty || cloudDirty ? 'Save*' : 'Save'}
           </button>
+          {(saveError || cloudSaveError) && (
+            <span style={{ color: '#c0392b', fontSize: 12 }} title={saveError ?? cloudSaveError ?? undefined}>
+              Save failed: {saveError ?? cloudSaveError}
+            </span>
+          )}
           <DiceRoller />
         </div>
       </div>

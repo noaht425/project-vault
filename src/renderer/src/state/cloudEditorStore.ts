@@ -14,6 +14,14 @@ interface CloudEditorState {
    *  component that re-renders from `frontmatter` props on its own. */
   revision: number
   dirty: boolean
+  /** True for the duration of an in-flight saveNote call — see
+   *  editorStore.ts's own field for the full reasoning (same fix, mirrored
+   *  here). */
+  saving: boolean
+  /** Set when saveNow's call throws — previously only logged to the
+   *  (invisible to a normal user) devtools console. Cleared at the start
+   *  of the next save attempt. */
+  saveError: string | null
   /** The server's current row, only set right after a 409 — nothing has
    *  been lost, the local edit just hasn't been persisted yet. See
    *  retrySaveWithLatestVersion/discardAndReloadFromConflict. */
@@ -34,12 +42,32 @@ function scheduleAutosave(saveNow: () => Promise<void>): void {
   autosaveTimer = setTimeout(() => void saveNow(), AUTOSAVE_DELAY_MS)
 }
 
+// Same reasoning as editorStore.ts's own withTimeout — doesn't cancel the
+// underlying network request, just stops the renderer waiting forever;
+// the existing version-conflict check is what keeps a late-arriving
+// response from silently clobbering anything.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s — the note may be too large, or something else is stuck.`)),
+        ms
+      )
+    )
+  ])
+}
+
+const SAVE_TIMEOUT_MS = 60000
+
 export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   activeNote: null,
   body: '',
   frontmatter: {},
   revision: 0,
   dirty: false,
+  saving: false,
+  saveError: null,
   conflict: null,
 
   openNote: async (id) => {
@@ -58,6 +86,7 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
       frontmatter: note.frontmatter,
       revision: s.revision + 1,
       dirty: false,
+      saveError: null,
       conflict: null
     }))
   },
@@ -75,21 +104,37 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   saveNow: async () => {
     const { activeNote, body, frontmatter, dirty } = get()
     if (!activeNote || !dirty) return
+    set({ saving: true, saveError: null })
     try {
-      const result = await window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter })
+      const result = await withTimeout(
+        window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter }),
+        SAVE_TIMEOUT_MS,
+        'Save'
+      )
       if (result.status === 'saved') {
-        set({ activeNote: result.note, body: result.note.body, frontmatter: result.note.frontmatter, dirty: false, conflict: null })
+        set({
+          activeNote: result.note,
+          body: result.note.body,
+          frontmatter: result.note.frontmatter,
+          dirty: false,
+          saving: false,
+          saveError: null,
+          conflict: null
+        })
       } else {
         // Deliberately doesn't touch `body`/`frontmatter` — the local edit
         // stays exactly as made, just unsaved, until retry/discard below.
-        set({ conflict: result.current })
+        set({ conflict: result.current, saving: false, saveError: null })
       }
     } catch (err) {
       // Leave dirty:true on failure (e.g. an expired session, or a dropped
       // network request) so a retry — the next edit, or the
       // flush-before-quit path in App.tsx — gets another chance instead of
-      // the failure being silent and permanent.
+      // the failure being silent and permanent. saveError now actually
+      // surfaces WHY instead of only ever reaching the devtools console.
+      const message = err instanceof Error ? err.message : String(err)
       console.error('Failed to save cloud note:', err)
+      set({ saving: false, saveError: message })
     }
   },
 
@@ -113,6 +158,7 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
       frontmatter: conflict.frontmatter,
       revision: s.revision + 1,
       dirty: false,
+      saveError: null,
       conflict: null
     }))
   },
@@ -126,6 +172,6 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
       clearTimeout(autosaveTimer)
       autosaveTimer = null
     }
-    set((s) => ({ activeNote: null, body: '', frontmatter: {}, revision: s.revision + 1, dirty: false, conflict: null }))
+    set((s) => ({ activeNote: null, body: '', frontmatter: {}, revision: s.revision + 1, dirty: false, saveError: null, conflict: null }))
   }
 }))

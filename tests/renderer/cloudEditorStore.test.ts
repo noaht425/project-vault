@@ -30,6 +30,8 @@ beforeEach(() => {
     frontmatter: {},
     revision: 0,
     dirty: false,
+    saving: false,
+    saveError: null,
     conflict: null
   })
 })
@@ -143,6 +145,60 @@ describe('cloudEditorStore', () => {
     expect(state.body).toBe('')
     expect(state.frontmatter).toEqual({})
     expect(state.dirty).toBe(false)
+  })
+
+  // Regression test: a failed save used to only ever reach the (invisible
+  // to a normal user) devtools console via console.error — the UI had no
+  // way to tell "still working" apart from "actually failed". saveError
+  // is what the Save button in App.tsx surfaces directly.
+  it('a failed save surfaces the actual error message via saveError, not just a silent console.error', async () => {
+    await useCloudEditorStore.getState().openNote('note-1')
+    const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
+    saveNote.mockRejectedValueOnce(new Error('session expired'))
+
+    useCloudEditorStore.getState().setBody('edited body')
+    await vi.runAllTimersAsync()
+
+    expect(useCloudEditorStore.getState().dirty).toBe(true)
+    expect(useCloudEditorStore.getState().saveError).toBe('session expired')
+    expect(useCloudEditorStore.getState().saving).toBe(false)
+  })
+
+  it('sets saving:true while the save is in flight, and clears it (with no error) on success', async () => {
+    await useCloudEditorStore.getState().openNote('note-1')
+    const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
+    let resolveSave: (value: { status: 'saved'; note: typeof NOTE_A }) => void = () => {}
+    saveNote.mockReturnValue(new Promise((resolve) => (resolveSave = resolve)))
+
+    useCloudEditorStore.getState().setBody('edited body')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(useCloudEditorStore.getState().saving).toBe(true)
+
+    resolveSave({ status: 'saved', note: { ...NOTE_A, body: 'edited body', version: 2 } })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(useCloudEditorStore.getState().saving).toBe(false)
+    expect(useCloudEditorStore.getState().saveError).toBeNull()
+    expect(useCloudEditorStore.getState().dirty).toBe(false)
+  })
+
+  // Regression test for a real reported symptom: clicking the manual Save
+  // button did nothing visible, the note stayed marked unsaved, and
+  // quitting later still lost the data — consistent with the underlying
+  // network call hanging (never resolving) rather than throwing. Now
+  // surfaces as a clear saveError after SAVE_TIMEOUT_MS instead of silent
+  // limbo.
+  it('gives up and surfaces a clear timeout error if the save call never resolves at all', async () => {
+    await useCloudEditorStore.getState().openNote('note-1')
+    const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
+    saveNote.mockReturnValue(new Promise(() => {})) // never resolves
+
+    useCloudEditorStore.getState().setBody('edited body')
+    await vi.advanceTimersByTimeAsync(1500 + 60000)
+
+    expect(useCloudEditorStore.getState().saveError).toContain('timed out')
+    expect(useCloudEditorStore.getState().saving).toBe(false)
+    expect(useCloudEditorStore.getState().dirty).toBe(true)
   })
 
   // Regression test for a real data-loss bug: switching to a different note

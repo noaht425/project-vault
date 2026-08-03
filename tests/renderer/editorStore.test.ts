@@ -25,6 +25,8 @@ beforeEach(() => {
     content: '',
     revision: 0,
     dirty: false,
+    saving: false,
+    saveError: null,
     baseVersion: null,
     conflict: null,
     externalChangePending: false
@@ -77,6 +79,63 @@ describe('editorStore', () => {
 
     expect(useEditorStore.getState().dirty).toBe(true)
     expect(useEditorStore.getState().content).toBe('edited content')
+  })
+
+  // Regression test: a failed save used to only ever reach the (invisible
+  // to a normal user) devtools console via console.error — the UI had no
+  // way to tell "still working" apart from "actually failed". saveError
+  // is what the Save button in App.tsx surfaces directly.
+  it('a failed save surfaces the actual error message via saveError, not just a silent console.error', async () => {
+    await useEditorStore.getState().openNote('/vault/a.md')
+    const saveNote = (window as unknown as { vaultApi: { saveNote: ReturnType<typeof vi.fn> } }).vaultApi.saveNote
+    saveNote.mockRejectedValueOnce(new Error('disk write failed'))
+
+    useEditorStore.getState().setContent('edited content')
+    await vi.runAllTimersAsync()
+
+    expect(useEditorStore.getState().saveError).toBe('disk write failed')
+    expect(useEditorStore.getState().saving).toBe(false)
+  })
+
+  it('sets saving:true while the save is in flight, and clears it (with no error) on success', async () => {
+    await useEditorStore.getState().openNote('/vault/a.md')
+    const saveNote = (window as unknown as { vaultApi: { saveNote: ReturnType<typeof vi.fn> } }).vaultApi.saveNote
+    let resolveSave: (value: { status: 'saved'; version: typeof VERSION_B }) => void = () => {}
+    saveNote.mockReturnValue(new Promise((resolve) => (resolveSave = resolve)))
+
+    useEditorStore.getState().setContent('edited content')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(useEditorStore.getState().saving).toBe(true)
+
+    resolveSave({ status: 'saved', version: VERSION_B })
+    // Flush the microtask queue (fake timers only control macrotasks like
+    // setTimeout — the resolved promise's own .then chain inside saveNow
+    // still needs real microtask ticks to run).
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(useEditorStore.getState().saving).toBe(false)
+    expect(useEditorStore.getState().saveError).toBeNull()
+    expect(useEditorStore.getState().dirty).toBe(false)
+  })
+
+  // Regression test for a real reported symptom: clicking the manual Save
+  // button did nothing visible, the note stayed marked unsaved, and
+  // quitting later still lost the data — consistent with the underlying
+  // IPC call hanging (never resolving) rather than throwing. Previously
+  // there was no bound on how long saveNow would wait, so this would have
+  // hung the promise forever with zero feedback; now it surfaces as a
+  // clear saveError after SAVE_TIMEOUT_MS instead of silent limbo.
+  it('gives up and surfaces a clear timeout error if the save IPC call never resolves at all', async () => {
+    await useEditorStore.getState().openNote('/vault/a.md')
+    const saveNote = (window as unknown as { vaultApi: { saveNote: ReturnType<typeof vi.fn> } }).vaultApi.saveNote
+    saveNote.mockReturnValue(new Promise(() => {})) // never resolves
+
+    useEditorStore.getState().setContent('edited content')
+    await vi.advanceTimersByTimeAsync(1500 + 60000)
+
+    expect(useEditorStore.getState().saveError).toContain('timed out')
+    expect(useEditorStore.getState().saving).toBe(false)
+    expect(useEditorStore.getState().dirty).toBe(true)
   })
 
   // Regression test for a real data-loss bug: switching to a different note
