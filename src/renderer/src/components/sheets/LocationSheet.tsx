@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { locationFrontmatterSchema, LOCATION_KINDS } from '../../../../common/noteTypes/location'
 import { settlementFrontmatterSchema, defaultSettlementFrontmatter } from '../../../../common/noteTypes/settlement'
@@ -13,8 +13,8 @@ export function LocationSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = locationFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => locationFrontmatterSchema.parse(frontmatter), [frontmatter])
   const [climateOptions, setClimateOptions] = useState<string[]>([])
 
   useEffect(() => {

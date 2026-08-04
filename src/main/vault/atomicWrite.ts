@@ -18,12 +18,15 @@ export interface AtomicWriteResult {
  * Drive) can observe the temp file and rename as separate sync events,
  * which can break the atomicity guarantee entirely.
  */
-export async function atomicWrite(targetPath: string, content: string): Promise<AtomicWriteResult> {
+export async function atomicWrite(targetPath: string, content: string | Buffer): Promise<AtomicWriteResult> {
   const dir = dirname(targetPath)
   const tmpPath = join(dir, `.${basename(targetPath)}.tmp-${randomBytes(6).toString('hex')}`)
 
   const handle = await fs.open(tmpPath, 'w')
   try {
+    // The 'utf8' encoding is ignored by Node when content is already a
+    // Buffer (e.g. cloudSessionStore.ts's encrypted refresh token) — safe
+    // to pass unconditionally for both cases.
     await handle.writeFile(content, 'utf8')
     await handle.sync()
   } finally {

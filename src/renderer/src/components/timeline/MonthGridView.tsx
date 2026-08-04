@@ -232,11 +232,12 @@ export function MonthGridView({ onOpenEvent }: { onOpenEvent: (path: string) => 
 
   const setAsCampaignDate = (day: number): void => {
     if (!selectedCalendarTitle || !monthRef) return
-    void window.vaultApi
+    window.vaultApi
       .updateSettings({
         campaignDate: { calendarNoteTitle: selectedCalendarTitle, eraId: monthRef.eraId, year: monthRef.year, monthId: monthRef.monthId, day }
       })
       .then(setSettings)
+      .catch((err) => console.error('Failed to set campaign date:', err))
   }
 
   const jumpToToday = (): void => {

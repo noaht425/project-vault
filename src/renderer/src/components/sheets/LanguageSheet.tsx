@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { languageFrontmatterSchema } from '../../../../common/noteTypes/language'
 import { WordDictionaryPanel } from './WordDictionaryPanel'
@@ -10,8 +11,8 @@ export function LanguageSheet({
   content: string
   onContentChange: (content: string) => void
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = languageFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => languageFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

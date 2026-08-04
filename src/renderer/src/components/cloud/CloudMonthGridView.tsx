@@ -214,11 +214,12 @@ export function CloudMonthGridView({ onOpenEvent }: { onOpenEvent: (id: string) 
 
   const setAsCampaignDate = (day: number): void => {
     if (!selectedCalendarTitle || !monthRef) return
-    void window.cloudApi
+    window.cloudApi
       .updateWorkspaceSettings({
         campaignDate: { calendarNoteTitle: selectedCalendarTitle, eraId: monthRef.eraId, year: monthRef.year, monthId: monthRef.monthId, day }
       })
       .then(setSettings)
+      .catch((err) => console.error('Failed to set campaign date:', err))
   }
 
   const jumpToToday = (): void => {

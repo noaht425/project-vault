@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { z } from 'zod'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { eventFrontmatterSchema, type EventStructuredDate } from '../../../../common/noteTypes/event'
@@ -23,8 +23,8 @@ export function EventSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = eventFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => eventFrontmatterSchema.parse(frontmatter), [frontmatter])
   const [locationOptions, setLocationOptions] = useState<string[]>([])
   const [calendarOptions, setCalendarOptions] = useState<string[]>([])
   // The referenced calendar note's OWN structured definition (eras/months/

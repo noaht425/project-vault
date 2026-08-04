@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { npcFrontmatterSchema } from '../../../../common/noteTypes/npc'
 import type { AbilityKey } from '../../../../common/noteTypes/creatureStats'
@@ -11,8 +12,8 @@ export function NpcSheet({
   content: string
   onContentChange: (content: string) => void
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = npcFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => npcFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

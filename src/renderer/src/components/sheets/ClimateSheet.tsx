@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { climateFrontmatterSchema, type ClimateSeason } from '../../../../common/noteTypes/climate'
 import { CLIMATE_PRESETS, applyClimatePreset } from '../../../../common/climatePresets'
@@ -17,8 +17,8 @@ export function ClimateSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = climateFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => climateFrontmatterSchema.parse(frontmatter), [frontmatter])
   const [calendarOptions, setCalendarOptions] = useState<string[]>([])
   // The referenced calendar's own month list — same cross-note frontmatter
   // fetch EventSheet.tsx already uses for its own Calendar field.

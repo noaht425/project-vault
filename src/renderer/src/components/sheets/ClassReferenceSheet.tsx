@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { classReferenceFrontmatterSchema } from '../../../../common/noteTypes/classReference'
 
@@ -8,8 +9,8 @@ export function ClassReferenceSheet({
   content: string
   onContentChange: (content: string) => void
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = classReferenceFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => classReferenceFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

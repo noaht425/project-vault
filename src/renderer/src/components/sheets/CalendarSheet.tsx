@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { calendarFrontmatterSchema } from '../../../../common/noteTypes/calendar'
 import { CalendarOverviewTab } from './CalendarOverviewTab'
@@ -22,8 +22,8 @@ export function CalendarSheet({
   content: string
   onContentChange: (content: string) => void
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = calendarFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => calendarFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

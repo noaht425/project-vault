@@ -35,7 +35,15 @@ export function CloudSearchView({
       return
     }
     const timer = setTimeout(() => {
-      void window.cloudApi.search(trimmed, type || undefined).then(setResults)
+      // Without a .catch, a rejected request (e.g. network blip) left
+      // results stuck at null forever — "Searching…" with no way out.
+      window.cloudApi
+        .search(trimmed, type || undefined)
+        .then(setResults)
+        .catch((err) => {
+          console.error('Search failed:', err)
+          setResults([])
+        })
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [query, type])

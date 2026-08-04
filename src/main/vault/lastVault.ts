@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWrite } from './atomicWrite'
 
 function lastVaultFilePath(userDataDir: string): string {
   return join(userDataDir, 'last-vault.json')
@@ -17,5 +18,5 @@ export async function readLastVaultPath(userDataDir: string): Promise<string | n
 }
 
 export async function writeLastVaultPath(userDataDir: string, vaultPath: string): Promise<void> {
-  await fs.writeFile(lastVaultFilePath(userDataDir), JSON.stringify({ vaultPath }), 'utf8').catch(() => {})
+  await atomicWrite(lastVaultFilePath(userDataDir), JSON.stringify({ vaultPath })).catch(() => {})
 }

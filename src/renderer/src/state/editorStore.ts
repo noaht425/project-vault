@@ -163,12 +163,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   closeNote: () => {
-    // Same reasoning as openNote — flush before discarding. Fire-and-forget
-    // (closeNote itself isn't async) is safe here: saveNow() reads
-    // activeNotePath/content/dirty synchronously via get() before its own
-    // first await, so it captures the right values before the set() below
-    // clears them.
-    void get().saveNow()
+    // Unlike openNote, this must NOT flush a pending save: closeNote's only
+    // caller (FileTree's delete handler) invokes it after the file is
+    // already gone from disk. Saving stale dirty content at that point
+    // would race fileWriteQueue's optimistic-concurrency check — it sees
+    // "file missing but I still have a baseVersion" as unsafe and writes
+    // the content back out as a new `-conflict-*.md` file, resurrecting a
+    // note the user just deleted. Discard instead.
     if (autosaveTimer) {
       clearTimeout(autosaveTimer)
       autosaveTimer = null

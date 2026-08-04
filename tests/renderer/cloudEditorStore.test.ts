@@ -226,20 +226,19 @@ describe('cloudEditorStore', () => {
     expect(useCloudEditorStore.getState().activeNote?.id).toBe('note-2')
   })
 
-  it('closeNote flushes a pending dirty edit before clearing note state', async () => {
+  it('closeNote discards a pending dirty edit instead of saving it', async () => {
+    // closeNote's only caller (CloudFileTree's delete handler) fires after
+    // the note is already deleted server-side — flushing here would just
+    // produce a spurious "save failed" banner. See cloudEditorStore.ts.
     await useCloudEditorStore.getState().openNote('note-1')
     const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
-    saveNote.mockResolvedValue({ status: 'saved', note: { ...NOTE_A, body: 'edited body', version: 2 } })
+    saveNote.mockClear()
 
     useCloudEditorStore.getState().setBody('edited body')
     useCloudEditorStore.getState().closeNote()
-    // closeNote's flush is fire-and-forget (the action itself isn't
-    // async) — flush the microtask queue so its internal saveNow() (a
-    // single already-mocked-resolved fetch, no real timers involved)
-    // actually completes before asserting.
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(saveNote).toHaveBeenCalledWith({ id: 'note-1', version: 1, body: 'edited body', frontmatter: { type: 'npc' } })
+    expect(saveNote).not.toHaveBeenCalled()
   })
 })

@@ -38,10 +38,10 @@ export function SheetView({
   noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
   // Memoized on content — this used to re-parse on every render regardless
-  // of whether content actually changed (unlike SheetView's per-type
-  // children, which already memoize their own parse), which for a large
-  // Settlement note meant paying a real parse cost (over a second at
-  // Metropolis scale) on every unrelated re-render just to read one field.
+  // of whether content actually changed, which for a large Settlement note
+  // meant paying a real parse cost (over a second at Metropolis scale) on
+  // every unrelated re-render just to read one field. Every per-type child
+  // below now memoizes its own parseNote/schema.parse the same way.
   const { frontmatter } = useMemo(() => parseNote(content), [content])
   const type = typeof frontmatter.type === 'string' ? frontmatter.type : undefined
   // A collapse toggle, not per-note — a sheet that runs long (a Language

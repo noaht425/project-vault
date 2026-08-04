@@ -30,7 +30,15 @@ export function SearchView({
       return
     }
     const timer = setTimeout(() => {
-      void window.vaultApi.search(trimmed, type || undefined).then(setResults)
+      // Without a .catch, a rejected IPC call (e.g. no vault open) left
+      // results stuck at null forever — "Searching…" with no way out.
+      window.vaultApi
+        .search(trimmed, type || undefined)
+        .then(setResults)
+        .catch((err) => {
+          console.error('Search failed:', err)
+          setResults([])
+        })
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [query, type])

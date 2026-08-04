@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { sessionFrontmatterSchema } from '../../../../common/noteTypes/session'
 
@@ -8,8 +9,8 @@ export function SessionSheet({
   content: string
   onContentChange: (content: string) => void
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = sessionFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => sessionFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

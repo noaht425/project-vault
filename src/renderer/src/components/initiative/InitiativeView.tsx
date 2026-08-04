@@ -39,12 +39,17 @@ export function InitiativeView({
   const [encounter, setEncounter] = useState<Encounter | null>(null)
 
   useEffect(() => {
-    void window.vaultApi.getCurrentEncounter().then(setEncounter)
+    // Without a .catch, a rejected IPC call left encounter stuck at null
+    // forever — "Loading…" with no way out.
+    window.vaultApi
+      .getCurrentEncounter()
+      .then(setEncounter)
+      .catch((err) => console.error('Failed to load encounter:', err))
   }, [])
 
   const persist = (next: Encounter): void => {
     setEncounter(next)
-    void window.vaultApi.saveCurrentEncounter(next)
+    window.vaultApi.saveCurrentEncounter(next).catch((err) => console.error('Failed to save encounter:', err))
   }
 
   if (encounter === null) {
@@ -67,10 +72,12 @@ export function InitiativeView({
 
   const openSource = (combatant: Combatant): void => {
     if (!combatant.sourceNoteTitle) return
-    void resolveNotePath(combatant.sourceNoteTitle, combatant.isPc ? 'pc' : 'npc').then((path) => {
-      if (path) onOpenSourceNote(path)
-      else window.alert(`No note titled "${combatant.sourceNoteTitle}" yet.`)
-    })
+    resolveNotePath(combatant.sourceNoteTitle, combatant.isPc ? 'pc' : 'npc')
+      .then((path) => {
+        if (path) onOpenSourceNote(path)
+        else window.alert(`No note titled "${combatant.sourceNoteTitle}" yet.`)
+      })
+      .catch((err) => console.error('Failed to resolve source note:', err))
   }
 
   return (

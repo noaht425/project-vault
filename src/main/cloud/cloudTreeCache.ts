@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWrite } from '../vault/atomicWrite'
 
 // Last-known tree, persisted to disk so a cold app launch has something to
 // render immediately instead of a blank panel while the network request is
@@ -19,5 +20,5 @@ export async function readCachedTree<T>(userDataDir: string): Promise<T | null> 
 }
 
 export async function writeCachedTree<T>(userDataDir: string, tree: T): Promise<void> {
-  await fs.writeFile(cloudTreeCacheFilePath(userDataDir), JSON.stringify(tree), 'utf8').catch(() => {})
+  await atomicWrite(cloudTreeCacheFilePath(userDataDir), JSON.stringify(tree)).catch(() => {})
 }

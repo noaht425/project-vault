@@ -59,6 +59,12 @@ export default function App(): React.JSX.Element {
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
+  // Lets onMouseUp read the latest width without the effect depending on
+  // sidebarWidth — that dependency used to tear down and re-add both window
+  // listeners on every single mousemove tick while dragging (setSidebarWidth
+  // -> re-render -> effect re-runs), for the entire duration of a drag.
+  const sidebarWidthRef = useRef(sidebarWidth)
+  sidebarWidthRef.current = sidebarWidth
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent): void => {
@@ -68,7 +74,7 @@ export default function App(): React.JSX.Element {
     const onMouseUp = (): void => {
       if (!resizing.current) return
       resizing.current = false
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth))
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current))
     }
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
@@ -76,7 +82,7 @@ export default function App(): React.JSX.Element {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [sidebarWidth])
+  }, [])
 
   useEffect(() => {
     void hydrateFromCurrent()

@@ -166,21 +166,21 @@ describe('editorStore', () => {
     expect(useEditorStore.getState().activeNotePath).toBe('/vault/b.md')
   })
 
-  it('closeNote flushes a pending dirty edit before clearing note state', async () => {
+  it('closeNote discards a pending dirty edit instead of saving it', async () => {
+    // closeNote's only caller (FileTree's delete handler) fires after the
+    // file is already gone from disk — flushing here would race
+    // fileWriteQueue's optimistic-concurrency check and resurrect the just-
+    // deleted note as a new `-conflict-*.md` file. See editorStore.ts.
     await useEditorStore.getState().openNote('/vault/a.md')
     const saveNote = (window as unknown as { vaultApi: { saveNote: ReturnType<typeof vi.fn> } }).vaultApi.saveNote
-    saveNote.mockResolvedValue({ status: 'saved', version: VERSION_B })
+    saveNote.mockClear()
 
     useEditorStore.getState().setContent('edited content')
     useEditorStore.getState().closeNote()
-    // closeNote's flush is fire-and-forget (the action itself isn't
-    // async) — flush the microtask queue so its internal saveNow() (a
-    // single already-mocked-resolved fetch, no real timers involved)
-    // actually completes before asserting.
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(saveNote).toHaveBeenCalledWith({ path: '/vault/a.md', content: 'edited content', baseVersion: VERSION_A })
+    expect(saveNote).not.toHaveBeenCalled()
   })
 
   it('closeNote clears all note state', async () => {

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { parseEncounter, type Encounter } from '../../common/initiative'
+import { atomicWrite } from './atomicWrite'
 
 // Deliberately NOT part of the vault's note files — an encounter is app-level
 // scratch state (no wiki-links, no search, no backlinks), same reasoning as
@@ -21,5 +22,5 @@ export async function readEncounter(userDataDir: string): Promise<Encounter> {
 }
 
 export async function writeEncounter(userDataDir: string, encounter: Encounter): Promise<void> {
-  await fs.writeFile(encounterFilePath(userDataDir), JSON.stringify(encounter), 'utf8').catch(() => {})
+  await atomicWrite(encounterFilePath(userDataDir), JSON.stringify(encounter)).catch(() => {})
 }

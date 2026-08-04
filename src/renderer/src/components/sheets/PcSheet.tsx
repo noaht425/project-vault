@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { pcFrontmatterSchema } from '../../../../common/noteTypes/pc'
 import type { AbilityKey } from '../../../../common/noteTypes/creatureStats'
@@ -16,8 +16,8 @@ export function PcSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = pcFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => pcFrontmatterSchema.parse(frontmatter), [frontmatter])
   const [classRefOptions, setClassRefOptions] = useState<string[]>([])
 
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { itemFrontmatterSchema } from '../../../../common/noteTypes/item'
 
@@ -8,8 +9,8 @@ export function ItemSheet({
   content: string
   onContentChange: (content: string) => void
 }): React.JSX.Element {
-  const { frontmatter, body } = parseNote(content)
-  const data = itemFrontmatterSchema.parse(frontmatter)
+  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
+  const data = useMemo(() => itemFrontmatterSchema.parse(frontmatter), [frontmatter])
 
   const updateFrontmatter = (patch: Record<string, unknown>): void => {
     onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))

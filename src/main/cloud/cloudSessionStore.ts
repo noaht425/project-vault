@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { safeStorage } from 'electron'
+import { atomicWrite } from '../vault/atomicWrite'
 
 // A refresh token is a long-lived credential, so it's encrypted at rest via
 // Electron's safeStorage (macOS Keychain-backed) rather than written as
@@ -26,7 +27,7 @@ export async function writeRefreshToken(userDataDir: string, refreshToken: strin
   // would defeat the point, so the session just won't survive a restart.
   if (!safeStorage.isEncryptionAvailable()) return
   const encrypted = safeStorage.encryptString(refreshToken)
-  await fs.writeFile(cloudSessionFilePath(userDataDir), encrypted).catch(() => {})
+  await atomicWrite(cloudSessionFilePath(userDataDir), encrypted).catch(() => {})
 }
 
 export async function clearRefreshToken(userDataDir: string): Promise<void> {

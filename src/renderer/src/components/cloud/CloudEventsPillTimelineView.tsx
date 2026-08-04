@@ -180,7 +180,10 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
   const toggleActiveCalendar = (title: string, active: boolean): void => {
     const current = settings?.activeCalendarNoteTitles ?? []
     const next = active ? [...current, title] : current.filter((t) => t !== title)
-    void window.cloudApi.updateWorkspaceSettings({ activeCalendarNoteTitles: next }).then(setSettings)
+    window.cloudApi
+      .updateWorkspaceSettings({ activeCalendarNoteTitles: next })
+      .then(setSettings)
+      .catch((err) => console.error('Failed to update active calendars:', err))
   }
 
   const zoomIn = (atCenter: number): void => {

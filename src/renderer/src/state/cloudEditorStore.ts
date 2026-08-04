@@ -164,10 +164,10 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
   },
 
   closeNote: () => {
-    // Same reasoning as editorStore.ts's closeNote — fire-and-forget is
-    // safe since saveNow() reads state synchronously before its own first
-    // await, ahead of the set() below.
-    void get().saveNow()
+    // Must NOT flush a pending save — see editorStore.ts's closeNote for
+    // why: this store's only caller (CloudFileTree's delete handler) fires
+    // after the note is already deleted server-side, so a flushed save
+    // would just fail with a spurious "save failed" banner. Discard instead.
     if (autosaveTimer) {
       clearTimeout(autosaveTimer)
       autosaveTimer = null

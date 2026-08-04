@@ -3,6 +3,7 @@ import { join, dirname, extname } from 'node:path'
 import { shell } from 'electron'
 import type Database from 'better-sqlite3'
 import { fileWriteQueue, readNote as readNoteFromDisk, readVersion } from './fileWriteQueue'
+import { atomicWrite } from './atomicWrite'
 import { stringifyNote, parseNote } from '../../common/frontmatter'
 import { sessionFrontmatterSchema } from '../../common/noteTypes/session'
 import { eventFrontmatterSchema } from '../../common/noteTypes/event'
@@ -226,18 +227,22 @@ export class VaultSession {
     const result = await fileWriteQueue.saveFile(req.path, req.content, req.baseVersion)
 
     if (result.status === 'saved') {
+      // A content-only save of an already-existing path never changes the
+      // tree (TreeEntry is purely path/name/isDirectory/children, nothing
+      // content-derived — see tree.ts) — skip the recursive fs.readdir over
+      // the whole vault that refreshTree() does, since this fires on every
+      // autosave.
       indexNote(db, req.path, result.version, req.content)
     } else {
-      // Re-sync the index with whatever is actually on disk at the
-      // original path (it changed out from under us), and index the new
-      // conflict copy we just wrote.
+      // The conflict branch DOES change the tree — it writes a brand new
+      // `-conflict-*.md` file — so refreshTree() below is still needed here.
       const actual = await readNoteFromDisk(req.path).catch(() => null)
       if (actual) indexNote(db, req.path, actual.version, actual.content)
       const conflictNote = await readNoteFromDisk(result.conflictPath).catch(() => null)
       if (conflictNote) indexNote(db, result.conflictPath, conflictNote.version, conflictNote.content)
+      await this.refreshTree()
     }
 
-    await this.refreshTree()
     return result
   }
 
@@ -337,7 +342,7 @@ export class VaultSession {
     const root = this.requireVault()
     const current = await this.getSettings()
     const next = { ...current, ...patch }
-    await fs.writeFile(join(root, VAULT_SETTINGS_FILENAME), JSON.stringify(next, null, 2), 'utf8')
+    await atomicWrite(join(root, VAULT_SETTINGS_FILENAME), JSON.stringify(next, null, 2))
     return next
   }
 
