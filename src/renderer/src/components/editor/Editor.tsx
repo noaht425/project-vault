@@ -41,13 +41,36 @@ export function Editor(): React.JSX.Element {
   const noteRefApi = useLocalNoteRefApi()
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
 
-  // Re-sync the CodeMirror buffer whenever the note or its content was
-  // replaced from outside user typing (open, reload-after-conflict).
+  // `revision` bumps on setContentExternal (a SheetView-driven edit) but
+  // NOT on setContent (the user's own typing here) — see editorStore.ts.
+  // syncedRevision tracks which revision the mounted CodeMirror buffer
+  // currently reflects; latestRevision/latestContent (refs, not state) let
+  // resyncIfStale below always see the current values without needing to
+  // be in the mount effect's dependency array.
+  const syncedRevision = useRef(revision)
+  const latestRevision = useRef(revision)
+  const latestContent = useRef(content)
+  latestRevision.current = revision
+  latestContent.current = content
+
+  // Mounts CodeMirror once per note/mode, NOT on every SheetView edit — see
+  // resyncIfStale for how the buffer catches up to those instead, only
+  // when the raw editor is actually about to be used. Recreating
+  // EditorState/EditorView on every keystroke elsewhere used to be how
+  // this stayed in sync ("revision" was in this effect's own dependency
+  // array), but for a large Settlement note (residents/buildings stay
+  // inline, no size limit locally) that's tens of MB of markdown —
+  // measured directly: EditorState.create() ALONE takes 2+ seconds at that
+  // scale, before even mounting the DOM view. A real reported bug: typing
+  // in an unrelated Settlement form field froze the app for 5+ seconds per
+  // character, with keystrokes visibly batching up and landing all at
+  // once once the renderer caught up — consistent with this exact
+  // recreation blocking the main thread on every single edit.
   useEffect(() => {
     if (mode !== 'edit' || !containerRef.current) return
 
     const state = EditorState.create({
-      doc: content,
+      doc: latestContent.current,
       extensions: [
         history(),
         autocompletion({ override: [wikiLinkCompletionSource] }),
@@ -65,13 +88,36 @@ export function Editor(): React.JSX.Element {
 
     const view = new EditorView({ state, parent: containerRef.current })
     viewRef.current = view
+    syncedRevision.current = latestRevision.current
 
     return () => {
       view.destroy()
       viewRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision, mode])
+  }, [mode, activeNotePath])
+
+  // Catches the CodeMirror buffer up to any SheetView edits made since it
+  // was last shown — called when the raw editor is about to be used
+  // (focused) instead of eagerly on every edit anywhere else in the sheet.
+  // Comparing `revision` numbers (not doc content) is what makes this
+  // cheap: it only bumps on a SheetView edit, never on typing here, so
+  // "unequal" reliably means "stale," with no need to stringify/compare a
+  // potentially tens-of-MB document just to check.
+  //
+  // Trade-off worth knowing about: watching the raw markdown update live
+  // WHILE typing in a form field elsewhere (without ever clicking into the
+  // raw editor) no longer happens — it catches up the moment you focus it
+  // instead. Deliberate: keeping that live-watch behavior is what forced
+  // the expensive recreation on every keystroke in the first place, for a
+  // niche case (actively watching raw YAML while not interacting with it)
+  // far less important than the sheet form staying responsive.
+  const resyncIfStale = (): void => {
+    const view = viewRef.current
+    if (!view || syncedRevision.current === latestRevision.current) return
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: latestContent.current } })
+    syncedRevision.current = latestRevision.current
+  }
 
   if (!activeNotePath) {
     return <div className="editor-empty">Select or create a note to start writing.</div>
@@ -95,7 +141,7 @@ export function Editor(): React.JSX.Element {
         </button>
       </div>
       {mode === 'edit' ? (
-        <div className="cm-container" ref={containerRef} />
+        <div className="cm-container" ref={containerRef} onFocus={resyncIfStale} />
       ) : (
         <PreviewPane content={content} noteRefApi={noteRefApi} />
       )}
