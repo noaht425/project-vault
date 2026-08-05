@@ -68,13 +68,21 @@ export function VaultImportPanel({ onClose }: { onClose: () => void }): React.JS
   const [plan, setPlan] = useState<MigrationProgress | null>(null)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<MigrationProgress | null>(null)
+  // Without a catch, a thrown initial tree fetch (network drop, auth expiry)
+  // left "Start import" silently reset with zero feedback — same class of
+  // bug SearchView.tsx's own .catch was added for.
+  const [error, setError] = useState<string | null>(null)
 
   const startPlan = async (): Promise<void> => {
     setResult(null)
+    setError(null)
     setPlanning(true)
     try {
       const p = await importVaultIntoCloud(window.vaultApi, window.cloudApi, () => {}, transformLocalNote, true)
       setPlan(p)
+    } catch (err) {
+      console.error('Failed to plan Local -> Cloud import:', err)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setPlanning(false)
     }
@@ -82,11 +90,15 @@ export function VaultImportPanel({ onClose }: { onClose: () => void }): React.JS
 
   const confirmRun = async (): Promise<void> => {
     setPlan(null)
+    setError(null)
     setRunning(true)
     try {
       const r = await importVaultIntoCloud(window.vaultApi, window.cloudApi, setResult, transformLocalNote)
       setResult(r)
       await refreshCloudTree()
+    } catch (err) {
+      console.error('Failed to run Local -> Cloud import:', err)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunning(false)
     }
@@ -116,6 +128,12 @@ export function VaultImportPanel({ onClose }: { onClose: () => void }): React.JS
             <button onClick={() => void startPlan()} disabled={planning || running}>
               {planning ? 'Checking…' : result ? 'Run again' : 'Start import'}
             </button>
+          )}
+
+          {error && (
+            <p className="right-panel-note" style={{ color: '#e5484d' }}>
+              {error}
+            </p>
           )}
 
           {plan && (

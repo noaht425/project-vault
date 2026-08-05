@@ -65,14 +65,22 @@ export function CloudImportPanel({ onClose }: { onClose: () => void }): React.JS
   const [plan, setPlan] = useState<MigrationProgress | null>(null)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<MigrationProgress | null>(null)
+  // Without a catch, a thrown initial tree fetch (network drop, auth expiry)
+  // left "Start import" silently reset with zero feedback — same class of
+  // bug SearchView.tsx's own .catch was added for.
+  const [error, setError] = useState<string | null>(null)
 
   const startPlan = async (): Promise<void> => {
     if (!vaultPath) return
     setResult(null)
+    setError(null)
     setPlanning(true)
     try {
       const p = await importCloudIntoVault(window.cloudApi, window.vaultApi, vaultPath, () => {}, transformCloudNote, true)
       setPlan(p)
+    } catch (err) {
+      console.error('Failed to plan Cloud -> Local import:', err)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setPlanning(false)
     }
@@ -81,11 +89,15 @@ export function CloudImportPanel({ onClose }: { onClose: () => void }): React.JS
   const confirmRun = async (): Promise<void> => {
     if (!vaultPath) return
     setPlan(null)
+    setError(null)
     setRunning(true)
     try {
       const r = await importCloudIntoVault(window.cloudApi, window.vaultApi, vaultPath, setResult, transformCloudNote)
       setResult(r)
       await refreshLocalTree()
+    } catch (err) {
+      console.error('Failed to run Cloud -> Local import:', err)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunning(false)
     }
@@ -118,6 +130,12 @@ export function CloudImportPanel({ onClose }: { onClose: () => void }): React.JS
             <button onClick={() => void startPlan()} disabled={planning || running}>
               {planning ? 'Checking…' : result ? 'Run again' : 'Start import'}
             </button>
+          )}
+
+          {error && (
+            <p className="right-panel-note" style={{ color: '#e5484d' }}>
+              {error}
+            </p>
           )}
 
           {plan && (
