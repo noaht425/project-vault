@@ -9,10 +9,9 @@ import {
 describe('translateCloudNoteForLocal', () => {
   function fakeApi(overrides: Partial<CloudToLocalMediaApi> = {}): CloudToLocalMediaApi {
     return {
-      getMapImageUrl: vi.fn().mockResolvedValue('https://signed.example/image.png'),
+      downloadMapImage: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
       getSettlementBulkData: vi.fn().mockResolvedValue({ residents: [], buildings: [] }),
       saveLocalImageBytes: vi.fn().mockResolvedValue({ path: '.attachments/local-image.png' }),
-      fetchBytes: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
       ...overrides
     }
   }
@@ -23,8 +22,7 @@ describe('translateCloudNoteForLocal', () => {
 
     const result = await translateCloudNoteForLocal(note, api)
 
-    expect(api.getMapImageUrl).toHaveBeenCalledWith('user-1/abc.png')
-    expect(api.fetchBytes).toHaveBeenCalledWith('https://signed.example/image.png')
+    expect(api.downloadMapImage).toHaveBeenCalledWith('user-1/abc.png')
     expect(api.saveLocalImageBytes).toHaveBeenCalledWith(expect.any(ArrayBuffer), 'abc.png')
     expect(result.frontmatter).toEqual({
       type: 'map',
@@ -38,7 +36,7 @@ describe('translateCloudNoteForLocal', () => {
 
     const result = await translateCloudNoteForLocal(note, api)
 
-    expect(api.getMapImageUrl).not.toHaveBeenCalled()
+    expect(api.downloadMapImage).not.toHaveBeenCalled()
     expect(result).toEqual(note)
   })
 
@@ -161,15 +159,13 @@ describe('Map/Settlement round trip', () => {
       }
     }
     const cloudToLocal: CloudToLocalMediaApi = {
-      getMapImageUrl: async (path) => `https://signed.example/${path}`,
-      getSettlementBulkData: async () => ({ residents: [], buildings: [] }),
-      saveLocalImageBytes: async (_bytes, suggestedName) => ({ path: `.attachments/${nextId++}-${suggestedName}` }),
-      fetchBytes: async (url) => {
-        const path = url.replace('https://signed.example/', '')
+      downloadMapImage: async (path) => {
         const bytes = cloudStorage.get(path)
         if (!bytes) throw new Error(`not found: ${path}`)
         return bytes
-      }
+      },
+      getSettlementBulkData: async () => ({ residents: [], buildings: [] }),
+      saveLocalImageBytes: async (_bytes, suggestedName) => ({ path: `.attachments/${nextId++}-${suggestedName}` })
     }
 
     const localNote = {
@@ -195,14 +191,13 @@ describe('Map/Settlement round trip', () => {
     let nextId = 1
 
     const cloudToLocal: CloudToLocalMediaApi = {
-      getMapImageUrl: async (path) => `https://signed.example/${path}`,
+      downloadMapImage: async () => new TextEncoder().encode('cloud bytes').buffer as ArrayBuffer,
       getSettlementBulkData: async () => ({ residents: [], buildings: [] }),
       saveLocalImageBytes: async (bytes, suggestedName) => {
         const localPath = `.attachments/${nextId++}-${suggestedName}`
         localStorage.set(localPath, bytes)
         return { path: localPath }
-      },
-      fetchBytes: async () => new TextEncoder().encode('cloud bytes').buffer as ArrayBuffer
+      }
     }
     const localToCloud: LocalToCloudMediaApi = {
       getLocalImageUrl: async () => '',
@@ -230,14 +225,13 @@ describe('Map/Settlement round trip', () => {
     bulkStorage.set('cloud-storage/settlement.json', { residents: [{ name: 'Alice' }], buildings: [{ name: 'Inn' }] })
 
     const cloudToLocal: CloudToLocalMediaApi = {
-      getMapImageUrl: async () => '',
+      downloadMapImage: async () => new ArrayBuffer(0),
       getSettlementBulkData: async (path) => {
         const found = bulkStorage.get(path)
         if (!found) throw new Error(`not found: ${path}`)
         return found
       },
-      saveLocalImageBytes: async () => ({ path: '' }),
-      fetchBytes: async () => new ArrayBuffer(0)
+      saveLocalImageBytes: async () => ({ path: '' })
     }
     const localToCloud: LocalToCloudMediaApi = {
       getLocalImageUrl: async () => '',

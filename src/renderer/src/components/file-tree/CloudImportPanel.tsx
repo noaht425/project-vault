@@ -17,10 +17,9 @@ function transformCloudNote(note: { frontmatter: Record<string, unknown>; body: 
   body: string
 }> {
   return translateCloudNoteForLocal(note, {
-    getMapImageUrl: window.cloudApi.getMapImageUrl,
+    downloadMapImage: window.cloudApi.downloadMapImage,
     getSettlementBulkData: window.cloudApi.getSettlementBulkData,
-    saveLocalImageBytes: window.vaultApi.saveLocalImageBytes,
-    fetchBytes: (url) => fetch(url).then((r) => r.arrayBuffer())
+    saveLocalImageBytes: window.vaultApi.saveLocalImageBytes
   })
 }
 

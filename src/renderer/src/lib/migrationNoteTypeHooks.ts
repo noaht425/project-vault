@@ -12,15 +12,20 @@ export interface TranslatedNote {
   body: string
 }
 
-// Fetching the actual image bytes is injected (fetchBytes) rather than
-// called directly here, so this stays testable without stubbing global
-// fetch — the real implementation just does `fetch(url).then(r =>
-// r.arrayBuffer())`.
+// downloadMapImage fetches bytes directly (Supabase Storage .download(),
+// same approach getSettlementBulkData already used) rather than handing
+// back a signed URL for the renderer to fetch() itself — an earlier version
+// did that and failed in production with a generic "Failed to fetch": an
+// <img> element (MapSheet.tsx's own display path, unaffected) can load
+// cross-origin without CORS, but fetch()+arrayBuffer() needs a CORS-
+// readable response, and Supabase's default bucket CORS policy doesn't
+// allow that from this app's file:// origin. Downloading server-side (in
+// CloudSession, which runs in the main process, not a browser) sidesteps
+// CORS entirely.
 export interface CloudToLocalMediaApi {
-  getMapImageUrl(path: string): Promise<string>
+  downloadMapImage(path: string): Promise<ArrayBuffer>
   getSettlementBulkData(path: string): Promise<{ residents: unknown[]; buildings: unknown[] }>
   saveLocalImageBytes(bytes: ArrayBuffer, suggestedName: string): Promise<{ path: string }>
-  fetchBytes(url: string): Promise<ArrayBuffer>
 }
 
 export interface LocalToCloudMediaApi {
@@ -44,8 +49,7 @@ export async function translateCloudNoteForLocal(note: TranslatedNote, api: Clou
   if (frontmatter.type === 'map') {
     const image = frontmatter.image as { path?: unknown } | null | undefined
     if (image && typeof image.path === 'string' && image.path) {
-      const url = await api.getMapImageUrl(image.path)
-      const bytes = await api.fetchBytes(url)
+      const bytes = await api.downloadMapImage(image.path)
       const saved = await api.saveLocalImageBytes(bytes, suggestedImageName(image.path))
       return { frontmatter: { ...frontmatter, image: { ...image, path: saved.path } }, body }
     }

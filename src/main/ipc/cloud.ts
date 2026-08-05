@@ -138,6 +138,20 @@ export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow, vau
 
   ipcMain.handle('cloud:getMapImageUrl', async (_event, path: string): Promise<string> => cloud.getMapImageUrl(path))
 
+  // For the cloud-to-local copier — see CloudSession.downloadMapImage's own
+  // comment for why this exists alongside getMapImageUrl rather than
+  // reusing it (CORS blocks the renderer's own fetch() of the signed URL).
+  ipcMain.handle('cloud:downloadMapImage', async (_event, path: string): Promise<ArrayBuffer> => {
+    const buffer = await cloud.downloadMapImage(path)
+    // A fresh copy into a plain Uint8Array rather than slicing buffer.buffer
+    // directly — Buffer.buffer is typed ArrayBufferLike (it could in theory
+    // be a SharedArrayBuffer), and the IPC return type here needs a real
+    // ArrayBuffer.
+    const copy = new Uint8Array(buffer.byteLength)
+    copy.set(buffer)
+    return copy.buffer
+  })
+
   // No dialog, unlike pickAndUploadMapImage above — for the local-to-cloud
   // copier uploading a Map note's already-known local image (see
   // docs/plans/2026-08-04-cloud-to-local-copy.md Phase 6). Resolves the

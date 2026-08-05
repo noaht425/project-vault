@@ -170,6 +170,7 @@ const cloudApi = {
   // existing cancel convention.
   pickAndUploadMapImage: (): Promise<{ path: string } | null> => ipcRenderer.invoke('cloud:pickAndUploadMapImage'),
   getMapImageUrl: (path: string): Promise<string> => ipcRenderer.invoke('cloud:getMapImageUrl', path),
+  downloadMapImage: (path: string): Promise<ArrayBuffer> => ipcRenderer.invoke('cloud:downloadMapImage', path),
   uploadLocalMapImage: (relativePath: string): Promise<{ path: string }> =>
     ipcRenderer.invoke('cloud:uploadLocalMapImage', relativePath),
 

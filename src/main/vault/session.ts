@@ -290,8 +290,21 @@ export class VaultSession {
     return { path, content, version: result.version }
   }
 
+  // recursive:true rather than the original recursive:false — a folder
+  // name can legitimately contain a "/" (Cloud Workspace's folder names are
+  // plain Postgres text with no character restrictions; the cloud-to-local
+  // copier hit real folders named e.g. "Geno Cities/Places"). POSIX forbids
+  // "/" within a single path component, so join(parentDir, name) resolving
+  // to a multi-segment path is the only sane interpretation — recursive:
+  // false required every intermediate segment to already exist and threw
+  // ENOENT the moment it didn't. recursive:true creates whatever's missing
+  // along the way and, as a side effect, no longer throws EEXIST when the
+  // exact target already exists (an idempotent no-op instead) — fine here
+  // since every caller either wants "create if missing" (the copier already
+  // checks its own index first) or would otherwise just show a slightly
+  // different error for a rare duplicate-name click in the file tree.
   async createFolder(parentDir: string, name: string): Promise<void> {
-    await fs.mkdir(join(parentDir, name), { recursive: false })
+    await fs.mkdir(join(parentDir, name), { recursive: true })
     await this.refreshTree()
   }
 

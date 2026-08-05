@@ -437,6 +437,24 @@ export class CloudSession {
     return data.signedUrl
   }
 
+  // For the cloud-to-local copier (docs/plans/2026-08-04-cloud-to-local-
+  // copy.md Phase 5/8-follow-up) — NOT for MapSheet.tsx's own <img src>
+  // display, which still uses getMapImageUrl above and is unaffected by
+  // this. The copier originally fetched the signed URL from getMapImageUrl
+  // in the renderer via fetch().arrayBuffer(), which failed with a generic
+  // "Failed to fetch" in production: an <img> element can load cross-origin
+  // without CORS (it never reads the response bytes back into JS), but
+  // fetch()+arrayBuffer() does need a CORS-readable response, and
+  // Supabase's default bucket CORS policy doesn't allow that from this
+  // app's file:// origin. Downloading directly here — same "skip the
+  // browser fetch entirely" approach getSettlementBulkData already uses —
+  // sidesteps CORS altogether since this runs in Node, not a browser.
+  async downloadMapImage(path: string): Promise<Buffer> {
+    const { data, error } = await this.storageClient().storage.from(MAP_IMAGES_BUCKET).download(path)
+    if (error || !data) throw new Error(error?.message ?? 'Failed to download map image')
+    return Buffer.from(await data.arrayBuffer())
+  }
+
   // Cloud Workspace-only counterpart to residents/buildings staying inline
   // in a settlement note's frontmatter — see settlementBulkData.ts's
   // shouldOffloadBulkData and docs/plans/2026-08-03-cloud-settlement-
