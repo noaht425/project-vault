@@ -1011,6 +1011,7 @@ button.active {
 
 .sheet-field input,
 .sheet-field select {
+  width: 100%;
   background: var(--bg-panel);
   color: var(--text-normal);
   border: 1px solid var(--border);
