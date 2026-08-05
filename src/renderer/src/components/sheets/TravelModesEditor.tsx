@@ -36,6 +36,18 @@ export function TravelModesEditor(): React.JSX.Element {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {modes.length > 0 && (
+        // Column headers — without these, a bare number next to a bare
+        // "hours" text doesn't read as "N per hour" at a glance (see the
+        // inline "per" below too, which does the same job row-by-row).
+        <div style={{ display: 'flex', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+          <span style={{ flex: 2 }}>Name</span>
+          <span style={{ flex: 1, minWidth: 60 }}>Speed</span>
+          <span style={{ width: 24, textAlign: 'center' }} />
+          <span style={{ flex: 1, minWidth: 70 }}>Per</span>
+          <span style={{ width: 24 }} />
+        </div>
+      )}
       {modes.map((mode) => (
         <div key={mode.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input style={{ flex: 2 }} value={mode.name} onChange={(e) => updateMode(mode.id, { name: e.target.value })} />
@@ -45,11 +57,12 @@ export function TravelModesEditor(): React.JSX.Element {
             value={mode.speed}
             onChange={(e) => updateMode(mode.id, { speed: Number(e.target.value) })}
           />
+          <span style={{ width: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>per</span>
           <input
             style={{ flex: 1, minWidth: 70 }}
             value={mode.timeUnitLabel}
             onChange={(e) => updateMode(mode.id, { timeUnitLabel: e.target.value })}
-            placeholder="per hours…"
+            placeholder="hours"
           />
           <button onClick={() => removeMode(mode.id)} title="Remove">
             ✕
@@ -58,8 +71,8 @@ export function TravelModesEditor(): React.JSX.Element {
       ))}
       <button onClick={addMode}>+ Add travel mode</button>
       <p className="right-panel-note">
-        Distance-per-time-unit, in whatever real-world unit your maps use for scale — these are placeholders, edit
-        freely.
+        Speed is distance-per-time-unit, in whatever real-world unit each map's own scale uses (e.g. miles) — so
+        "Walking, 3, per hours" means 3 map-units per hour. These are placeholders; edit freely.
       </p>
     </div>
   )
