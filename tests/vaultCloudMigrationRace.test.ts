@@ -2,12 +2,12 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { importCloudIntoVault, type MigrationCloudSourceApi, type MigrationVaultDestApi } from '../../src/renderer/src/lib/vaultCloudMigration'
-import { fileWriteQueue, readNote, readVersion } from '../../src/main/vault/fileWriteQueue'
-import { stampUpdatedAt, stringifyNote, parseNote } from '../../src/common/frontmatter'
-import { TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY } from '../../src/common/noteTemplateDefaults'
-import type { NoteData, SaveNoteRequest, TreeEntry, FileVersion } from '../../src/common/types'
-import type { CloudNoteData, CloudTreeNode } from '../../src/common/cloudTypes'
+import { importCloudIntoVault, type MigrationCloudSourceApi, type MigrationVaultDestApi } from '../src/renderer/src/lib/vaultCloudMigration'
+import { fileWriteQueue, readNote, readVersion } from '../src/main/vault/fileWriteQueue'
+import { stampUpdatedAt, stringifyNote, parseNote } from '../src/common/frontmatter'
+import { TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY } from '../src/common/noteTemplateDefaults'
+import type { NoteData, SaveNoteRequest, TreeEntry, FileVersion } from '../src/common/types'
+import type { CloudNoteData, CloudTreeNode } from '../src/common/cloudTypes'
 
 // Real-stack reproduction harness for a production incident: a Language
 // note's frontmatter was found reduced to ONLY `updatedAt` after an "Import

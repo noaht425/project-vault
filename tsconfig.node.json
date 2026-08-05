@@ -20,7 +20,9 @@
     "src/preload/**/*",
     "src/common/**/*",
     "electron.vite.config.ts",
-    "tests/**/*"
+    "tests/**/*",
+    "src/renderer/src/lib/vaultCloudMigration.ts",
+    "src/renderer/src/lib/migrationNoteTypeHooks.ts"
   ],
   "exclude": ["tests/renderer/**"]
 }
