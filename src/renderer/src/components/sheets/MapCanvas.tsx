@@ -132,6 +132,19 @@ export function MapCanvas({
     viewBoxRef.current = viewBox
   }, [viewBox])
 
+  // Same ref-for-a-closed-over-value trick as viewBoxRef above, but for a
+  // different reason: pinElements below is memoized against [pins, mode,
+  // highlightedPinIds, pinRadius] so hovering the map in draw-trip mode
+  // (which updates drawHoverPoint every mousemove tick, see
+  // handleMouseMoveForDrawTrip) doesn't rebuild every pin's JSX on every
+  // tick — but handleClickAt/onPinClick would otherwise have to be in that
+  // dep list too (they're fresh closures every render), which would defeat
+  // the memo entirely. Reading them through a ref keeps the click handlers
+  // correct without that.
+  const handleClickAtRef = useRef<(point: Point) => void>(() => {})
+  const onPinClickRef = useRef(onPinClick)
+  onPinClickRef.current = onPinClick
+
   const terrainTypesById = useMemo(() => new Map(terrainTypes.map((t) => [t.id, t])), [terrainTypes])
   const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
   const pinRadius = Math.max(6, Math.min(imageWidth, imageHeight) * 0.01)
@@ -210,6 +223,81 @@ export function MapCanvas({
         />
       )),
     [lines, lineTypesById]
+  )
+
+  // Same reasoning as landmassElements/zoneElements/lineElements above, but
+  // for pins — without this, entering draw-trip mode and just moving the
+  // mouse around (handleMouseMoveForDrawTrip updates drawHoverPoint on every
+  // tick) rebuilds every pin's JSX every tick even though the pins
+  // themselves haven't changed. Click handlers read through the refs set up
+  // above instead of closing over handleClickAt/onPinClick directly, so
+  // those don't have to be in the dep list (they're fresh every render).
+  const pinElements = useMemo(
+    () =>
+      pins.map((pin) => (
+        <g
+          key={pin.id}
+          transform={`translate(${pin.x}, ${pin.y})`}
+          onMouseDown={(e) => e.stopPropagation()}
+          // Stopping propagation on mousedown means the SVG's own
+          // drag/click tracking (dragRef, see the window mouseup handler
+          // above) never sees a click that starts on a pin — this is the
+          // only path such a click gets handled at all. In view mode that
+          // should open the pin's note as always, but in every drawing
+          // mode (paint-zone, draw-line, draw-trip, etc.) it needs to
+          // register as an ordinary point instead, so you can start a
+          // road/route right at an existing city's pin without it
+          // navigating away to the note mid-draw.
+          onClick={() => (mode === 'view' ? onPinClickRef.current(pin) : handleClickAtRef.current({ x: pin.x, y: pin.y }))}
+          style={{ cursor: mode === 'view' && pin.locationTitle ? 'pointer' : mode === 'view' ? 'default' : 'crosshair' }}
+        >
+          {highlightedPinIds?.has(pin.id) && <circle r={pinRadius + 5} fill="none" stroke="#7c8cff" strokeWidth={3} />}
+          {/* Freehand pins (no linked note) get a dashed outline and a
+              muted fill — same "not a real note yet" visual language as
+              the graph view's phantom nodes. */}
+          <circle
+            r={pinRadius}
+            fill={pin.locationTitle ? '#e08a3c' : '#888'}
+            stroke="#fff"
+            strokeWidth={2}
+            strokeDasharray={pin.locationTitle ? undefined : '3,2'}
+          />
+          <text y={-pinRadius - 6} textAnchor="middle" fill="#fff">
+            {pinDisplayLabel(pin)}
+          </text>
+        </g>
+      )),
+    [pins, mode, highlightedPinIds, pinRadius]
+  )
+
+  const tripPathElements = useMemo(
+    () =>
+      tripPath?.map(
+        (leg, legIndex) =>
+          leg.length > 1 && (
+            <g key={legIndex}>
+              <polyline
+                points={leg.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke="#000"
+                strokeWidth={6}
+                strokeLinecap="round"
+              />
+              <polyline
+                points={leg.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke="#ffd60a"
+                strokeWidth={3}
+                strokeDasharray="10,6"
+                strokeLinecap="round"
+              />
+              {leg.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r={5} fill="#ffd60a" stroke="#000" strokeWidth={1.5} />
+              ))}
+            </g>
+          )
+      ),
+    [tripPath]
   )
 
   // A freshly (re)loaded image gets a fresh full-image view; switching modes
@@ -295,6 +383,7 @@ export function MapCanvas({
       onPinPlaced(point)
     }
   }
+  handleClickAtRef.current = handleClickAt
 
   // Only active in 'draw-trip' mode — tracks the cursor so the ghost
   // preview below can show where an off-canvas point would land before the
@@ -510,71 +599,11 @@ export function MapCanvas({
               route reads as "jumps to the opposite edge" rather than a line
               straight across the map. High-contrast gold against the black
               outline reads over any terrain color underneath. */}
-          {tripPath.map(
-            (leg, legIndex) =>
-              leg.length > 1 && (
-                <g key={legIndex}>
-                  <polyline
-                    points={leg.map((p) => `${p.x},${p.y}`).join(' ')}
-                    fill="none"
-                    stroke="#000"
-                    strokeWidth={6}
-                    strokeLinecap="round"
-                  />
-                  <polyline
-                    points={leg.map((p) => `${p.x},${p.y}`).join(' ')}
-                    fill="none"
-                    stroke="#ffd60a"
-                    strokeWidth={3}
-                    strokeDasharray="10,6"
-                    strokeLinecap="round"
-                  />
-                  {leg.map((p, i) => (
-                    <circle key={i} cx={p.x} cy={p.y} r={5} fill="#ffd60a" stroke="#000" strokeWidth={1.5} />
-                  ))}
-                </g>
-              )
-          )}
+          {tripPathElements}
         </g>
       )}
 
-      <g>
-        {pins.map((pin) => (
-          <g
-            key={pin.id}
-            transform={`translate(${pin.x}, ${pin.y})`}
-            onMouseDown={(e) => e.stopPropagation()}
-            // Stopping propagation on mousedown means the SVG's own
-            // drag/click tracking (dragRef, see the window mouseup handler
-            // below) never sees a click that starts on a pin — this is the
-            // only path such a click gets handled at all. In view mode that
-            // should open the pin's note as always, but in every drawing
-            // mode (paint-zone, draw-line, draw-trip, etc.) it needs to
-            // register as an ordinary point instead, so you can start a
-            // road/route right at an existing city's pin without it
-            // navigating away to the note mid-draw.
-            onClick={() => (mode === 'view' ? onPinClick(pin) : handleClickAt({ x: pin.x, y: pin.y }))}
-            style={{ cursor: mode === 'view' && pin.locationTitle ? 'pointer' : mode === 'view' ? 'default' : 'crosshair' }}
-          >
-            {highlightedPinIds?.has(pin.id) && (
-              <circle r={pinRadius + 5} fill="none" stroke="#7c8cff" strokeWidth={3} />
-            )}
-            {/* Freehand pins (no linked note) get a dashed outline and a
-                muted fill — same "not a real note yet" visual language as
-                the graph view's phantom nodes. */}
-            <circle
-              r={pinRadius}
-              fill={pin.locationTitle ? '#e08a3c' : '#888'}
-              stroke="#fff"
-              strokeWidth={2}
-              strokeDasharray={pin.locationTitle ? undefined : '3,2'}
-            />
-            <text y={-pinRadius - 6} textAnchor="middle" fill="#fff">
-              {pinDisplayLabel(pin)}
-            </text>
-          </g>
-        ))}
-      </g>
+      <g>{pinElements}</g>
     </svg>
   )
 }
