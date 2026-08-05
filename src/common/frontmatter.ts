@@ -129,44 +129,41 @@ function dumpField(key: string, value: unknown): string {
 // `content` doesn't match what it itself last wrote.
 //
 // Implementation: dumps the whole frontmatter through the real
-// stringifyNote(), but with each reused field's value temporarily swapped
-// for a short, collision-proof placeholder string — js-yaml only has to
-// serialize a tiny scalar for that field, not the real array — then
-// splices the cached real YAML block back in for that one line via an
-// exact string replace. All delimiter/whitespace/body handling still runs
-// through the unmodified real stringifyNote() call; the only custom part
-// is a single-line swap per reused field.
+// stringifyNote(), but with EVERY cacheKey's value swapped for a short,
+// collision-proof placeholder string first — js-yaml only has to serialize
+// a tiny scalar for that field, not the real array, regardless of whether
+// it's a cache hit or miss — then splices the real YAML block back in for
+// that one line via an exact string replace: either the cached block
+// (reused, no dump at all) or a freshly-computed one (miss, dumped exactly
+// once and cached for next time). An earlier version only swapped
+// REUSED keys, leaving a cache-miss key's real value inline in the main
+// stringifyNote() call — correct, but meant dumping that field TWICE (once
+// there, once more to populate the cache) — confirmed measurably doubling
+// the cost of the first edit after opening a large settlement. Always
+// swapping means every key is dumped at most once per call either way, and
+// the main stringifyNote() call is always cheap since it never embeds the
+// real arrays. All delimiter/whitespace/body handling still runs through
+// the unmodified real stringifyNote() call; the only custom part is a
+// single-line swap per cache key.
 export function stringifyNoteCached(note: ParsedNote, cacheKeys: string[], unchangedKeys: string[], cache: FieldStringifyCache): string {
   const patched: Record<string, unknown> = { ...note.frontmatter }
   const swaps: { line: string; dumped: string }[] = []
-  const reused = new Set<string>()
 
   for (const key of cacheKeys) {
     if (!(key in note.frontmatter)) continue
-    const dumped = unchangedKeys.includes(key) ? cache.entries.get(key) : undefined
-    if (dumped !== undefined) {
-      const placeholder = `__frontmatter_field_cache__${key}`
-      patched[key] = placeholder
-      swaps.push({ line: `${key}: ${placeholder}\n`, dumped })
-      reused.add(key)
+    let dumped = unchangedKeys.includes(key) ? cache.entries.get(key) : undefined
+    if (dumped === undefined) {
+      dumped = dumpField(key, note.frontmatter[key])
+      cache.entries.set(key, dumped)
     }
+    const placeholder = `__frontmatter_field_cache__${key}`
+    patched[key] = placeholder
+    swaps.push({ line: `${key}: ${placeholder}\n`, dumped })
   }
 
   let content = stringifyNote({ frontmatter: patched, body: note.body })
   for (const { line, dumped } of swaps) {
     content = content.replace(line, dumped)
-  }
-
-  // Cache (or refresh) every key that wasn't reused this call — either it
-  // was never cached before, or the caller says it might have changed —
-  // so a future call has valid text to reuse. A cache miss here means
-  // dumping that field twice (once as part of the call above, once more
-  // here) — acceptable since misses only happen when the underlying data
-  // actually changed (e.g. a settlement's Generate/Promote buttons) or on
-  // the very first call, never on a plain keystroke.
-  for (const key of cacheKeys) {
-    if (reused.has(key) || !(key in note.frontmatter)) continue
-    cache.entries.set(key, dumpField(key, note.frontmatter[key]))
   }
 
   return content
