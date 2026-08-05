@@ -427,7 +427,7 @@ export function MapSheet({
                     placeholder="e.g. 10"
                   />
                 </label>
-                <label className="sheet-field sheet-field-narrow">
+                <label className="sheet-field">
                   Planet circumference ({data.latitudeUnit})
                   <input
                     type="number"
