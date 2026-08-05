@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { calculateTrip, type Point } from '../../../../common/mapGeometry'
+import { calculateTrip, mergeTripResults, wrapLegs, type LatitudeDistortionConfig, type Point } from '../../../../common/mapGeometry'
 import {
   pinDisplayLabel,
   type LineType,
+  type MapImage,
   type MapLandmass,
   type MapLine,
   type MapPin,
@@ -21,6 +22,12 @@ export function MapTripCalculator({
   landmasses,
   waterTerrainTypeId,
   scale,
+  image,
+  wrapsHorizontally,
+  wrapsVertically,
+  equatorY,
+  planetCircumference,
+  accountForLatitudeDistortion,
   drawnPath,
   onClearDrawnPath,
   onStartDrawing,
@@ -34,16 +41,27 @@ export function MapTripCalculator({
   landmasses: MapLandmass[]
   waterTerrainTypeId: string | null
   scale: MapScale | null
+  image: MapImage | null
+  wrapsHorizontally: boolean
+  wrapsVertically: boolean
+  equatorY: number | null
+  planetCircumference: number | null
+  accountForLatitudeDistortion: boolean
   // A route hand-drawn on the map (see MapCanvas's 'draw-trip' mode) — when
   // set, it's used as the trip's path instead of the straight line between
   // the From/To pins below, so a journey that isn't a straight shot (walk to
-  // a dock, cross by boat, walk again) can be timed accurately.
+  // a dock, cross by boat, walk again) can be timed accurately. Wraparound
+  // never applies to a drawn route — the user has already drawn the exact
+  // path they want, off-canvas or not.
   drawnPath: Point[] | null
   onClearDrawnPath: () => void
   onStartDrawing: () => void
-  // Pushes whichever path (straight or drawn) should render as an overlay
-  // on the map up to MapSheet, which owns the canvas. Null clears it.
-  onShowPathChange: (path: Point[] | null) => void
+  // Pushes whichever route (straight, wrapped, or drawn) should render as an
+  // overlay on the map up to MapSheet, which owns the canvas. Each entry is
+  // one contiguous leg — more than one only when a wrapped route crosses a
+  // map edge, so the canvas can draw each leg separately instead of
+  // connecting them with a line straight across the whole map. Null clears it.
+  onShowPathChange: (legs: Point[][] | null) => void
 }): React.JSX.Element {
   const noteId = useTravelModesStore((s) => s.noteId)
   const loading = useTravelModesStore((s) => s.loading)
@@ -72,21 +90,71 @@ export function MapTripCalculator({
   // Memoized on from/to (themselves stable across renders unless `pins`
   // actually changes, e.g. a drag or fromId/toId edit) — without this,
   // `[from, to]` was a fresh array literal every render, which defeated the
-  // `trip` useMemo below (effectivePath was always "new") and re-ran the
+  // `trip` useMemo below (effectiveLegs was always "new") and re-ran the
   // full geometry sweep on every unrelated re-render of this component (e.g.
   // any keystroke elsewhere in the map editor). Depending on `from`/`to`
   // rather than just their ids keeps this correct if a pin's position moves
   // without its id changing.
-  const effectivePath: Point[] | null = useMemo(
-    () => drawnPath ?? (from && to && from.id !== to.id ? [from, to] : null),
-    [drawnPath, from, to]
+  //
+  // A drawn route is always exactly one leg (wraparound doesn't apply to it —
+  // see the prop comment above). A straight pin-to-pin trip is normally one
+  // leg too, but wrapLegs may split it into 2-3 if the shortest path crosses
+  // a wrapping edge.
+  const effectiveLegs: Point[][] | null = useMemo(() => {
+    if (drawnPath) return [drawnPath]
+    if (!from || !to || from.id === to.id) return null
+    if (!image || (!wrapsHorizontally && !wrapsVertically)) return [[from, to]]
+    return wrapLegs(from, to, { mapWidth: image.width, mapHeight: image.height, wrapsHorizontally, wrapsVertically })
+  }, [drawnPath, from, to, image, wrapsHorizontally, wrapsVertically])
+
+  // Only takes effect once both inputs it needs are actually set — otherwise
+  // the checkbox is disabled in the UI (see MapSheet), but a stale "on" value
+  // from before one of them was cleared shouldn't silently reactivate here.
+  // Memoized on the primitive values (not a bare `{equatorY, planetCircumference}`
+  // literal) for the same reason effectiveLegs is above — a fresh object every
+  // render would defeat the `trip` useMemo below entirely.
+  const latitudeDistortion: LatitudeDistortionConfig | null = useMemo(
+    () => (accountForLatitudeDistortion && equatorY !== null && planetCircumference ? { equatorY, planetCircumference } : null),
+    [accountForLatitudeDistortion, equatorY, planetCircumference]
   )
 
   const trip = useMemo(() => {
-    if (!effectivePath || effectivePath.length < 2 || !landTravelMode || !waterTravelMode || !scale) return null
-    return calculateTrip(effectivePath, zones, lines, terrainTypes, lineTypes, landmasses, waterTerrainTypeId, scale, landTravelMode, waterTravelMode)
+    if (!effectiveLegs || !landTravelMode || !waterTravelMode || !scale) return null
+    const results = effectiveLegs.map((leg) =>
+      calculateTrip(
+        leg,
+        zones,
+        lines,
+        terrainTypes,
+        lineTypes,
+        landmasses,
+        waterTerrainTypeId,
+        scale,
+        landTravelMode,
+        waterTravelMode,
+        latitudeDistortion
+      )
+    )
+    return mergeTripResults(results)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectivePath, landTravelMode, waterTravelMode, scale, zones, lines, terrainTypes, lineTypes, landmasses, waterTerrainTypeId])
+  }, [
+    effectiveLegs,
+    landTravelMode,
+    waterTravelMode,
+    scale,
+    zones,
+    lines,
+    terrainTypes,
+    lineTypes,
+    landmasses,
+    waterTerrainTypeId,
+    latitudeDistortion
+  ])
+
+  // True only when a straight pin-to-pin trip actually used a wrapped route
+  // (more than one leg) — worth telling the user, since the route shown on
+  // the map might otherwise look surprising (jumping between opposite edges).
+  const usedWrap = !drawnPath && (effectiveLegs?.length ?? 0) > 1
 
   // A segment's terrainTypeId may resolve against either pool — see
   // calculateTrip's own comment on why zones and line-derived corridors
@@ -169,7 +237,7 @@ export function MapTripCalculator({
         <button className="sheet-open-ref-button" onClick={onStartDrawing}>
           Draw custom route
         </button>
-        <button className="sheet-open-ref-button" onClick={() => onShowPathChange(effectivePath)} disabled={!effectivePath}>
+        <button className="sheet-open-ref-button" onClick={() => onShowPathChange(effectiveLegs)} disabled={!effectiveLegs}>
           Show on map
         </button>
         <button className="sheet-open-ref-button" onClick={() => onShowPathChange(null)}>
@@ -178,6 +246,13 @@ export function MapTripCalculator({
       </div>
 
       {!drawnPath && from && to && from.id === to.id && <p className="right-panel-note">Choose two different pins.</p>}
+
+      {usedWrap && (
+        <p className="right-panel-note">
+          Shortest path wraps around the map edge — the route shown on the map jumps between opposite edges rather than
+          crossing the middle.
+        </p>
+      )}
 
       {trip && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

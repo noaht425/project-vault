@@ -77,11 +77,11 @@ export function MapSheet({
   // Lifted up from the Trip Calculator section (below) for the same reason —
   // MapCanvas renders above it but owns the actual overlay drawing.
   // drawnTripPath is the raw hand-drawn route (see MapCanvas's 'draw-trip'
-  // mode); tripOverlayPath is whichever path (drawn or straight pin-to-pin)
-  // is currently shown on the map, which the calculator can toggle
-  // independently of whether a route has been drawn.
+  // mode); tripOverlayPath is whichever route (drawn, straight pin-to-pin, or
+  // wrapped) is currently shown on the map, as 1-3 legs (see MapCanvas's
+  // tripPath prop) — shown independently of whether a route has been drawn.
   const [drawnTripPath, setDrawnTripPath] = useState<Point[] | null>(null)
-  const [tripOverlayPath, setTripOverlayPath] = useState<Point[] | null>(null)
+  const [tripOverlayPath, setTripOverlayPath] = useState<Point[][] | null>(null)
 
   // Only for the line form's crossing-time preview below — travel modes
   // are otherwise entirely TravelModesEditor's/MapTripCalculator's concern.
@@ -316,7 +316,78 @@ export function MapSheet({
             <button className={mode === 'place-pin' ? 'active' : ''} onClick={() => setMode('place-pin')}>
               Place Pin
             </button>
+            <button className={mode === 'set-equator' ? 'active' : ''} onClick={() => setMode('set-equator')}>
+              Set Equator
+            </button>
           </div>
+
+          <div className="sheet-row" style={{ alignItems: 'center', marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={data.wrapsHorizontally}
+                onChange={(e) => updateFrontmatter({ wrapsHorizontally: e.target.checked })}
+              />
+              Wraps left/right edge
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={data.wrapsVertically}
+                onChange={(e) => updateFrontmatter({ wrapsVertically: e.target.checked })}
+              />
+              Wraps top/bottom edge
+            </label>
+            {(data.wrapsHorizontally || data.wrapsVertically) && (
+              <span className="right-panel-note">
+                The trip calculator will consider going off a wrapping edge and reappearing on the opposite one, if that's shorter.
+              </span>
+            )}
+          </div>
+
+          <div className="sheet-row" style={{ alignItems: 'center', marginBottom: 8 }}>
+            <label className="sheet-field sheet-field-narrow">
+              Planet circumference ({data.scale?.unit ?? 'miles'})
+              <input
+                type="number"
+                value={data.planetCircumference ?? ''}
+                onChange={(e) =>
+                  updateFrontmatter({ planetCircumference: e.target.value === '' ? null : Number(e.target.value) })
+                }
+                placeholder="e.g. 24901"
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={data.accountForLatitudeDistortion}
+                disabled={data.equatorY === null || !data.planetCircumference}
+                onChange={(e) => updateFrontmatter({ accountForLatitudeDistortion: e.target.checked })}
+              />
+              Account for planet curvature
+            </label>
+            {data.equatorY !== null && (
+              <button className="sheet-open-ref-button" onClick={() => updateFrontmatter({ equatorY: null })}>
+                Clear equator
+              </button>
+            )}
+          </div>
+          {(data.equatorY === null || !data.planetCircumference) && (
+            <p className="right-panel-note">
+              Set both a planet circumference above and the equator's position ("Set Equator" button) to enable the curvature
+              option — it approximates how a flat map exaggerates east-west distance away from the equator (same reason
+              Greenland looks continent-sized on real-world flat maps). North-south distance and every terrain/road/river
+              you've already drawn are unaffected either way — this only changes how pixel distance converts to real
+              distance during trip calculation.
+            </p>
+          )}
+
+          {mode === 'set-equator' && (
+            <p className="right-panel-note">
+              Hover to preview the equator line, then click to set it. If your map doesn't include the equator (e.g. a single
+              kingdom far to the north), zoom/pan out first — the line can be placed above or below the image itself.
+            </p>
+          )}
 
           {mode === 'calibrate' && pendingPixelDistance === null && (
             <p className="right-panel-note">Click two points a known real-world distance apart.</p>
@@ -361,7 +432,7 @@ export function MapSheet({
               onLandmassDrawn={setPendingLandmassPoints}
               onTripDrawn={(points) => {
                 setDrawnTripPath(points)
-                setTripOverlayPath(points) // drawing a route implies showing it — no reason to hide what you just traced
+                setTripOverlayPath([points]) // drawing a route implies showing it — no reason to hide what you just traced
                 setMode('view')
               }}
               onPinPlaced={(point) => {
@@ -372,6 +443,11 @@ export function MapSheet({
               onPinClick={(pin) => pin.locationTitle && void noteRefApi.openByTitle(pin.locationTitle, 'location')}
               highlightedPinIds={highlightedPinIds}
               tripPath={tripOverlayPath}
+              equatorY={data.equatorY}
+              onEquatorChosen={(y) => {
+                updateFrontmatter({ equatorY: y })
+                setMode('view')
+              }}
             />
           </div>
 
@@ -600,8 +676,8 @@ export function MapSheet({
       )}
 
       {data.zones.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <strong>Terrain zones</strong>
+        <details style={{ marginTop: 12 }}>
+          <summary>Terrain zones ({data.zones.length})</summary>
           {data.zones.map((zone) => (
             <div key={zone.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <span
@@ -616,12 +692,12 @@ export function MapSheet({
               <button onClick={() => removeZone(zone.id)}>✕</button>
             </div>
           ))}
-        </div>
+        </details>
       )}
 
       {data.lines.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <strong>Lines (roads, paths, rivers)</strong>
+        <details style={{ marginTop: 12 }}>
+          <summary>Lines (roads, paths, rivers) ({data.lines.length})</summary>
           {data.lines.map((line) => (
             <div key={line.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <span
@@ -638,12 +714,12 @@ export function MapSheet({
               <button onClick={() => removeLine(line.id)}>✕</button>
             </div>
           ))}
-        </div>
+        </details>
       )}
 
       {data.landmasses.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <strong>Landmasses (continents/islands)</strong>
+        <details style={{ marginTop: 12 }}>
+          <summary>Landmasses (continents/islands) ({data.landmasses.length})</summary>
           <p className="right-panel-note">
             Anything outside every landmass boundary below is treated as water, using the "Water terrain" pick below (or normal
             1x speed if none is set) — unless it's covered by its own painted zone or line.
@@ -678,12 +754,12 @@ export function MapSheet({
               after you remove that zone.
             </p>
           )}
-        </div>
+        </details>
       )}
 
       {data.pins.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <strong>Pins</strong>
+        <details style={{ marginTop: 12 }}>
+          <summary>Pins ({data.pins.length})</summary>
           {data.pins.map((pin) =>
             pin.locationTitle ? (
               <div key={pin.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
@@ -699,7 +775,7 @@ export function MapSheet({
               </div>
             )
           )}
-        </div>
+        </details>
       )}
 
       <details style={{ marginTop: 12 }}>
@@ -713,6 +789,12 @@ export function MapSheet({
           landmasses={data.landmasses}
           waterTerrainTypeId={data.waterTerrainTypeId}
           scale={data.scale}
+          image={data.image}
+          wrapsHorizontally={data.wrapsHorizontally}
+          wrapsVertically={data.wrapsVertically}
+          equatorY={data.equatorY}
+          planetCircumference={data.planetCircumference}
+          accountForLatitudeDistortion={data.accountForLatitudeDistortion}
           drawnPath={drawnTripPath}
           onClearDrawnPath={() => {
             setDrawnTripPath(null)

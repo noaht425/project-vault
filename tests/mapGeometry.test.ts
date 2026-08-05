@@ -7,7 +7,13 @@ import {
   crossingTime,
   splitLineByZones,
   zonesIncludingLines,
-  calculateTrip
+  calculateTrip,
+  wrapLegs,
+  mergeTripResults,
+  latitudeRadiansAt,
+  distortedSegmentRealDistance,
+  type WrapConfig,
+  type LatitudeDistortionConfig
 } from '../src/common/mapGeometry'
 import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../src/common/noteTypes/map'
 import type { TravelMode } from '../src/common/noteTypes/travelModes'
@@ -81,20 +87,24 @@ describe('crossingTime', () => {
 describe('splitLineByZones', () => {
   it('returns one segment when the whole line is inside a single zone', () => {
     const segments = splitLineByZones({ x: 10, y: 50 }, { x: 90, y: 50 }, ZONES)
-    expect(segments).toEqual([{ terrainTypeId: 'forest', isLand: true, pixelLength: 80 }])
+    expect(segments).toEqual([
+      { terrainTypeId: 'forest', isLand: true, pixelLength: 80, start: { x: 10, y: 50 }, end: { x: 90, y: 50 } }
+    ])
   })
 
   it('splits at the boundary when a line crosses from one zone into an adjacent one', () => {
     const segments = splitLineByZones({ x: 50, y: 50 }, { x: 150, y: 50 }, ZONES)
     expect(segments).toEqual([
-      { terrainTypeId: 'forest', isLand: true, pixelLength: 50 },
-      { terrainTypeId: 'meadow', isLand: true, pixelLength: 50 }
+      { terrainTypeId: 'forest', isLand: true, pixelLength: 50, start: { x: 50, y: 50 }, end: { x: 100, y: 50 } },
+      { terrainTypeId: 'meadow', isLand: true, pixelLength: 50, start: { x: 100, y: 50 }, end: { x: 150, y: 50 } }
     ])
   })
 
   it('falls back to a null (unpainted) segment when the line misses every zone', () => {
     const segments = splitLineByZones({ x: 300, y: 300 }, { x: 400, y: 300 }, ZONES)
-    expect(segments).toEqual([{ terrainTypeId: null, isLand: true, pixelLength: 100 }])
+    expect(segments).toEqual([
+      { terrainTypeId: null, isLand: true, pixelLength: 100, start: { x: 300, y: 300 }, end: { x: 400, y: 300 } }
+    ])
   })
 })
 
@@ -128,8 +138,8 @@ describe('splitLineByZones with landmasses', () => {
     // Straight line crossing from inside CONTINENT (land) to outside it (water).
     const segments = splitLineByZones({ x: 50, y: 50 }, { x: 150, y: 50 }, [], [CONTINENT])
     expect(segments).toEqual([
-      { terrainTypeId: null, isLand: true, pixelLength: 50 },
-      { terrainTypeId: null, isLand: false, pixelLength: 50 }
+      { terrainTypeId: null, isLand: true, pixelLength: 50, start: { x: 50, y: 50 }, end: { x: 100, y: 50 } },
+      { terrainTypeId: null, isLand: false, pixelLength: 50, start: { x: 100, y: 50 }, end: { x: 150, y: 50 } }
     ])
   })
 
@@ -138,7 +148,9 @@ describe('splitLineByZones with landmasses', () => {
     // it should still come back as one merged 'meadow' segment despite
     // being entirely on the water side, since an explicit zone always wins.
     const segments = splitLineByZones({ x: 110, y: 50 }, { x: 190, y: 50 }, ZONES, [CONTINENT])
-    expect(segments).toEqual([{ terrainTypeId: 'meadow', isLand: false, pixelLength: 80 }])
+    expect(segments).toEqual([
+      { terrainTypeId: 'meadow', isLand: false, pixelLength: 80, start: { x: 110, y: 50 }, end: { x: 190, y: 50 } }
+    ])
   })
 })
 
@@ -160,7 +172,9 @@ describe('zonesIncludingLines', () => {
 
   it('registers a route that runs along a line for its whole length as a single segment', () => {
     const segments = splitLineByZones({ x: 10, y: 50 }, { x: 190, y: 50 }, zonesIncludingLines([], [ROAD_LINE]))
-    expect(segments).toEqual([{ terrainTypeId: 'road', isLand: true, pixelLength: 180 }])
+    expect(segments).toEqual([
+      { terrainTypeId: 'road', isLand: true, pixelLength: 180, start: { x: 10, y: 50 }, end: { x: 190, y: 50 } }
+    ])
   })
 
   it('lets a line take priority over an underlying area zone where they overlap', () => {
@@ -379,5 +393,199 @@ describe('calculateTrip', () => {
     expect(trip.segments.map((s) => s.isLand)).toEqual([true, false, false, true])
     expect(trip.segments.map((s) => s.realDistance)).toEqual([5, 5, 3, 4])
     expect(trip.totalTime).toBeCloseTo(2.5 + 1.25 + 0.75 + 2, 10)
+  })
+})
+
+describe('wrapLegs', () => {
+  const noWrap: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: false, wrapsVertically: false }
+
+  it('returns a single direct leg when wrapping is off', () => {
+    expect(wrapLegs({ x: 10, y: 50 }, { x: 190, y: 50 }, noWrap)).toEqual([
+      [
+        { x: 10, y: 50 },
+        { x: 190, y: 50 }
+      ]
+    ])
+  })
+
+  it('returns a single direct leg when the direct path is already shortest, even with wrapping on', () => {
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: false }
+    // 20px apart directly; wrapping around would be 180px the other way — direct wins.
+    expect(wrapLegs({ x: 10, y: 50 }, { x: 30, y: 50 }, config)).toEqual([
+      [
+        { x: 10, y: 50 },
+        { x: 30, y: 50 }
+      ]
+    ])
+  })
+
+  it('splits into two legs at the seam when wrapping horizontally is shorter', () => {
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: false }
+    // Direct distance is 180px; going around (off the left edge, reappearing on the right) is 20px.
+    const legs = wrapLegs({ x: 10, y: 50 }, { x: 190, y: 50 }, config)
+    expect(legs).toEqual([
+      [
+        { x: 10, y: 50 },
+        { x: 0, y: 50 }
+      ],
+      [
+        { x: 200, y: 50 },
+        { x: 190, y: 50 }
+      ]
+    ])
+    // Both legs' lengths should sum back to the 20px wrapped distance, not the 180px direct one.
+    const totalLength = legs.reduce((sum, [a, b]) => sum + segmentDistance(a, b), 0)
+    expect(totalLength).toBe(20)
+  })
+
+  it('splits at the seam when wrapping vertically is shorter', () => {
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: false, wrapsVertically: true }
+    // Direct distance is 90px; going around (off the top edge, reappearing on the bottom) is 10px.
+    const legs = wrapLegs({ x: 50, y: 5 }, { x: 50, y: 95 }, config)
+    expect(legs).toEqual([
+      [
+        { x: 50, y: 5 },
+        { x: 50, y: 0 }
+      ],
+      [
+        { x: 50, y: 100 },
+        { x: 50, y: 95 }
+      ]
+    ])
+  })
+
+  it('splits into three legs when both axes wrap and the corner route is shortest', () => {
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: true }
+    // Near the top-left corner and near the bottom-right-ish area, with the
+    // horizontal and vertical seam crossings landing at different points
+    // along the line (not simultaneously, as a perfectly diagonal corner
+    // case would) — wrapping both axes beats going the direct way either way.
+    const legs = wrapLegs({ x: 10, y: 10 }, { x: 180, y: 70 }, config)
+    expect(legs).toHaveLength(3)
+    // Every leg's endpoints should stay within the map's real bounds.
+    for (const [a, b] of legs) {
+      for (const p of [a, b]) {
+        expect(p.x).toBeGreaterThanOrEqual(0)
+        expect(p.x).toBeLessThanOrEqual(200)
+        expect(p.y).toBeGreaterThanOrEqual(0)
+        expect(p.y).toBeLessThanOrEqual(100)
+      }
+    }
+    // The legs' lengths should sum back to the wrapped distance (30,40 ->
+    // 50px), not the ~180px direct distance.
+    const totalLength = legs.reduce((sum, [a, b]) => sum + segmentDistance(a, b), 0)
+    expect(totalLength).toBeCloseTo(50, 9)
+  })
+})
+
+describe('mergeTripResults', () => {
+  const terrainTypes: TerrainType[] = [{ id: 'forest', name: 'Forest', color: '#4caf6e', speedMultiplier: 0.5 }]
+  const lineTypes: LineType[] = []
+  const scale = { pixelDistance: 100, realDistance: 10, unit: 'miles' }
+  const walking: TravelMode = { id: 'walk', name: 'Walking', speed: 2, timeUnitLabel: 'hours' }
+
+  it('sums totals and concatenates segments across legs', () => {
+    const a = calculateTrip([{ x: 0, y: 50 }, { x: 100, y: 50 }], [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const b = calculateTrip([{ x: 100, y: 50 }, { x: 200, y: 50 }], [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const merged = mergeTripResults([a, b])
+    expect(merged.totalPixelDistance).toBe(a.totalPixelDistance + b.totalPixelDistance)
+    expect(merged.totalRealDistance).toBeCloseTo(a.totalRealDistance + b.totalRealDistance, 10)
+    expect(merged.totalTime).toBeCloseTo(a.totalTime + b.totalTime, 10)
+    expect(merged.segments).toEqual([...a.segments, ...b.segments])
+  })
+
+  it('propagates Infinity from an impassable leg', () => {
+    const impassableLine: LineType = { id: 'wall', name: 'Wall', color: '#000', speedMultiplier: 0 }
+    const wall: MapLine = {
+      id: 'wall-1',
+      lineTypeId: 'wall',
+      points: [
+        { x: 100, y: -50 },
+        { x: 100, y: 150 }
+      ],
+      widthPixels: 10
+    }
+    const blocked = calculateTrip(
+      [{ x: 90, y: 50 }, { x: 110, y: 50 }],
+      [],
+      [wall],
+      terrainTypes,
+      [impassableLine],
+      [],
+      null,
+      scale,
+      walking,
+      walking
+    )
+    const clear = calculateTrip([{ x: 0, y: 50 }, { x: 50, y: 50 }], [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const merged = mergeTripResults([clear, blocked])
+    expect(merged.totalTime).toBe(Infinity)
+  })
+})
+
+describe('latitudeRadiansAt / distortedSegmentRealDistance', () => {
+  // 0.1mi/px vertically, and a planet sized so 1 degree of latitude is a
+  // clean 60mi (circumference 21600mi = 360 * 60) — chosen so the numbers
+  // below land on round degree values instead of requiring long decimals.
+  const scale = { pixelDistance: 100, realDistance: 10, unit: 'miles' }
+  const config: LatitudeDistortionConfig = { equatorY: 500, planetCircumference: 21600 }
+
+  it('is 0 exactly at the equator row', () => {
+    expect(latitudeRadiansAt(500, scale, config)).toBe(0)
+  })
+
+  it('is positive south of the equator and negative north of it, scaled by the vertical scale', () => {
+    // 600px south of equatorY = 60mi = 1 degree.
+    expect(latitudeRadiansAt(1100, scale, config)).toBeCloseTo(Math.PI / 180, 12)
+    expect(latitudeRadiansAt(-100, scale, config)).toBeCloseTo(-Math.PI / 180, 12)
+  })
+
+  it('leaves a purely north-south segment undistorted', () => {
+    const undistorted = pixelsToReal(segmentDistance({ x: 50, y: 1100 }, { x: 50, y: 1200 }), scale)
+    expect(distortedSegmentRealDistance({ x: 50, y: 1100 }, { x: 50, y: 1200 }, scale, config)).toBeCloseTo(undistorted, 10)
+  })
+
+  it('shrinks a purely east-west segment by cos(latitude) at its midpoint', () => {
+    // Both endpoints at y=1100 (1 degree south, see above) — a 100px (10mi) east-west hop.
+    const distorted = distortedSegmentRealDistance({ x: 0, y: 1100 }, { x: 100, y: 1100 }, scale, config)
+    expect(distorted).toBeCloseTo(10 * Math.cos(Math.PI / 180), 10)
+    expect(distorted).toBeLessThan(10) // strictly shrunk, not left alone
+  })
+
+  it('is undistorted (cos(0) = 1) for an east-west segment straddling the equator symmetrically', () => {
+    const distorted = distortedSegmentRealDistance({ x: 0, y: 500 }, { x: 100, y: 500 }, scale, config)
+    expect(distorted).toBeCloseTo(10, 10)
+  })
+})
+
+describe('calculateTrip with latitudeDistortion', () => {
+  const terrainTypes: TerrainType[] = []
+  const lineTypes: LineType[] = []
+  const scale = { pixelDistance: 100, realDistance: 10, unit: 'miles' }
+  const walking: TravelMode = { id: 'walk', name: 'Walking', speed: 2, timeUnitLabel: 'hours' }
+  const config: LatitudeDistortionConfig = { equatorY: 500, planetCircumference: 21600 }
+
+  it('shrinks total real distance for an east-west trip away from the equator, vs. the flat calculation', () => {
+    const path = [{ x: 0, y: 1100 }, { x: 100, y: 1100 }] // 1 degree south, per the fixtures above
+    const flat = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const distorted = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking, config)
+
+    expect(flat.totalRealDistance).toBe(10)
+    expect(distorted.totalRealDistance).toBeCloseTo(10 * Math.cos(Math.PI / 180), 10)
+    expect(distorted.totalRealDistance).toBeLessThan(flat.totalRealDistance)
+  })
+
+  it('leaves a north-south trip unchanged by distortion', () => {
+    const path = [{ x: 50, y: 1100 }, { x: 50, y: 1200 }]
+    const flat = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const distorted = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking, config)
+    expect(distorted.totalRealDistance).toBeCloseTo(flat.totalRealDistance, 10)
+  })
+
+  it('omitting latitudeDistortion (undefined) behaves exactly like passing null', () => {
+    const path = [{ x: 0, y: 1100 }, { x: 100, y: 1100 }]
+    const omitted = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
+    const explicitNull = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking, null)
+    expect(omitted).toEqual(explicitNull)
   })
 })

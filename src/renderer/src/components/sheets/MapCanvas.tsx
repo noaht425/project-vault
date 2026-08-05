@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { segmentDistance, type Point } from '../../../../common/mapGeometry'
 import { pinDisplayLabel, type LineType, type MapLandmass, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
 
-export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
+export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin' | 'set-equator'
 
 interface ViewBox {
   x: number
@@ -59,11 +59,20 @@ export interface MapCanvasProps {
   // show which locations have a revealed event as the slider moves.
   // Optional since only that one caller needs it.
   highlightedPinIds?: Set<string>
-  // The Trip Calculator's currently active route (straight pin-to-pin, or a
-  // hand-drawn multi-leg path) — rendered as an overlay regardless of the
-  // current drawing mode, so it stays visible while you keep working the map.
-  // Null when nothing's being shown.
-  tripPath?: Point[] | null
+  // The Trip Calculator's currently active route (straight pin-to-pin, a
+  // hand-drawn path, or a wrapped route) — rendered as an overlay regardless
+  // of the current drawing mode, so it stays visible while you keep working
+  // the map. Each entry is one contiguous leg, drawn as its own polyline —
+  // a wrapped route has 2-3 legs (see mapGeometry.ts's wrapLegs) that jump
+  // between opposite edges and must NOT be connected by a line straight
+  // across the map. Null when nothing's being shown.
+  tripPath?: Point[][] | null
+  // Where latitude 0 currently is (see noteTypes/map.ts's equatorY) — drawn
+  // as a thin persistent reference line whenever set, regardless of mode, so
+  // it's easy to see (and re-set) without switching into 'set-equator' mode
+  // to remember where it landed. Null/undefined when not yet set.
+  equatorY?: number | null
+  onEquatorChosen: (y: number) => void
 }
 
 export function MapCanvas({
@@ -85,7 +94,9 @@ export function MapCanvas({
   onPinPlaced,
   onPinClick,
   highlightedPinIds,
-  tripPath
+  tripPath,
+  equatorY,
+  onEquatorChosen
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -93,6 +104,11 @@ export function MapCanvas({
   const [lineDraft, setLineDraft] = useState<Point[]>([])
   const [landmassDraft, setLandmassDraft] = useState<Point[]>([])
   const [tripDraft, setTripDraft] = useState<Point[]>([])
+  // Live hover position while in 'set-equator' mode, so a preview line can
+  // track the cursor before the user commits with a click — cleared on
+  // every mode change (see the effect below) and whenever the cursor leaves
+  // the canvas, so a stale line can't linger after the pointer moves away.
+  const [equatorHoverY, setEquatorHoverY] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
   // The window-level mousemove/mouseup listeners below are only rebound
@@ -110,6 +126,7 @@ export function MapCanvas({
   const terrainTypesById = useMemo(() => new Map(terrainTypes.map((t) => [t.id, t])), [terrainTypes])
   const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
   const pinRadius = Math.max(6, Math.min(imageWidth, imageHeight) * 0.01)
+  const equatorStrokeWidth = Math.max(2, Math.min(imageWidth, imageHeight) * 0.003)
 
   // This component re-renders on every mousemove tick while panning and
   // every wheel event while zooming (both just update viewBox). Without
@@ -180,6 +197,7 @@ export function MapCanvas({
     setLineDraft([])
     setLandmassDraft([])
     setTripDraft([])
+    setEquatorHoverY(null)
   }, [mode])
 
   useEffect(() => {
@@ -247,7 +265,19 @@ export function MapCanvas({
       setTripDraft((pts) => [...pts, point])
     } else if (mode === 'place-pin') {
       onPinPlaced(point)
+    } else if (mode === 'set-equator') {
+      onEquatorChosen(point.y)
     }
+  }
+
+  // Only active in 'set-equator' mode — tracks the cursor so the preview
+  // line below can follow it before the user commits with a click. A plain
+  // React handler (not a window-level listener like panning uses) is enough
+  // since this doesn't need to keep firing once the pointer leaves the SVG.
+  const handleMouseMoveForEquator = (e: React.MouseEvent<SVGSVGElement>): void => {
+    if (mode !== 'set-equator') return
+    const point = clientToSvgPoint(e.clientX, e.clientY)
+    if (point) setEquatorHoverY(point.y)
   }
 
   const handleWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
@@ -318,6 +348,8 @@ export function MapCanvas({
       viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
       style={{ cursor: mode === 'view' ? 'grab' : 'crosshair' }}
       onWheel={handleWheel}
+      onMouseMove={handleMouseMoveForEquator}
+      onMouseLeave={() => setEquatorHoverY(null)}
       onMouseDown={handleMouseDown}
     >
       <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />
@@ -381,31 +413,91 @@ export function MapCanvas({
         <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
       )}
 
-      {tripPath && tripPath.length > 1 && (
+      {/* The equator, once set — a persistent thin reference line spanning
+          the current view's full width (not just the image), since equatorY
+          can legitimately sit outside the image bounds for a map that
+          doesn't include the equator (a kingdom far to the north, say).
+          Shown regardless of mode so it's visible while drawing/painting
+          near it, not only while re-setting it. */}
+      {equatorY != null && (
         <g>
-          {/* The active trip route — a straight pin-to-pin preview or a
-              hand-drawn multi-leg path, either way rendered the same way so
-              there's one visual language for "this is the route being timed"
-              regardless of how it was produced. High-contrast gold against
-              the black outline reads over any terrain color underneath. */}
-          <polyline
-            points={tripPath.map((p) => `${p.x},${p.y}`).join(' ')}
-            fill="none"
+          <line
+            x1={viewBox.x}
+            x2={viewBox.x + viewBox.w}
+            y1={equatorY}
+            y2={equatorY}
             stroke="#000"
-            strokeWidth={6}
-            strokeLinecap="round"
+            strokeOpacity={0.4}
+            strokeWidth={equatorStrokeWidth + 1.5}
           />
-          <polyline
-            points={tripPath.map((p) => `${p.x},${p.y}`).join(' ')}
-            fill="none"
-            stroke="#ffd60a"
-            strokeWidth={3}
-            strokeDasharray="10,6"
-            strokeLinecap="round"
+          <line
+            x1={viewBox.x}
+            x2={viewBox.x + viewBox.w}
+            y1={equatorY}
+            y2={equatorY}
+            stroke="#2ec4b6"
+            strokeWidth={equatorStrokeWidth}
+            strokeDasharray={`${equatorStrokeWidth * 5},${equatorStrokeWidth * 3}`}
           />
-          {tripPath.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={5} fill="#ffd60a" stroke="#000" strokeWidth={1.5} />
-          ))}
+          <text x={viewBox.x + 8} y={equatorY - 8} fill="#2ec4b6">
+            Equator
+          </text>
+        </g>
+      )}
+
+      {/* Live preview while choosing where the equator goes — follows the
+          cursor across the full view width (see handleMouseMoveForEquator),
+          distinctly colored/dashed from the persistent line above so it
+          reads as "not committed yet". Panning/zooming out lets this reach
+          well outside the image itself, for a map that doesn't depict the
+          equator at all. */}
+      {mode === 'set-equator' && equatorHoverY !== null && (
+        <line
+          x1={viewBox.x}
+          x2={viewBox.x + viewBox.w}
+          y1={equatorHoverY}
+          y2={equatorHoverY}
+          stroke="#ff8800"
+          strokeWidth={equatorStrokeWidth}
+          strokeDasharray={`${equatorStrokeWidth * 2},${equatorStrokeWidth * 2}`}
+        />
+      )}
+
+      {tripPath && tripPath.length > 0 && (
+        <g>
+          {/* The active trip route — a straight pin-to-pin preview, a
+              hand-drawn path, or a wrapped route's legs, either way rendered
+              the same way so there's one visual language for "this is the
+              route being timed" regardless of how it was produced. Each leg
+              is drawn separately (never connected to the next) so a wrapped
+              route reads as "jumps to the opposite edge" rather than a line
+              straight across the map. High-contrast gold against the black
+              outline reads over any terrain color underneath. */}
+          {tripPath.map(
+            (leg, legIndex) =>
+              leg.length > 1 && (
+                <g key={legIndex}>
+                  <polyline
+                    points={leg.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="#000"
+                    strokeWidth={6}
+                    strokeLinecap="round"
+                  />
+                  <polyline
+                    points={leg.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="#ffd60a"
+                    strokeWidth={3}
+                    strokeDasharray="10,6"
+                    strokeLinecap="round"
+                  />
+                  {leg.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={5} fill="#ffd60a" stroke="#000" strokeWidth={1.5} />
+                  ))}
+                </g>
+              )
+          )}
         </g>
       )}
 

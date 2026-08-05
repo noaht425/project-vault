@@ -24,11 +24,54 @@ export function pixelsToReal(pixels: number, scale: MapScale): number {
 // same per-segment math calculateTrip does, exposed standalone so the line
 // -drawing form can preview "this width costs about N hours to cross"
 // without needing two real pins and a full trip. Infinity at 0 speed,
-// matching calculateTrip's impassable-terrain convention.
+// matching calculateTrip's impassable-terrain convention. Deliberately not
+// latitude-distortion-aware: at the point this preview is shown (mid-draw,
+// picking a width), the line has no map position yet to look up a latitude
+// for — this stays the flat estimate it's always been.
 export function crossingTime(widthPixels: number, scale: MapScale, speedMultiplier: number, travelMode: TravelMode): number {
   const realDistance = pixelsToReal(widthPixels, scale)
   const effectiveSpeed = travelMode.speed * speedMultiplier
   return effectiveSpeed === 0 ? Infinity : realDistance / effectiveSpeed
+}
+
+export interface LatitudeDistortionConfig {
+  equatorY: number
+  planetCircumference: number
+}
+
+// Latitude (in radians, signed — negative south of the equator) at a given
+// image-pixel y, treating the map as an equirectangular projection (y is
+// linear in latitude, same assumption nearly every flat hand-drawn or
+// digital map already makes implicitly). Derived from the map's existing
+// vertical scale plus two extra settings: where the equator falls (equatorY,
+// which may sit outside the image entirely — a map of one kingdom far from
+// the equator still works) and the planet's real circumference (which fixes
+// how much real distance one degree of latitude covers, independent of how
+// much of the planet this particular map depicts).
+export function latitudeRadiansAt(y: number, scale: MapScale, config: LatitudeDistortionConfig): number {
+  const distanceFromEquator = pixelsToReal(y - config.equatorY, scale) // signed — negative north or south, consistently
+  const distancePerDegree = config.planetCircumference / 360
+  const degrees = distanceFromEquator / distancePerDegree
+  return (degrees * Math.PI) / 180
+}
+
+// Real-world distance across one straight, undistorted sub-segment (start ->
+// end, both in image pixels), correcting for how much a flat equirectangular
+// map exaggerates east-west distance away from the equator. Only the
+// east-west (x) component is compressed by cos(latitude); north-south (y) is
+// unaffected, since meridians stay evenly spaced in this projection. Samples
+// latitude once, at the segment's own midpoint, rather than integrating
+// continuously along it — the same flat-per-piece approximation
+// splitLineByZones already makes for terrain lookups (zoneAt/isLandAt), so a
+// segment that's short relative to how fast latitude is changing (i.e. any
+// segment between two zone/landmass crossings) stays accurate enough without
+// needing calculus.
+export function distortedSegmentRealDistance(start: Point, end: Point, scale: MapScale, config: LatitudeDistortionConfig): number {
+  const midY = (start.y + end.y) / 2
+  const lat = latitudeRadiansAt(midY, scale, config)
+  const dxReal = pixelsToReal(end.x - start.x, scale) * Math.cos(lat)
+  const dyReal = pixelsToReal(end.y - start.y, scale)
+  return Math.hypot(dxReal, dyReal)
 }
 
 // Standard ray-casting point-in-polygon test. Only correct for simple
@@ -92,12 +135,19 @@ export interface ZoneSegment {
   terrainTypeId: string | null // null = outside every painted zone
   isLand: boolean // only meaningful when terrainTypeId is null — see calculateTrip
   pixelLength: number
+  // The segment's own endpoints (a sub-span of the original p1->p2 line) —
+  // needed alongside pixelLength so calculateTrip can apply latitude
+  // distortion, which depends on this particular stretch's direction (how
+  // much of pixelLength is east-west vs north-south) and its own y position,
+  // not just its scalar length.
+  start: Point
+  end: Point
 }
 
 export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[], landmasses: MapLandmass[] = []): ZoneSegment[] {
   const totalLength = segmentDistance(p1, p2)
   if (totalLength === 0) {
-    return [{ terrainTypeId: zoneAt(p1, zones), isLand: isLandAt(p1, landmasses), pixelLength: 0 }]
+    return [{ terrainTypeId: zoneAt(p1, zones), isLand: isLandAt(p1, landmasses), pixelLength: 0, start: p1, end: p2 }]
   }
 
   const ts = new Set<number>([0, 1])
@@ -131,11 +181,14 @@ export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[], landmas
     if (tEnd - tStart < 1e-9) continue // dedupe near-identical crossing points
 
     const tMid = (tStart + tEnd) / 2
-    const midpoint = { x: p1.x + (p2.x - p1.x) * tMid, y: p1.y + (p2.y - p1.y) * tMid }
+    const at = (t: number): Point => ({ x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t })
+    const midpoint = at(tMid)
     segments.push({
       terrainTypeId: zoneAt(midpoint, zones),
       isLand: isLandAt(midpoint, landmasses),
-      pixelLength: totalLength * (tEnd - tStart)
+      pixelLength: totalLength * (tEnd - tStart),
+      start: at(tStart),
+      end: at(tEnd)
     })
   }
 
@@ -148,6 +201,7 @@ export function splitLineByZones(p1: Point, p2: Point, zones: MapZone[], landmas
     // still merge even if a landmass edge happens to run through them.
     if (last && last.terrainTypeId === segment.terrainTypeId && (segment.terrainTypeId !== null || last.isLand === segment.isLand)) {
       last.pixelLength += segment.pixelLength
+      last.end = segment.end // extend the merged run's span, keeping its original start
     } else {
       merged.push({ ...segment })
     }
@@ -225,6 +279,114 @@ export interface TripResult {
   segments: TripSegmentResult[]
 }
 
+// Concatenates the results of calculating a trip leg-by-leg (see wrapLegs)
+// into one TripResult, as if it had been calculated as a single path.
+// totalTime sums to Infinity if any leg's did, matching calculateTrip's own
+// impassable-terrain convention.
+export function mergeTripResults(results: TripResult[]): TripResult {
+  return {
+    totalPixelDistance: results.reduce((sum, r) => sum + r.totalPixelDistance, 0),
+    totalRealDistance: results.reduce((sum, r) => sum + r.totalRealDistance, 0),
+    totalTime: results.reduce((sum, r) => sum + r.totalTime, 0),
+    segments: results.flatMap((r) => r.segments)
+  }
+}
+
+export interface WrapConfig {
+  mapWidth: number
+  mapHeight: number
+  wrapsHorizontally: boolean
+  wrapsVertically: boolean
+}
+
+// Splits a straight p1->p2 trip into 1-3 real-coordinate legs representing
+// the shortest path once the map's configured edges are treated as
+// wrapping — e.g. a point near the west edge and a point near the east edge
+// are actually close together, reachable by going off the west edge and
+// reappearing on the east one, same as a flat projection of a cylindrical
+// (one axis wraps) or toroidal (both axes wrap) world.
+//
+// Approach: try translating p2 by (0, ±mapWidth) and/or (0, ±mapHeight) —
+// each translation is a candidate "the same destination, reached by going
+// around" — and keep whichever candidate (including the untranslated one)
+// gives the shortest straight-line distance from p1. Only ever wraps once
+// per axis, since wrapping twice around is never shorter.
+//
+// If the winning candidate required a translation, the straight line to it
+// crosses the map's edge (in x, y, or both) at one or two points along the
+// way. This function cuts the line at those crossings and folds each
+// resulting piece back into the map's real bounds (via modulo), producing
+// 2-3 short real-coordinate legs whose lengths sum to the same wrapped
+// distance — each independently safe to feed through calculateTrip (and to
+// render on the map), since none of them cross an edge internally.
+export function wrapLegs(p1: Point, p2: Point, config: WrapConfig): Point[][] {
+  const { mapWidth: W, mapHeight: H, wrapsHorizontally, wrapsVertically } = config
+
+  let bestOffset: Point = { x: 0, y: 0 }
+  let bestDist = segmentDistance(p1, p2)
+  for (const dx of wrapsHorizontally ? [-W, 0, W] : [0]) {
+    for (const dy of wrapsVertically ? [-H, 0, H] : [0]) {
+      if (dx === 0 && dy === 0) continue
+      const dist = segmentDistance(p1, { x: p2.x + dx, y: p2.y + dy })
+      if (dist < bestDist) {
+        bestDist = dist
+        bestOffset = { x: dx, y: dy }
+      }
+    }
+  }
+
+  if (bestOffset.x === 0 && bestOffset.y === 0) return [[p1, p2]]
+
+  const p2Shifted = { x: p2.x + bestOffset.x, y: p2.y + bestOffset.y }
+  const dx = p2Shifted.x - p1.x
+  const dy = p2Shifted.y - p1.y
+
+  // Where (in t, 0..1 along p1->p2Shifted) the straight line crosses whichever
+  // edge it's headed out of — the only edge relevant here is the one in the
+  // winning offset's direction, since a candidate is only ever translated by
+  // one map-width/height, so the raw (unwrapped) coordinate crosses at most
+  // one multiple-of-W (or H) gridline.
+  const ts = new Set<number>([0, 1])
+  if (bestOffset.x !== 0 && dx !== 0) {
+    const seamX = bestOffset.x < 0 ? 0 : W
+    const t = (seamX - p1.x) / dx
+    if (t > 0 && t < 1) ts.add(t)
+  }
+  if (bestOffset.y !== 0 && dy !== 0) {
+    const seamY = bestOffset.y < 0 ? 0 : H
+    const t = (seamY - p1.y) / dy
+    if (t > 0 && t < 1) ts.add(t)
+  }
+
+  const raw = (t: number): Point => ({ x: p1.x + dx * t, y: p1.y + dy * t })
+  const sorted = [...ts].sort((a, b) => a - b)
+  const legs: Point[][] = []
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const tStart = sorted[i]
+    const tEnd = sorted[i + 1]
+    if (tEnd - tStart < 1e-9) continue // dedupe a crossing that landed exactly on 0 or 1
+
+    // The whole leg lies within one "tile" (no seam crossing inside it, by
+    // construction), so one integer shift per axis folds both endpoints back
+    // into the map's real bounds consistently. That shift has to come from
+    // the leg's midpoint, not from each endpoint independently (plain
+    // modulo) — a modulo fold is discontinuous exactly at a seam value (e.g.
+    // wrap(0, W) = 0 but wrap(-epsilon, W) ~= W), so folding an endpoint that
+    // sits exactly on the seam can silently pick the wrong side, landing a
+    // leg back on the edge it just left instead of the opposite one.
+    const mid = raw((tStart + tEnd) / 2)
+    const shiftX = wrapsHorizontally ? Math.floor(mid.x / W) * W : 0
+    const shiftY = wrapsVertically ? Math.floor(mid.y / H) * H : 0
+    const start = raw(tStart)
+    const end = raw(tEnd)
+    legs.push([
+      { x: start.x - shiftX, y: start.y - shiftY },
+      { x: end.x - shiftX, y: end.y - shiftY }
+    ])
+  }
+  return legs
+}
+
 // path is 2+ points — either the two endpoint pins of a straight-line trip,
 // or a longer hand-drawn route (see MapCanvas's 'draw-trip' mode) for a
 // journey that doesn't take the direct line, e.g. walking to a dock, taking
@@ -243,7 +405,12 @@ export function calculateTrip(
   waterTerrainTypeId: string | null,
   scale: MapScale,
   landTravelMode: TravelMode,
-  waterTravelMode: TravelMode
+  waterTravelMode: TravelMode,
+  // Optional — when set, each segment's real distance corrects for
+  // equirectangular east-west distortion (see distortedSegmentRealDistance)
+  // instead of the plain flat pixelsToReal conversion. Omitted/null leaves
+  // every existing caller's behavior unchanged.
+  latitudeDistortion?: LatitudeDistortionConfig | null
 ): TripResult {
   // A crossed segment's terrainTypeId may resolve against either pool —
   // zones only ever reference terrainTypes, but a line-derived corridor
@@ -263,7 +430,9 @@ export function calculateTrip(
     totalPixelDistance += segmentDistance(p1, p2)
 
     for (const seg of splitLineByZones(p1, p2, allZones, landmasses)) {
-      const realDistance = pixelsToReal(seg.pixelLength, scale)
+      const realDistance = latitudeDistortion
+        ? distortedSegmentRealDistance(seg.start, seg.end, scale, latitudeDistortion)
+        : pixelsToReal(seg.pixelLength, scale)
       // Which travel mode's base speed applies is decided purely by land vs
       // water — an explicitly painted zone/line's multiplier still always
       // wins over the unpainted default, but it scales whichever of the two
