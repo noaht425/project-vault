@@ -38,6 +38,34 @@ function suggestedImageName(path: string): string {
   return path.split('/').pop() || 'image'
 }
 
+// A Map note that exists on both sides is otherwise an all-or-nothing
+// timestamp comparison (see vaultCloudMigration.ts's isSourceNewer) — fine
+// for most fields, but pins are independently-addressable (each has its own
+// stable `id`, added by whichever side the user happened to be using at the
+// time) rather than one blob that only makes sense as a single "current"
+// version. Under the plain newer-wins-or-skip rule, a pin added on the side
+// that ISN'T picked as newer (or on a rerun where dest is now newer/same-
+// age) never reaches the other side at all, and even on the side that DOES
+// win, a full overwrite silently drops any pin the losing side had that the
+// winning side doesn't — that's the actual reported bug. Returns null when
+// there's nothing to add (dest already has every pin source has, or either
+// side isn't a map) so callers can tell "nothing to do" apart from "merge
+// to an empty/unchanged pins array." On an id collision, dest's own pin
+// always wins — this only ever ADDS pins the destination is missing, never
+// overwrites one that already exists there under the same id.
+export function mergeMapPins(
+  destFrontmatter: Record<string, unknown>,
+  sourceFrontmatter: Record<string, unknown>
+): { pins: unknown[]; addedCount: number } | null {
+  if (destFrontmatter.type !== 'map' || sourceFrontmatter.type !== 'map') return null
+  const destPins = Array.isArray(destFrontmatter.pins) ? destFrontmatter.pins : []
+  const sourcePins = Array.isArray(sourceFrontmatter.pins) ? sourceFrontmatter.pins : []
+  const destIds = new Set(destPins.map((p) => (p as { id?: unknown })?.id))
+  const missing = sourcePins.filter((p) => !destIds.has((p as { id?: unknown })?.id))
+  if (missing.length === 0) return null
+  return { pins: [...destPins, ...missing], addedCount: missing.length }
+}
+
 // Cloud's frontmatter shape isn't imported/validated here (zod-parsing a
 // possibly-mid-migration note is exactly the kind of extra coupling design
 // decision #7 wants to avoid) — just reads the couple of fields this

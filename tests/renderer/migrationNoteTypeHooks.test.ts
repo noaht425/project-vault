@@ -2,9 +2,64 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   translateCloudNoteForLocal,
   translateLocalNoteForCloud,
+  mergeMapPins,
   type CloudToLocalMediaApi,
   type LocalToCloudMediaApi
 } from '../../src/renderer/src/lib/migrationNoteTypeHooks'
+
+describe('mergeMapPins', () => {
+  const pin = (id: string, label = id): { id: string; x: number; y: number; locationTitle: null; label: string } => ({
+    id,
+    x: 0,
+    y: 0,
+    locationTitle: null,
+    label
+  })
+
+  it('adds a pin the destination is missing', () => {
+    const dest = { type: 'map', pins: [pin('a')] }
+    const source = { type: 'map', pins: [pin('a'), pin('b')] }
+
+    const result = mergeMapPins(dest, source)
+
+    expect(result).toEqual({ pins: [pin('a'), pin('b')], addedCount: 1 })
+  })
+
+  it('returns null when the destination already has every pin the source has (nothing to do)', () => {
+    const dest = { type: 'map', pins: [pin('a'), pin('b')] }
+    const source = { type: 'map', pins: [pin('a')] }
+
+    expect(mergeMapPins(dest, source)).toBeNull()
+  })
+
+  it('returns null when neither side has any pins at all', () => {
+    expect(mergeMapPins({ type: 'map', pins: [] }, { type: 'map', pins: [] })).toBeNull()
+  })
+
+  it('on an id collision, keeps the destination\'s own pin rather than the source\'s', () => {
+    const dest = { type: 'map', pins: [pin('a', 'dest label')] }
+    const source = { type: 'map', pins: [pin('a', 'source label'), pin('b')] }
+
+    const result = mergeMapPins(dest, source)
+
+    expect(result?.pins).toContainEqual(pin('a', 'dest label'))
+    expect(result?.pins).not.toContainEqual(pin('a', 'source label'))
+    expect(result?.addedCount).toBe(1)
+  })
+
+  it('returns null when either side is not a map note', () => {
+    expect(mergeMapPins({ type: 'npc' }, { type: 'map', pins: [pin('a')] })).toBeNull()
+    expect(mergeMapPins({ type: 'map', pins: [] }, { type: 'npc' })).toBeNull()
+  })
+
+  it('treats a missing/malformed pins field as an empty array rather than throwing', () => {
+    expect(mergeMapPins({ type: 'map' }, { type: 'map', pins: [pin('a')] })).toEqual({ pins: [pin('a')], addedCount: 1 })
+    expect(mergeMapPins({ type: 'map', pins: 'not an array' }, { type: 'map', pins: [pin('a')] })).toEqual({
+      pins: [pin('a')],
+      addedCount: 1
+    })
+  })
+})
 
 describe('translateCloudNoteForLocal', () => {
   function fakeApi(overrides: Partial<CloudToLocalMediaApi> = {}): CloudToLocalMediaApi {

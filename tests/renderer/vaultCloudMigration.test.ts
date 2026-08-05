@@ -8,6 +8,7 @@ import {
   type MigrationCloudSourceApi,
   type MigrationVaultDestApi
 } from '../../src/renderer/src/lib/vaultCloudMigration'
+import { parseNote } from '../../src/common/frontmatter'
 import type { TreeEntry, NoteData, FileVersion, SaveNoteRequest } from '../../src/common/types'
 import type { CloudFolder, CloudNoteData, CloudTreeNode } from '../../src/common/cloudTypes'
 
@@ -804,5 +805,171 @@ describe('importCloudIntoVault', () => {
     expect(updates[0]).toBe(0)
     expect(updates.at(-1)).toBe(2)
     expect(updates).toEqual([...updates].sort((a, b) => a - b))
+  })
+
+  // Regression test for a real reported bug: a Map note that exists on
+  // both sides, where one side has a pin the other doesn't, used to lose
+  // that pin entirely — a plain isSourceNewer overwrite-or-skip has no
+  // concept of merging, so it either fully overwrote (dropping the
+  // "losing" side's unique pin) or fully skipped (never delivering the
+  // "winning" side's unique pin either, whenever the destination happened
+  // to look newer/same-age/unknown). See mergeMapPins in
+  // migrationNoteTypeHooks.ts for the actual merge logic — this just
+  // checks it's correctly wired into both directions' update branch.
+  describe('Map note pin merging (both directions)', () => {
+    const pin = (id: string): Record<string, unknown> => ({ id, x: 1, y: 1, locationTitle: null, label: id })
+
+    it('importCloudIntoVault: adds the cloud-only pin to a local note that already has a different pin, even when the local copy looks newer (no full overwrite needed)', async () => {
+      const cloudTree: CloudTreeNode[] = [{ id: 'note-map', name: 'Map', isDirectory: false, version: 2 }]
+      const cloudApi = fakeCloudSourceApi(cloudTree, {
+        'note-map': cloudNoteData('note-map', 'Map', { type: 'map', pins: [pin('cloud-pin')], updatedAt: '2026-08-01T00:00:00.000Z' })
+      })
+      const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/Map.md`, name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultDestApi(existingTree, {
+        [`${VAULT_ROOT}/Map.md`]: {
+          // Local is strictly newer than cloud — a plain isSourceNewer check
+          // would skip entirely and the cloud-only pin would never arrive.
+          content: "---\ntype: map\npins:\n  - id: local-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: local-pin\nupdatedAt: '2026-08-05T00:00:00.000Z'\n---\n",
+          version: { mtimeMs: 1, contentHash: 'old' }
+        }
+      })
+
+      const progress = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {})
+
+      expect(progress.errors).toEqual([])
+      // Not a "skip" warning — a pin was genuinely added.
+      expect(progress.warnings).toEqual([])
+      const savedFrontmatter = parseNote(vaultApi.notes[`${VAULT_ROOT}/Map.md`].content).frontmatter
+      const pinIds = (savedFrontmatter.pins as { id: string }[]).map((p) => p.id).sort()
+      expect(pinIds).toEqual(['cloud-pin', 'local-pin'])
+      // The local note's own updatedAt is untouched — this was an additive
+      // pin merge, not a full overwrite pretending to be one.
+      expect(savedFrontmatter.updatedAt).toBe('2026-08-05T00:00:00.000Z')
+    })
+
+    it('importCloudIntoVault: a full overwrite (cloud strictly newer) still preserves a local-only pin the cloud source lacks', async () => {
+      const cloudTree: CloudTreeNode[] = [{ id: 'note-map', name: 'Map', isDirectory: false, version: 2 }]
+      const cloudApi = fakeCloudSourceApi(cloudTree, {
+        'note-map': cloudNoteData('note-map', 'Map', {
+          type: 'map',
+          pins: [pin('cloud-pin')],
+          updatedAt: '2026-08-05T00:00:00.000Z'
+        })
+      })
+      const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/Map.md`, name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultDestApi(existingTree, {
+        [`${VAULT_ROOT}/Map.md`]: {
+          content: "---\ntype: map\npins:\n  - id: local-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: local-pin\nupdatedAt: '2026-08-01T00:00:00.000Z'\n---\n",
+          version: { mtimeMs: 1, contentHash: 'old' }
+        }
+      })
+
+      await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {})
+
+      const savedFrontmatter = parseNote(vaultApi.notes[`${VAULT_ROOT}/Map.md`].content).frontmatter
+      const pinIds = (savedFrontmatter.pins as { id: string }[]).map((p) => p.id).sort()
+      expect(pinIds).toEqual(['cloud-pin', 'local-pin'])
+      // This WAS a full overwrite (cloud is strictly newer) — its own
+      // updatedAt should land, unlike the additive-merge-only case above.
+      expect(savedFrontmatter.updatedAt).toBe('2026-08-05T00:00:00.000Z')
+    })
+
+    it('importCloudIntoVault: dryRun counts a pins-only merge as toUpdate without writing anything', async () => {
+      const cloudTree: CloudTreeNode[] = [{ id: 'note-map', name: 'Map', isDirectory: false, version: 2 }]
+      const cloudApi = fakeCloudSourceApi(cloudTree, {
+        'note-map': cloudNoteData('note-map', 'Map', { type: 'map', pins: [pin('cloud-pin')], updatedAt: '2026-08-01T00:00:00.000Z' })
+      })
+      const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/Map.md`, name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultDestApi(existingTree, {
+        [`${VAULT_ROOT}/Map.md`]: {
+          content: "---\ntype: map\npins:\n  - id: local-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: local-pin\nupdatedAt: '2026-08-05T00:00:00.000Z'\n---\n",
+          version: { mtimeMs: 1, contentHash: 'old' }
+        }
+      })
+
+      const plan = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {}, undefined, true)
+
+      expect(plan.toUpdate).toBe(1)
+      expect(plan.warnings).toEqual([])
+      // Untouched — dry run.
+      expect(parseNote(vaultApi.notes[`${VAULT_ROOT}/Map.md`].content).frontmatter.pins).toEqual([pin('local-pin')])
+    })
+
+    it('importCloudIntoVault: still warns and leaves the note alone when there is genuinely nothing to merge and the destination looks newer', async () => {
+      const cloudTree: CloudTreeNode[] = [{ id: 'note-map', name: 'Map', isDirectory: false, version: 2 }]
+      const cloudApi = fakeCloudSourceApi(cloudTree, {
+        'note-map': cloudNoteData('note-map', 'Map', { type: 'map', pins: [pin('shared-pin')], updatedAt: '2026-08-01T00:00:00.000Z' })
+      })
+      const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/Map.md`, name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultDestApi(existingTree, {
+        [`${VAULT_ROOT}/Map.md`]: {
+          // Local already has the cloud's only pin — nothing to add.
+          content: "---\ntype: map\npins:\n  - id: shared-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: shared-pin\nupdatedAt: '2026-08-05T00:00:00.000Z'\n---\n",
+          version: { mtimeMs: 1, contentHash: 'old' }
+        }
+      })
+
+      const progress = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {})
+
+      expect(progress.warnings).toEqual([expect.objectContaining({ name: 'Map' })])
+    })
+
+    it('importVaultIntoCloud: adds the local-only pin to a cloud note that already has a different pin, even when the cloud copy looks newer', async () => {
+      const tree: TreeEntry[] = [{ path: '/vault/Map.md', name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultApi(tree, {
+        '/vault/Map.md':
+          "---\ntype: map\npins:\n  - id: local-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: local-pin\nupdatedAt: '2026-08-01T00:00:00.000Z'\n---\n"
+      })
+      const cloudApi = fakeCloudApi(
+        [{ id: 'note-map', name: 'Map', isDirectory: false, noteType: 'map', version: 1 }],
+        {
+          'note-map': {
+            id: 'note-map',
+            name: 'Map',
+            folderId: null,
+            frontmatter: { type: 'map', pins: [pin('cloud-pin')], updatedAt: '2026-08-05T00:00:00.000Z' },
+            body: '',
+            noteType: 'map',
+            version: 1
+          }
+        }
+      )
+
+      const progress = await importVaultIntoCloud(vaultApi, cloudApi, () => {})
+
+      expect(progress.warnings).toEqual([])
+      const pinIds = (cloudApi.notesById['note-map'].frontmatter.pins as { id: string }[]).map((p) => p.id).sort()
+      expect(pinIds).toEqual(['cloud-pin', 'local-pin'])
+      // Additive merge only — the cloud note's own updatedAt is untouched.
+      expect(cloudApi.notesById['note-map'].frontmatter.updatedAt).toBe('2026-08-05T00:00:00.000Z')
+    })
+
+    it('importVaultIntoCloud: a full overwrite (local strictly newer) still preserves a cloud-only pin the local source lacks', async () => {
+      const tree: TreeEntry[] = [{ path: '/vault/Map.md', name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultApi(tree, {
+        '/vault/Map.md':
+          "---\ntype: map\npins:\n  - id: local-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: local-pin\nupdatedAt: '2026-08-05T00:00:00.000Z'\n---\n"
+      })
+      const cloudApi = fakeCloudApi(
+        [{ id: 'note-map', name: 'Map', isDirectory: false, noteType: 'map', version: 1 }],
+        {
+          'note-map': {
+            id: 'note-map',
+            name: 'Map',
+            folderId: null,
+            frontmatter: { type: 'map', pins: [pin('cloud-pin')], updatedAt: '2026-08-01T00:00:00.000Z' },
+            body: '',
+            noteType: 'map',
+            version: 1
+          }
+        }
+      )
+
+      await importVaultIntoCloud(vaultApi, cloudApi, () => {})
+
+      const pinIds = (cloudApi.notesById['note-map'].frontmatter.pins as { id: string }[]).map((p) => p.id).sort()
+      expect(pinIds).toEqual(['cloud-pin', 'local-pin'])
+      expect(cloudApi.notesById['note-map'].frontmatter.updatedAt).toBe('2026-08-05T00:00:00.000Z')
+    })
   })
 })

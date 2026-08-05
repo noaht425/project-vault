@@ -8,6 +8,15 @@
 // file per design decision #6) and for the compare-and-warn upgrade shared
 // by both directions.
 import { parseNote, stringifyNote } from '../../../common/frontmatter'
+// The one exception to "type-specific logic stays out of this generic
+// walker, only reachable via the transformNote hook" (see the NoteTransform
+// comment below) — mergeMapPins has to run BEFORE the create-vs-update-vs-
+// skip decision itself (it can turn an otherwise-skipped "destination is
+// newer/same age" case into a real write), not as a step that only fires
+// once transformNote is already being called. It's pure/sync with no
+// network calls of its own, unlike the image-download/bulk-data hooks that
+// motivated keeping this walker type-agnostic in the first place.
+import { mergeMapPins } from './migrationNoteTypeHooks'
 import type { TreeEntry, NoteData, SaveNoteRequest, SaveNoteResult } from '../../../common/types'
 import type { CloudFolder, CloudNoteData, CloudSaveResult, CloudTreeNode } from '../../../common/cloudTypes'
 
@@ -263,11 +272,17 @@ export async function importVaultIntoCloud(
           // write is skipped) for an accurate toUpdate count.
           const [note, dest] = await Promise.all([vaultApi.readNote(file.path), cloudApi.getNote(existing.id)])
           const { frontmatter, body } = parseNote(note.content)
+          const pinMerge = mergeMapPins(dest.frontmatter, frontmatter)
           if (isSourceNewer(frontmatter.updatedAt, dest.frontmatter.updatedAt)) {
             if (dryRun) {
               progress.toUpdate += 1
             } else {
               const translated = await transformNote({ frontmatter, body })
+              // Preserve any pin the cloud side has that the local source
+              // doesn't — a full overwrite would otherwise silently drop
+              // them even though pins are exactly the kind of independently
+              // -addressable data a "newer wins" comparison isn't about.
+              if (pinMerge) translated.frontmatter = { ...translated.frontmatter, pins: pinMerge.pins }
               const result = await cloudApi.saveNote({ id: existing.id, version: dest.version, ...translated })
               // A conflict here means the cloud note changed between the
               // dest read above and this write — the transferred content
@@ -281,6 +296,23 @@ export async function importVaultIntoCloud(
               // gap going unnoticed.
               if (result.status === 'conflict') {
                 throw new Error('The cloud copy changed while this update was in flight — nothing was overwritten. Safe to retry.')
+              }
+            }
+          } else if (pinMerge) {
+            // The cloud side isn't stale enough for a full overwrite, but
+            // the local side still has pins the cloud copy is missing —
+            // add just those, leaving everything else about the cloud note
+            // (including its own updatedAt) untouched.
+            if (dryRun) {
+              progress.toUpdate += 1
+            } else {
+              const result = await cloudApi.saveNote({
+                id: existing.id,
+                version: dest.version,
+                frontmatter: { ...dest.frontmatter, pins: pinMerge.pins }
+              })
+              if (result.status === 'conflict') {
+                throw new Error('The cloud copy changed while these pins were being added — nothing was overwritten. Safe to retry.')
               }
             }
           } else {
@@ -429,12 +461,18 @@ export async function importCloudIntoVault(
           }
         } else {
           const [source, dest] = await Promise.all([cloudApi.getNote(cloudNote.id), vaultApi.readNote(existingPath)])
-          const destFrontmatter = parseNote(dest.content).frontmatter
+          const { frontmatter: destFrontmatter, body: destBody } = parseNote(dest.content)
+          const pinMerge = mergeMapPins(destFrontmatter, source.frontmatter)
           if (isSourceNewer(source.frontmatter.updatedAt, destFrontmatter.updatedAt)) {
             if (dryRun) {
               progress.toUpdate += 1
             } else {
               const translated = await transformNote({ frontmatter: source.frontmatter, body: source.body })
+              // Preserve any pin the local side has that the cloud source
+              // doesn't — a full overwrite would otherwise silently drop
+              // them even though pins are exactly the kind of independently
+              // -addressable data a "newer wins" comparison isn't about.
+              if (pinMerge) translated.frontmatter = { ...translated.frontmatter, pins: pinMerge.pins }
               const result = await vaultApi.saveNote({ path: existingPath, content: stringifyNote(translated), baseVersion: dest.version })
               // Same reasoning as the CREATE branch's own check above, minus
               // the rollback — this path is an already-existing note, not an
@@ -444,6 +482,20 @@ export async function importCloudIntoVault(
               // rerun will see it and retry with a fresh read.
               if (result.status === 'conflict') {
                 throw new Error('The local copy changed while this update was in flight — nothing was overwritten. Safe to retry.')
+              }
+            }
+          } else if (pinMerge) {
+            // The local side isn't stale enough for a full overwrite, but
+            // the cloud side still has pins the local copy is missing — add
+            // just those, leaving everything else about the local note
+            // (including its own updatedAt) untouched.
+            if (dryRun) {
+              progress.toUpdate += 1
+            } else {
+              const mergedContent = stringifyNote({ frontmatter: { ...destFrontmatter, pins: pinMerge.pins }, body: destBody })
+              const result = await vaultApi.saveNote({ path: existingPath, content: mergedContent, baseVersion: dest.version })
+              if (result.status === 'conflict') {
+                throw new Error('The local copy changed while these pins were being added — nothing was overwritten. Safe to retry.')
               }
             }
           } else {
