@@ -57,9 +57,10 @@ export function MapTripCalculator({
   // A route hand-drawn on the map (see MapCanvas's 'draw-trip' mode) — when
   // set, it's used as the trip's path instead of the straight line between
   // the From/To pins below, so a journey that isn't a straight shot (walk to
-  // a dock, cross by boat, walk again) can be timed accurately. Wraparound
-  // never applies to a drawn route — the user has already drawn the exact
-  // path they want, off-canvas or not.
+  // a dock, cross by boat, walk again) can be timed accurately. When
+  // wrapping is enabled, effectiveLegs below still folds a drawn route that
+  // crosses a wrapping edge (foldDrawnPathAtWraps) — same "jumps to the
+  // opposite edge" treatment a straight-line route gets.
   drawnPath: Point[] | null
   onClearDrawnPath: () => void
   onStartDrawing: () => void
