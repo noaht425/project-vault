@@ -20,6 +20,23 @@ import type {
   CloudWorkspaceSettings
 } from '../../common/cloudTypes'
 
+// The API's /api/tree merges folders and notes and sorts them together,
+// purely alphabetically (see project-vault-cloud's src/app/api/tree/route.ts)
+// — that route also serves the web app, which does its own folders-first
+// re-sort client-side (src/lib/workspaceTree.ts). Re-sort here too, so the
+// desktop app's Cloud Workspace tree matches its own Local Vault convention
+// (main/vault/tree.ts) instead of inheriting the API's flat alphabetical order.
+function sortTreeFolderFirst(nodes: CloudTreeNode[]): CloudTreeNode[] {
+  const sorted = [...nodes].sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  for (const node of sorted) {
+    if (node.children) node.children = sortTreeFolderFirst(node.children)
+  }
+  return sorted
+}
+
 // URL and anon key for project-vault-cloud's Supabase project. Both are the
 // "publishable" pair meant to ship inside a client (same values the web
 // test harness uses in the browser) — never the service_role secret.
@@ -115,7 +132,8 @@ export class CloudSession {
   // showing the window — a slow or failing network request here must
   // never delay app launch the way an in-progress vault reopen can.
   async restore(): Promise<void> {
-    this.cachedTree = await readCachedTree(this.userDataDir)
+    const cached = await readCachedTree<CloudTreeNode[]>(this.userDataDir)
+    this.cachedTree = cached ? sortTreeFolderFirst(cached) : cached
 
     const refreshToken = await readRefreshToken(this.userDataDir)
     if (!refreshToken) {
@@ -389,7 +407,8 @@ export class CloudSession {
   // already uses for vault:treeUpdated.
   async refreshTree(): Promise<CloudTreeNode[]> {
     const res = await this.authedFetch(`${API_BASE_URL}/api/tree`)
-    const tree = await this.parseOrThrow<CloudTreeNode[]>(res)
+    const raw = await this.parseOrThrow<CloudTreeNode[]>(res)
+    const tree = sortTreeFolderFirst(raw)
     this.cachedTree = tree
     await writeCachedTree(this.userDataDir, tree)
     this.handlers.onTreeUpdated(tree)
