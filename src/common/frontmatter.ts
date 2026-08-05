@@ -78,3 +78,81 @@ export function stampUpdatedAt(content: string, iso: string): string {
     : `${line}\n${frontmatterBlock}`
   return `---\n${stampedBlock}${rest}`
 }
+
+export interface FieldStringifyCache {
+  entries: Map<string, { value: unknown; dumped: string }>
+}
+
+export function createFieldStringifyCache(): FieldStringifyCache {
+  return { entries: new Map() }
+}
+
+// Dumps a single {key: value} pair through the real stringifyNote (empty
+// body) and slices out just the frontmatter line(s) — reuses the exact
+// same matter.stringify() call/options as the real thing, so formatting is
+// guaranteed identical to what that key's slice would look like inside a
+// larger dump (verified directly: concatenating every key's own dumpField
+// output equals the full multi-key dump byte-for-byte).
+function dumpField(key: string, value: unknown): string {
+  const wrapped = stringifyNote({ frontmatter: { [key]: value }, body: '' })
+  const end = wrapped.indexOf('\n---\n', 4)
+  return wrapped.slice(4, end + 1)
+}
+
+// Like stringifyNote, but for each key in `cacheKeys` whose value is
+// reference-identical to what it was the last time this SAME cache was
+// used, reuses the previously-dumped YAML text instead of re-serializing
+// it. Built for local Settlement notes: residents/buildings stay inline in
+// frontmatter with no size offload (see docs/plans/2026-08-04-cloud-to-
+// local-copy.md design decision #5 — Cloud never has this problem because
+// it offloads above ~2MB, keeping its own inline frontmatter always small;
+// Local has no such bound). A local settlement's frontmatter can run tens
+// of MB, and SettlementSheet.tsx's commitFrontmatter used to re-stringify
+// the WHOLE frontmatter — residents/buildings included — on every single
+// keystroke in an unrelated field like "summary". Confirmed regression: a
+// user typing in that field froze, and once crashed, the renderer.
+//
+// Implementation: dumps the whole frontmatter through the real
+// stringifyNote(), but with each cache-hit field's value temporarily
+// swapped for a short, collision-proof placeholder string — js-yaml only
+// has to serialize a tiny scalar for that field, not the real array — then
+// splices the cached real YAML block back in for that one line via an
+// exact string replace. All delimiter/whitespace/body handling still runs
+// through the unmodified real stringifyNote() call; the only custom part
+// is a single-line swap per cache hit.
+export function stringifyNoteCached(note: ParsedNote, cacheKeys: string[], cache: FieldStringifyCache): string {
+  const patched: Record<string, unknown> = { ...note.frontmatter }
+  const swaps: { line: string; dumped: string }[] = []
+
+  for (const key of cacheKeys) {
+    if (!(key in note.frontmatter)) continue
+    const value = note.frontmatter[key]
+    const cached = cache.entries.get(key)
+    if (cached && cached.value === value) {
+      const placeholder = `__frontmatter_field_cache__${key}`
+      patched[key] = placeholder
+      swaps.push({ line: `${key}: ${placeholder}\n`, dumped: cached.dumped })
+    }
+  }
+
+  let content = stringifyNote({ frontmatter: patched, body: note.body })
+  for (const { line, dumped } of swaps) {
+    content = content.replace(line, dumped)
+  }
+
+  // Cache every key that wasn't a hit this call (new, or its value just
+  // changed) so a future call with the same value can reuse it. A cache
+  // miss here means dumping that field twice (once as part of the call
+  // above, once more here) — acceptable since misses only happen when the
+  // underlying data actually changed (e.g. a settlement's Generate/Promote
+  // buttons), never on a plain keystroke.
+  for (const key of cacheKeys) {
+    if (!(key in note.frontmatter)) continue
+    const value = note.frontmatter[key]
+    const cached = cache.entries.get(key)
+    if (cached && cached.value === value) continue
+    cache.entries.set(key, { value, dumped: dumpField(key, value) })
+  }
+
+  return content
+}

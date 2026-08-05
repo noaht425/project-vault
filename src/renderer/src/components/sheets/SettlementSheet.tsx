@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { parseNote, stringifyNote } from '../../../../common/frontmatter'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parseNote, stringifyNoteCached, createFieldStringifyCache } from '../../../../common/frontmatter'
 import { settlementFrontmatterSchema, type SettlementBuilding, type SettlementResident } from '../../../../common/noteTypes/settlement'
 import { shouldOffloadBulkData } from '../../../../common/settlementBulkData'
 import type { NoteRefApi } from '../../lib/noteRefApi'
@@ -79,8 +79,25 @@ export function SettlementSheet({
     return rawData
   }, [rawData, bulkData])
 
+  // Persists across renders/patches for this sheet instance — a fresh
+  // residents/buildings array (a new Generate/Promote) is simply a cache
+  // miss (correctly re-serialized and re-cached), so there's no need to
+  // reset this when switching notes.
+  const fieldCache = useRef(createFieldStringifyCache())
+
+  // stringifyNoteCached, not a plain stringifyNote — see its own comment.
+  // Every keystroke in a field like Summary calls this, and a local
+  // settlement's residents/buildings stay inline with no size bound (no
+  // offload locally); re-serializing them on every keystroke regardless of
+  // whether THIS patch touched them froze — and once crashed — the
+  // renderer for a large imported settlement (real reported bug).
   const commitFrontmatter = (patch: Record<string, unknown>): void => {
-    onContentChange(stringifyNote({ frontmatter: { ...frontmatter, ...patch }, body }))
+    const content = stringifyNoteCached(
+      { frontmatter: { ...frontmatter, ...patch }, body },
+      ['residents', 'buildings'],
+      fieldCache.current
+    )
+    onContentChange(content)
   }
 
   // Storage-aware wrapper: a patch that touches residents/buildings on a

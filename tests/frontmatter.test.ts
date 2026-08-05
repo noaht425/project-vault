@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseNote, stringifyNote, stampUpdatedAt } from '../src/common/frontmatter'
+import { parseNote, stringifyNote, stampUpdatedAt, stringifyNoteCached, createFieldStringifyCache } from '../src/common/frontmatter'
 
 describe('parseNote/stringifyNote', () => {
   it('round-trips frontmatter and body unchanged', () => {
@@ -125,5 +125,103 @@ describe('stampUpdatedAt', () => {
     const parsed = parseNote(stamped)
     expect(parsed.frontmatter.updatedAt).toBe('2026-08-04T12:00:00.000Z')
     expect((parsed.frontmatter.residents as unknown[]).length).toBe(20000)
+  })
+})
+
+describe('stringifyNoteCached', () => {
+  it('produces byte-identical output to stringifyNote on the first call (empty cache, nothing to reuse yet)', () => {
+    const note = { frontmatter: { type: 'settlement', summary: 'a town', residents: [{ id: 'r1' }], buildings: [{ id: 'b1' }] }, body: '' }
+
+    const plain = stringifyNote(note)
+    const cached = stringifyNoteCached(note, ['residents', 'buildings'], createFieldStringifyCache())
+
+    expect(cached).toBe(plain)
+  })
+
+  it('reuses the cached block when a cache-key value is reference-identical, producing the same frontmatter when re-parsed', () => {
+    const residents = [{ id: 'r1', name: 'Alice' }]
+    const buildings = [{ id: 'b1', name: 'Inn' }]
+    const cache = createFieldStringifyCache()
+
+    const first = stringifyNoteCached({ frontmatter: { type: 'settlement', summary: 'v1', residents, buildings }, body: '' }, ['residents', 'buildings'], cache)
+    const second = stringifyNoteCached({ frontmatter: { type: 'settlement', summary: 'v2', residents, buildings }, body: '' }, ['residents', 'buildings'], cache)
+
+    expect(parseNote(first).frontmatter).toEqual({ type: 'settlement', summary: 'v1', residents, buildings })
+    expect(parseNote(second).frontmatter).toEqual({ type: 'settlement', summary: 'v2', residents, buildings })
+  })
+
+  it('re-serializes a cache-key when its value actually changes (new reference), reflecting the new value correctly', () => {
+    const cache = createFieldStringifyCache()
+    const residentsV1 = [{ id: 'r1', name: 'Alice' }]
+    const residentsV2 = [{ id: 'r1', name: 'Alice' }, { id: 'r2', name: 'Bob' }]
+
+    stringifyNoteCached({ frontmatter: { type: 'settlement', residents: residentsV1 }, body: '' }, ['residents'], cache)
+    const second = stringifyNoteCached({ frontmatter: { type: 'settlement', residents: residentsV2 }, body: '' }, ['residents'], cache)
+
+    expect(parseNote(second).frontmatter.residents).toEqual(residentsV2)
+  })
+
+  it('leaves non-cache-key fields (e.g. body, other frontmatter) working normally alongside cache hits', () => {
+    const residents = [{ id: 'r1' }]
+    const cache = createFieldStringifyCache()
+    stringifyNoteCached({ frontmatter: { type: 'settlement', residents }, body: 'first body' }, ['residents'], cache)
+
+    const second = stringifyNoteCached(
+      { frontmatter: { type: 'settlement', residents, targetPopulation: 500 }, body: 'second body' },
+      ['residents'],
+      cache
+    )
+    const parsed = parseNote(second)
+
+    expect(parsed.frontmatter).toEqual({ type: 'settlement', residents, targetPopulation: 500 })
+    expect(parsed.body.trim()).toBe('second body')
+  })
+
+  it('skips a cache key that is absent from this frontmatter without throwing', () => {
+    const cache = createFieldStringifyCache()
+    const result = stringifyNoteCached({ frontmatter: { type: 'note' }, body: '' }, ['residents', 'buildings'], cache)
+
+    expect(parseNote(result).frontmatter).toEqual({ type: 'note' })
+  })
+
+  // Regression test for the actual reported bug: typing in a Settlement's
+  // Summary field re-stringified the ENTIRE frontmatter (residents/
+  // buildings included) on every keystroke, freezing and once crashing the
+  // renderer for a large local settlement. Simulates typing a whole
+  // sentence — many rapid calls, same cache, residents/buildings never
+  // actually changing — and proves the total cost stays cheap throughout,
+  // not just on average.
+  it('stays fast across many rapid calls simulating keystrokes, with a huge residents/buildings array that never changes', () => {
+    const residents = Array.from({ length: 20000 }, (_, i) => ({ id: `r${i}`, name: `Resident ${i}`, race: 'human', age: 30 }))
+    const buildings = Array.from({ length: 5000 }, (_, i) => ({ id: `b${i}`, name: `Building ${i}` }))
+    const cache = createFieldStringifyCache()
+    const sentence = 'A quiet town at the edge of the map.'
+
+    // First call seeds the cache (pays the real cost once, same as any
+    // cache-miss would).
+    stringifyNoteCached({ frontmatter: { type: 'settlement', summary: '', residents, buildings }, body: '' }, ['residents', 'buildings'], cache)
+
+    const start = Date.now()
+    let content = ''
+    for (let i = 1; i <= sentence.length; i++) {
+      content = stringifyNoteCached(
+        { frontmatter: { type: 'settlement', summary: sentence.slice(0, i), residents, buildings }, body: '' },
+        ['residents', 'buildings'],
+        cache
+      )
+    }
+    const elapsedMs = Date.now() - start
+
+    // sentence.length calls total; a single full stringify at this scale
+    // already runs into hundreds of ms (see the sibling perf test above at
+    // a third this size) — if this were still doing a full re-stringify
+    // per keystroke, this would take many seconds. Generous bound, not a
+    // tight benchmark.
+    expect(elapsedMs).toBeLessThan(500)
+
+    const parsed = parseNote(content)
+    expect(parsed.frontmatter.summary).toBe(sentence)
+    expect((parsed.frontmatter.residents as unknown[]).length).toBe(20000)
+    expect((parsed.frontmatter.buildings as unknown[]).length).toBe(5000)
   })
 })
