@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { mapFrontmatterSchema } from '../../../../common/noteTypes/map'
 import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../../../../common/noteTypes/map'
-import { crossingTime, deriveEquatorY, deriveScaleFromLatitudeSpan, type Point } from '../../../../common/mapGeometry'
+import {
+  crossingTime,
+  deriveEquatorY,
+  deriveScaleFromLatitudeSpan,
+  foldDrawnPathAtWraps,
+  type Point
+} from '../../../../common/mapGeometry'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 import { MapCanvas, type MapCanvasMode } from './MapCanvas'
@@ -371,6 +377,8 @@ export function MapSheet({
             {(data.wrapsHorizontally || data.wrapsVertically) && (
               <span className="right-panel-note">
                 The trip calculator will consider going off a wrapping edge and reappearing on the opposite one, if that's shorter.
+                You can also draw your own route across a wrapping edge — pan/zoom out past the edge in "Draw custom route" and
+                place points out there; the trip calculator folds them back onto the opposite edge automatically.
               </span>
             )}
           </div>
@@ -506,7 +514,23 @@ export function MapSheet({
               onLandmassDrawn={setPendingLandmassPoints}
               onTripDrawn={(points) => {
                 setDrawnTripPath(points)
-                setTripOverlayPath([points]) // drawing a route implies showing it — no reason to hide what you just traced
+                // Drawing a route implies showing it — no reason to hide what
+                // you just traced. Folded the same way MapTripCalculator does
+                // (see its effectiveLegs) rather than shown as one raw
+                // connected leg — otherwise a route that strays past a
+                // wrapping edge would render as a single line trailing off
+                // into blank space until the Trip Calculator happened to
+                // recompute it.
+                const legs =
+                  data.image && (data.wrapsHorizontally || data.wrapsVertically)
+                    ? foldDrawnPathAtWraps(points, {
+                        mapWidth: data.image.width,
+                        mapHeight: data.image.height,
+                        wrapsHorizontally: data.wrapsHorizontally,
+                        wrapsVertically: data.wrapsVertically
+                      })
+                    : [points]
+                setTripOverlayPath(legs)
                 setMode('view')
               }}
               onPinPlaced={(point) => {

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { calculateTrip, mergeTripResults, wrapLegs, type LatitudeDistortionConfig, type Point } from '../../../../common/mapGeometry'
+import {
+  calculateTrip,
+  foldDrawnPathAtWraps,
+  mergeTripResults,
+  wrapLegs,
+  type LatitudeDistortionConfig,
+  type Point
+} from '../../../../common/mapGeometry'
 import {
   pinDisplayLabel,
   type LineType,
@@ -101,12 +108,18 @@ export function MapTripCalculator({
   // rather than just their ids keeps this correct if a pin's position moves
   // without its id changing.
   //
-  // A drawn route is always exactly one leg (wraparound doesn't apply to it —
-  // see the prop comment above). A straight pin-to-pin trip is normally one
-  // leg too, but wrapLegs may split it into 2-3 if the shortest path crosses
-  // a wrapping edge.
+  // A straight pin-to-pin trip is normally one leg, but wrapLegs may split it
+  // into 2-3 if the shortest path crosses a wrapping edge. A drawn route
+  // normally comes back as one leg per pair of hand-placed points, but
+  // foldDrawnPathAtWraps can split any of those further if the user panned/
+  // zoomed past a wrapping edge and placed a point out there on purpose
+  // (see MapCanvas — that's already reachable today, just not folded back
+  // into the map's real bounds until now).
   const effectiveLegs: Point[][] | null = useMemo(() => {
-    if (drawnPath) return [drawnPath]
+    if (drawnPath) {
+      if (!image || (!wrapsHorizontally && !wrapsVertically)) return [drawnPath]
+      return foldDrawnPathAtWraps(drawnPath, { mapWidth: image.width, mapHeight: image.height, wrapsHorizontally, wrapsVertically })
+    }
     if (!from || !to || from.id === to.id) return null
     if (!image || (!wrapsHorizontally && !wrapsVertically)) return [[from, to]]
     return wrapLegs(from, to, { mapWidth: image.width, mapHeight: image.height, wrapsHorizontally, wrapsVertically })
@@ -156,10 +169,18 @@ export function MapTripCalculator({
     latitudeDistortion
   ])
 
-  // True only when a straight pin-to-pin trip actually used a wrapped route
-  // (more than one leg) — worth telling the user, since the route shown on
-  // the map might otherwise look surprising (jumping between opposite edges).
-  const usedWrap = !drawnPath && (effectiveLegs?.length ?? 0) > 1
+  // True when the route actually crossed a wrapping edge — for a straight
+  // pin-to-pin trip that means wrapLegs found a shorter route around the
+  // edge; for a drawn route it means at least one hand-placed segment got
+  // folded by foldDrawnPathAtWraps. Comparing leg count against the
+  // *original* segment count (not just "> 1") matters here specifically
+  // because a drawn route can already have several legs with zero wrapping
+  // involved (e.g. "walk to a dock, cross by boat, walk again") — only an
+  // increase in leg count means folding actually happened. Worth telling the
+  // user either way, since the route shown on the map jumps between opposite
+  // edges rather than crossing the middle.
+  const originalSegmentCount = drawnPath ? Math.max(drawnPath.length - 1, 0) : 1
+  const usedWrap = (effectiveLegs?.length ?? 0) > originalSegmentCount
 
   // A segment's terrainTypeId may resolve against either pool — see
   // calculateTrip's own comment on why zones and line-derived corridors
@@ -254,8 +275,8 @@ export function MapTripCalculator({
 
       {usedWrap && (
         <p className="right-panel-note">
-          Shortest path wraps around the map edge — the route shown on the map jumps between opposite edges rather than
-          crossing the middle.
+          {drawnPath ? 'This route crosses a wrapping edge' : 'Shortest path wraps around the map edge'} — the route shown on
+          the map jumps between opposite edges rather than crossing the middle.
         </p>
       )}
 

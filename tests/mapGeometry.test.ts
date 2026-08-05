@@ -9,6 +9,7 @@ import {
   zonesIncludingLines,
   calculateTrip,
   wrapLegs,
+  foldDrawnPathAtWraps,
   mergeTripResults,
   latitudeRadiansAt,
   distortedSegmentRealDistance,
@@ -477,6 +478,68 @@ describe('wrapLegs', () => {
     // 50px), not the ~180px direct distance.
     const totalLength = legs.reduce((sum, [a, b]) => sum + segmentDistance(a, b), 0)
     expect(totalLength).toBeCloseTo(50, 9)
+  })
+})
+
+describe('foldDrawnPathAtWraps', () => {
+  it('returns each segment unchanged, one leg per pair of points, when wrapping is off', () => {
+    const path = [{ x: 10, y: 50 }, { x: 50, y: 60 }, { x: 90, y: 20 }]
+    const noWrap: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: false, wrapsVertically: false }
+    expect(foldDrawnPathAtWraps(path, noWrap)).toEqual([
+      [{ x: 10, y: 50 }, { x: 50, y: 60 }],
+      [{ x: 50, y: 60 }, { x: 90, y: 20 }]
+    ])
+  })
+
+  it('returns segments unchanged even with wrapping on, as long as the path never strays outside the map', () => {
+    const path = [{ x: 10, y: 50 }, { x: 50, y: 60 }, { x: 90, y: 20 }]
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: true }
+    expect(foldDrawnPathAtWraps(path, config)).toEqual([
+      [{ x: 10, y: 50 }, { x: 50, y: 60 }],
+      [{ x: 50, y: 60 }, { x: 90, y: 20 }]
+    ])
+  })
+
+  it('folds a segment drawn past a wrapping edge back into the map, splitting at the seam', () => {
+    // The user panned/zoomed left of the image and clicked at x=-30 — off
+    // the canvas, but a valid point once the left edge is known to wrap.
+    const path = [{ x: 10, y: 50 }, { x: -30, y: 50 }]
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: false }
+    expect(foldDrawnPathAtWraps(path, config)).toEqual([
+      [{ x: 10, y: 50 }, { x: 0, y: 50 }],
+      [{ x: 200, y: 50 }, { x: 170, y: 50 }]
+    ])
+  })
+
+  it('splits a single drawn segment at every crossing when it spans more than one map-width', () => {
+    // 440px span on a 200px-wide wrapping map — crosses the seam twice.
+    const path = [{ x: 10, y: 50 }, { x: 450, y: 50 }]
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: false }
+    const legs = foldDrawnPathAtWraps(path, config)
+    expect(legs).toHaveLength(3)
+    for (const [a, b] of legs) {
+      for (const p of [a, b]) {
+        expect(p.x).toBeGreaterThanOrEqual(0)
+        expect(p.x).toBeLessThanOrEqual(200)
+      }
+    }
+    const totalLength = legs.reduce((sum, [a, b]) => sum + segmentDistance(a, b), 0)
+    expect(totalLength).toBeCloseTo(440, 9)
+  })
+
+  it('only folds the segment(s) that actually cross, leaving the rest of a multi-point path untouched', () => {
+    // First leg (10,50)->(190,50) stays inside the map; second leg
+    // (190,50)->(-10,50) crosses the left edge and needs folding.
+    const path = [{ x: 10, y: 50 }, { x: 190, y: 50 }, { x: -10, y: 50 }]
+    const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: false }
+    const legs = foldDrawnPathAtWraps(path, config)
+    expect(legs).toEqual([
+      [{ x: 10, y: 50 }, { x: 190, y: 50 }],
+      [{ x: 190, y: 50 }, { x: 0, y: 50 }],
+      [{ x: 200, y: 50 }, { x: 190, y: 50 }]
+    ])
+    const foldedLength = segmentDistance(legs[1][0], legs[1][1]) + segmentDistance(legs[2][0], legs[2][1])
+    expect(foldedLength).toBeCloseTo(200, 9) // matches the raw (190,50)->(-10,50) segment's own length
   })
 })
 

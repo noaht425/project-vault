@@ -355,6 +355,71 @@ export interface WrapConfig {
 // 2-3 short real-coordinate legs whose lengths sum to the same wrapped
 // distance — each independently safe to feed through calculateTrip (and to
 // render on the map), since none of them cross an edge internally.
+// t-values (0..1, exclusive) along a start->end run on one axis where it
+// crosses a multiple of `period` — i.e. every wrapping seam it passes
+// through on that axis. General on purpose: a hand-drawn segment (see
+// foldDrawnPathAtWraps) could cross a seam more than once if drawn far
+// enough past an edge, unlike wrapLegs's own search below, which only ever
+// needs at most one.
+function seamCrossingTs(startCoord: number, endCoord: number, period: number): number[] {
+  const delta = endCoord - startCoord
+  if (delta === 0) return []
+  const lo = Math.min(startCoord, endCoord)
+  const hi = Math.max(startCoord, endCoord)
+  const ts: number[] = []
+  for (let k = Math.floor(lo / period) + 1; k * period < hi; k++) {
+    const t = (k * period - startCoord) / delta
+    if (t > 0 && t < 1) ts.push(t)
+  }
+  return ts
+}
+
+// Splits a start->end segment into 1+ real-coordinate legs, folding each
+// piece back into the map's [0, mapWidth) x [0, mapHeight) bounds via
+// modulo wherever the corresponding axis wraps — start/end are taken
+// exactly as given, with no search for a shorter path (see wrapLegs for
+// that). This is what makes a hand-drawn route that strays past a wrapping
+// edge (see foldDrawnPathAtWraps) work the same way: the off-canvas point
+// the user placed already says exactly where the route goes, this just
+// re-expresses it in the map's real bounds.
+function foldSegmentAtWraps(start: Point, end: Point, config: WrapConfig): Point[][] {
+  const { mapWidth: W, mapHeight: H, wrapsHorizontally, wrapsVertically } = config
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+
+  const ts = new Set<number>([0, 1])
+  if (wrapsHorizontally) for (const t of seamCrossingTs(start.x, end.x, W)) ts.add(t)
+  if (wrapsVertically) for (const t of seamCrossingTs(start.y, end.y, H)) ts.add(t)
+
+  const raw = (t: number): Point => ({ x: start.x + dx * t, y: start.y + dy * t })
+  const sorted = [...ts].sort((a, b) => a - b)
+  const legs: Point[][] = []
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const tStart = sorted[i]
+    const tEnd = sorted[i + 1]
+    if (tEnd - tStart < 1e-9) continue // dedupe a crossing that landed exactly on 0 or 1
+
+    // The whole leg lies within one "tile" (no seam crossing inside it, by
+    // construction), so one integer shift per axis folds both endpoints back
+    // into the map's real bounds consistently. That shift has to come from
+    // the leg's midpoint, not from each endpoint independently (plain
+    // modulo) — a modulo fold is discontinuous exactly at a seam value (e.g.
+    // wrap(0, W) = 0 but wrap(-epsilon, W) ~= W), so folding an endpoint that
+    // sits exactly on the seam can silently pick the wrong side, landing a
+    // leg back on the edge it just left instead of the opposite one.
+    const mid = raw((tStart + tEnd) / 2)
+    const shiftX = wrapsHorizontally ? Math.floor(mid.x / W) * W : 0
+    const shiftY = wrapsVertically ? Math.floor(mid.y / H) * H : 0
+    const legStart = raw(tStart)
+    const legEnd = raw(tEnd)
+    legs.push([
+      { x: legStart.x - shiftX, y: legStart.y - shiftY },
+      { x: legEnd.x - shiftX, y: legEnd.y - shiftY }
+    ])
+  }
+  return legs
+}
+
 export function wrapLegs(p1: Point, p2: Point, config: WrapConfig): Point[][] {
   const { mapWidth: W, mapHeight: H, wrapsHorizontally, wrapsVertically } = config
 
@@ -374,51 +439,23 @@ export function wrapLegs(p1: Point, p2: Point, config: WrapConfig): Point[][] {
   if (bestOffset.x === 0 && bestOffset.y === 0) return [[p1, p2]]
 
   const p2Shifted = { x: p2.x + bestOffset.x, y: p2.y + bestOffset.y }
-  const dx = p2Shifted.x - p1.x
-  const dy = p2Shifted.y - p1.y
+  return foldSegmentAtWraps(p1, p2Shifted, config)
+}
 
-  // Where (in t, 0..1 along p1->p2Shifted) the straight line crosses whichever
-  // edge it's headed out of — the only edge relevant here is the one in the
-  // winning offset's direction, since a candidate is only ever translated by
-  // one map-width/height, so the raw (unwrapped) coordinate crosses at most
-  // one multiple-of-W (or H) gridline.
-  const ts = new Set<number>([0, 1])
-  if (bestOffset.x !== 0 && dx !== 0) {
-    const seamX = bestOffset.x < 0 ? 0 : W
-    const t = (seamX - p1.x) / dx
-    if (t > 0 && t < 1) ts.add(t)
-  }
-  if (bestOffset.y !== 0 && dy !== 0) {
-    const seamY = bestOffset.y < 0 ? 0 : H
-    const t = (seamY - p1.y) / dy
-    if (t > 0 && t < 1) ts.add(t)
-  }
-
-  const raw = (t: number): Point => ({ x: p1.x + dx * t, y: p1.y + dy * t })
-  const sorted = [...ts].sort((a, b) => a - b)
+// A hand-drawn route (see MapCanvas's 'draw-trip' mode) doesn't get the
+// automatic shortest-path search wrapLegs does — the user has already
+// chosen their exact route point by point. But since panning/zooming
+// already lets you place a point past the image's edge, a drawn route CAN
+// cross a wrapping seam: this walks the path leg by leg and folds any
+// segment that strays outside the map's real bounds back into them,
+// splitting at the seam the same way wrapLegs does for the automatic case.
+// A path entirely within bounds (the common case, and the only case when
+// neither axis wraps) comes back completely unchanged, one leg per input
+// segment.
+export function foldDrawnPathAtWraps(path: Point[], config: WrapConfig): Point[][] {
   const legs: Point[][] = []
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const tStart = sorted[i]
-    const tEnd = sorted[i + 1]
-    if (tEnd - tStart < 1e-9) continue // dedupe a crossing that landed exactly on 0 or 1
-
-    // The whole leg lies within one "tile" (no seam crossing inside it, by
-    // construction), so one integer shift per axis folds both endpoints back
-    // into the map's real bounds consistently. That shift has to come from
-    // the leg's midpoint, not from each endpoint independently (plain
-    // modulo) — a modulo fold is discontinuous exactly at a seam value (e.g.
-    // wrap(0, W) = 0 but wrap(-epsilon, W) ~= W), so folding an endpoint that
-    // sits exactly on the seam can silently pick the wrong side, landing a
-    // leg back on the edge it just left instead of the opposite one.
-    const mid = raw((tStart + tEnd) / 2)
-    const shiftX = wrapsHorizontally ? Math.floor(mid.x / W) * W : 0
-    const shiftY = wrapsVertically ? Math.floor(mid.y / H) * H : 0
-    const start = raw(tStart)
-    const end = raw(tEnd)
-    legs.push([
-      { x: start.x - shiftX, y: start.y - shiftY },
-      { x: end.x - shiftX, y: end.y - shiftY }
-    ])
+  for (let i = 0; i < path.length - 1; i++) {
+    legs.push(...foldSegmentAtWraps(path[i], path[i + 1], config))
   }
   return legs
 }
