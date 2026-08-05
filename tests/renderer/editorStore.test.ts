@@ -1,11 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useEditorStore } from '../../src/renderer/src/state/editorStore'
+import { parseNote } from '../../src/common/frontmatter'
 
 const VERSION_A = { mtimeMs: 1000, contentHash: 'hash-a' }
 const VERSION_B = { mtimeMs: 2000, contentHash: 'hash-b' }
 
 const NOTE_A = { path: '/vault/a.md', content: 'original content', version: VERSION_A }
 const NOTE_B = { path: '/vault/b.md', content: 'note b content', version: VERSION_B }
+
+// Fixed so saveNow's `new Date().toISOString()` stamp (see editorStore.ts)
+// is deterministic — vitest's fake timers mock Date by default alongside
+// setTimeout/etc.
+const FIXED_NOW = '2026-08-04T12:00:00.000Z'
+// FIXED_NOW + the 1.5s autosave debounce — what the stamp reads for a save
+// that goes through the debounced setContent path rather than an immediate
+// saveNow()/openNote() flush.
+const STAMPED_AFTER_DEBOUNCE = '2026-08-04T12:00:01.500Z'
 
 function mockVaultApi(overrides: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}): void {
   ;(globalThis as unknown as { window: Record<string, unknown> }).window = {
@@ -19,6 +29,7 @@ function mockVaultApi(overrides: Partial<Record<string, ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.setSystemTime(new Date(FIXED_NOW))
   mockVaultApi()
   useEditorStore.setState({
     activeNotePath: null,
@@ -53,11 +64,25 @@ describe('editorStore', () => {
     expect(useEditorStore.getState().dirty).toBe(true)
     expect(saveNote).not.toHaveBeenCalled()
 
-    await vi.runAllTimersAsync()
+    // Exactly the 1.5s debounce, not runAllTimersAsync — the latter also
+    // fires saveNow's own dangling 60s withTimeout timer (never cleared on
+    // the winning race branch), which would advance the stamp by another
+    // minute and make it unpredictable.
+    await vi.advanceTimersByTimeAsync(1500)
 
-    expect(saveNote).toHaveBeenCalledWith({ path: '/vault/a.md', content: 'edited content', baseVersion: VERSION_A })
+    const sent = saveNote.mock.calls[0][0]
+    expect(sent.path).toBe('/vault/a.md')
+    expect(sent.baseVersion).toEqual(VERSION_A)
+    const { frontmatter, body } = parseNote(sent.content)
+    expect(body.trim()).toBe('edited content')
+    expect(frontmatter.updatedAt).toBe(STAMPED_AFTER_DEBOUNCE)
     expect(useEditorStore.getState().dirty).toBe(false)
     expect(useEditorStore.getState().baseVersion).toEqual(VERSION_B)
+    // The stamp is only added to the outgoing save payload, never written
+    // back into store state — see editorStore.ts's saveNow comment. Keeps
+    // the CodeMirror buffer (which resyncs only on a revision bump) from
+    // being silently rewritten out from under an in-progress edit.
+    expect(useEditorStore.getState().content).toBe('edited content')
   })
 
   it('saveNow does nothing when there are no unsaved changes', async () => {
@@ -158,11 +183,10 @@ describe('editorStore', () => {
     readNote.mockResolvedValue(NOTE_B)
     await useEditorStore.getState().openNote('/vault/b.md')
 
-    expect(saveNote).toHaveBeenCalledWith({
-      path: '/vault/a.md',
-      content: 'edited via SheetView (e.g. Settlement Generate)',
-      baseVersion: VERSION_A
-    })
+    const sent = saveNote.mock.calls[0][0]
+    expect(sent.path).toBe('/vault/a.md')
+    expect(sent.baseVersion).toEqual(VERSION_A)
+    expect(parseNote(sent.content).body.trim()).toBe('edited via SheetView (e.g. Settlement Generate)')
     expect(useEditorStore.getState().activeNotePath).toBe('/vault/b.md')
   })
 

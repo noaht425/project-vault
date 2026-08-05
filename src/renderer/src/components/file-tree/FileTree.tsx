@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import type { TreeEntry } from '../../../../common/types'
 import { CREATE_PLACEHOLDERS, type CreateKind } from '../../../../common/noteTemplateDefaults'
+import { defaultMapFrontmatter } from '../../../../common/noteTypes/map'
+import { stringifyNote } from '../../../../common/frontmatter'
 import { useVaultStore } from '../../state/vaultStore'
 import { useEditorStore } from '../../state/editorStore'
 import { NewItemMenu } from './NewItemMenu'
+import { CloudImportPanel } from './CloudImportPanel'
 
 // window.alert() is one of the few dialogs Electron actually implements
 // (unlike window.prompt() — see InlineNameInput below), so a failed
@@ -254,7 +257,34 @@ export function FileTree(): React.JSX.Element {
   const refreshTree = useVaultStore((s) => s.refreshTree)
   const openNote = useEditorStore((s) => s.openNote)
   const [creating, setCreating] = useState<CreateKind | null>(null)
+  const [creatingMap, setCreatingMap] = useState(false)
   const [isRootDropTarget, setIsRootDropTarget] = useState(false)
+  const [showCloudImport, setShowCloudImport] = useState(false)
+
+  // Local counterpart to CloudFileTree.tsx's submitCreateMap. Deliberately
+  // bypasses vaultApi.createNote's template mechanism (create-blank, then
+  // overwrite with the real frontmatter) instead of threading 'map' through
+  // NoteTemplate/CREATABLE_NOTE_KINDS/TEMPLATE_DEFAULTS — same reasoning as
+  // Cloud's version, see common/noteTypes/map.ts's own comment. Reuses the
+  // exact create-then-overwrite pattern useLocalNoteRefApi.createNote
+  // already established (noteRefApi.ts) for the same "arbitrary frontmatter,
+  // not a template" need.
+  const submitCreateMap = async (name: string): Promise<void> => {
+    setCreatingMap(false)
+    if (!vaultPath) return
+    try {
+      const created = await window.vaultApi.createNote(vaultPath, name)
+      await window.vaultApi.saveNote({
+        path: created.path,
+        content: stringifyNote({ frontmatter: defaultMapFrontmatter(), body: '\n' }),
+        baseVersion: created.version
+      })
+      await refreshTree()
+      await openNote(created.path)
+    } catch (err) {
+      reportError(err)
+    }
+  }
 
   const submitCreate = async (name: string): Promise<void> => {
     const kind = creating
@@ -294,7 +324,28 @@ export function FileTree(): React.JSX.Element {
     <div className="sidebar">
       <div className="sidebar-toolbar">
         <NewItemMenu disabled={!vaultPath} onSelect={(kind) => setCreating(kind)} />
+        <button disabled={!vaultPath} onClick={() => setCreatingMap(true)} title="New map">
+          + Map
+        </button>
+        <button
+          disabled={!vaultPath}
+          onClick={() => setShowCloudImport((v) => !v)}
+          title="Import Cloud Workspace into Local Vault"
+        >
+          Import Cloud Workspace…
+        </button>
       </div>
+      {showCloudImport && <CloudImportPanel onClose={() => setShowCloudImport(false)} />}
+      {creatingMap && (
+        <div className="tree-row tree-row-creating">
+          <InlineNameInput
+            initialValue=""
+            placeholder="Map name…"
+            onSubmit={(v) => void submitCreateMap(v)}
+            onCancel={() => setCreatingMap(false)}
+          />
+        </div>
+      )}
       {creating && (
         <div className="tree-row tree-row-creating">
           <InlineNameInput

@@ -64,6 +64,14 @@ const vaultApi = {
   getCurrentEncounter: (): Promise<Encounter> => ipcRenderer.invoke('initiative:read'),
   saveCurrentEncounter: (encounter: Encounter): Promise<void> => ipcRenderer.invoke('initiative:write', encounter),
 
+  // Local Vault counterparts to cloudApi's pickAndUploadMapImage/
+  // getMapImageUrl — see docs/plans/2026-08-04-cloud-to-local-copy.md
+  // Phase 2/3. Same cancel-returns-null convention as openVault.
+  pickAndSaveLocalImage: (): Promise<{ path: string } | null> => ipcRenderer.invoke('vault:pickAndSaveLocalImage'),
+  getLocalImageUrl: (relativePath: string): Promise<string> => ipcRenderer.invoke('vault:getLocalImageUrl', relativePath),
+  saveLocalImageBytes: (bytes: ArrayBuffer, suggestedName: string): Promise<{ path: string }> =>
+    ipcRenderer.invoke('vault:saveLocalImageBytes', bytes, suggestedName),
+
   onExternalChange: (callback: (event: ExternalChangeEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: ExternalChangeEvent): void =>
       callback(payload)
@@ -162,6 +170,8 @@ const cloudApi = {
   // existing cancel convention.
   pickAndUploadMapImage: (): Promise<{ path: string } | null> => ipcRenderer.invoke('cloud:pickAndUploadMapImage'),
   getMapImageUrl: (path: string): Promise<string> => ipcRenderer.invoke('cloud:getMapImageUrl', path),
+  uploadLocalMapImage: (relativePath: string): Promise<{ path: string }> =>
+    ipcRenderer.invoke('cloud:uploadLocalMapImage', relativePath),
 
   uploadSettlementBulkData: (residents: SettlementResident[], buildings: SettlementBuilding[]): Promise<{ path: string }> =>
     ipcRenderer.invoke('cloud:uploadSettlementBulkData', { residents, buildings }),

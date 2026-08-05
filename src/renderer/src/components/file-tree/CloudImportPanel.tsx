@@ -1,31 +1,27 @@
 import { useState } from 'react'
-import { importVaultIntoCloud, type MigrationProgress } from '../../lib/vaultCloudMigration'
-import { translateLocalNoteForCloud } from '../../lib/migrationNoteTypeHooks'
-import { shouldOffloadBulkData } from '../../../../common/settlementBulkData'
+import { importCloudIntoVault, type MigrationProgress } from '../../lib/vaultCloudMigration'
+import { translateCloudNoteForLocal } from '../../lib/migrationNoteTypeHooks'
 import { useVaultStore } from '../../state/vaultStore'
 import { useCloudStore } from '../../state/cloudStore'
 
-// See file-tree/CloudImportPanel.tsx (the mirror direction) for the shared
-// plan-then-confirm design: "Start import" first runs a dryRun pass (real
-// reads/comparisons, zero writes) and shows a summary — nothing is actually
-// written until the user confirms it, since this direction can genuinely
-// overwrite an existing cloud note (when the local copy is confirmed
-// newer). See docs/plans/2026-08-04-cloud-to-local-copy.md design
-// decision #6 ("both buttons behave identically... just mirrored in
-// direction").
-function transformLocalNote(note: { frontmatter: Record<string, unknown>; body: string }): Promise<{
+// Local Vault counterpart to cloud/VaultImportPanel.tsx (Local -> Cloud) —
+// see docs/plans/2026-08-04-cloud-to-local-copy.md Phase 5. Reuses the same
+// progress-streaming layout, extended with a warnings list (design decision
+// #8) and a plan-then-confirm step before any write happens: since this
+// direction can genuinely overwrite an existing note (when the source is
+// confirmed newer), "Start import" first runs a dryRun pass (real reads/
+// comparisons, zero writes) and shows a summary — nothing is actually
+// written until the user confirms it.
+function transformCloudNote(note: { frontmatter: Record<string, unknown>; body: string }): Promise<{
   frontmatter: Record<string, unknown>
   body: string
 }> {
-  return translateLocalNoteForCloud(
-    note,
-    {
-      getLocalImageUrl: window.vaultApi.getLocalImageUrl,
-      uploadSettlementBulkData: window.cloudApi.uploadSettlementBulkData,
-      uploadLocalMapImage: window.cloudApi.uploadLocalMapImage
-    },
-    shouldOffloadBulkData
-  )
+  return translateCloudNoteForLocal(note, {
+    getMapImageUrl: window.cloudApi.getMapImageUrl,
+    getSettlementBulkData: window.cloudApi.getSettlementBulkData,
+    saveLocalImageBytes: window.vaultApi.saveLocalImageBytes,
+    fetchBytes: (url) => fetch(url).then((r) => r.arrayBuffer())
+  })
 }
 
 function ProgressSummary({ progress, running }: { progress: MigrationProgress; running: boolean }): React.JSX.Element {
@@ -61,19 +57,22 @@ function ProgressSummary({ progress, running }: { progress: MigrationProgress; r
   )
 }
 
-export function VaultImportPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
+export function CloudImportPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
   const vaultPath = useVaultStore((s) => s.vaultPath)
-  const refreshCloudTree = useCloudStore((s) => s.refreshTree)
+  const refreshLocalTree = useVaultStore((s) => s.refreshTree)
+  const checkingSession = useCloudStore((s) => s.checkingSession)
+  const signedIn = useCloudStore((s) => s.signedIn)
   const [planning, setPlanning] = useState(false)
   const [plan, setPlan] = useState<MigrationProgress | null>(null)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<MigrationProgress | null>(null)
 
   const startPlan = async (): Promise<void> => {
+    if (!vaultPath) return
     setResult(null)
     setPlanning(true)
     try {
-      const p = await importVaultIntoCloud(window.vaultApi, window.cloudApi, () => {}, transformLocalNote, true)
+      const p = await importCloudIntoVault(window.cloudApi, window.vaultApi, vaultPath, () => {}, transformCloudNote, true)
       setPlan(p)
     } finally {
       setPlanning(false)
@@ -81,12 +80,13 @@ export function VaultImportPanel({ onClose }: { onClose: () => void }): React.JS
   }
 
   const confirmRun = async (): Promise<void> => {
+    if (!vaultPath) return
     setPlan(null)
     setRunning(true)
     try {
-      const r = await importVaultIntoCloud(window.vaultApi, window.cloudApi, setResult, transformLocalNote)
+      const r = await importCloudIntoVault(window.cloudApi, window.vaultApi, vaultPath, setResult, transformCloudNote)
       setResult(r)
-      await refreshCloudTree()
+      await refreshLocalTree()
     } finally {
       setRunning(false)
     }
@@ -95,21 +95,24 @@ export function VaultImportPanel({ onClose }: { onClose: () => void }): React.JS
   return (
     <div className="banner" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong>Import Local Vault into Cloud Workspace</strong>
+        <strong>Import Cloud Workspace into Local Vault</strong>
         <button onClick={onClose} title="Close">
           ✕
         </button>
       </div>
 
       {!vaultPath ? (
-        <p className="right-panel-note">Open a local vault first (File → Open Vault), then come back here to import it.</p>
+        <p className="right-panel-note">Open a local vault first (File → Open Vault), then come back here to import into it.</p>
+      ) : checkingSession ? (
+        <p className="right-panel-note">Checking Cloud Workspace session…</p>
+      ) : !signedIn ? (
+        <p className="right-panel-note">Sign in to your Cloud Workspace first, then come back here to import from it.</p>
       ) : (
         <>
           <p className="right-panel-note">
-            Copies every note and folder from your local vault into this Cloud Workspace. Safe to run more than
-            once — a note that already exists here only gets overwritten if the local copy is strictly newer;
-            otherwise it's left untouched and listed for you to review. Nothing is written until you confirm the
-            summary below.
+            Copies every note and folder from your Cloud Workspace into this local vault. Safe to run more than once —
+            a note that already exists here only gets overwritten if the cloud copy is strictly newer; otherwise it's
+            left untouched and listed for you to review. Nothing is written until you confirm the summary below.
           </p>
 
           {!plan && (

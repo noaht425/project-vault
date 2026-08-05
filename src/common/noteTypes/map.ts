@@ -1,10 +1,15 @@
 import { z } from 'zod'
 
 // Deliberately not part of NoteTemplate/CREATABLE_NOTE_KINDS (see
-// noteTemplateDefaults.ts) — that list is shared with the local vault's
-// note creation, and a "map" note only makes sense in the Cloud Workspace
-// (MapSheet talks to window.cloudApi directly for image storage). Map notes
-// get their own dedicated creation entry point in CloudFileTree.tsx instead.
+// noteTemplateDefaults.ts) even though Local Vault can have Map notes too
+// now (see docs/plans/2026-08-04-cloud-to-local-copy.md Phase 3) — that
+// shared list drives the generic "New" dropdown (NewItemMenu.tsx), and a
+// map note's own dedicated "+ Map" button (in both CloudFileTree.tsx and
+// the local FileTree.tsx) is the only creation entry point on either side,
+// bypassing vaultApi/cloudApi's template-based defaulting entirely in favor
+// of writing defaultMapFrontmatter() directly. MapSheet.tsx itself branches
+// on noteRefApi.isCloud between window.cloudApi's and window.vaultApi's
+// image-storage calls.
 
 const pointSchema = z.object({ x: z.number(), y: z.number() })
 

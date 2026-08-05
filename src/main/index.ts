@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'node:path'
+import { app, BrowserWindow, ipcMain, protocol, net } from 'electron'
+import { join, normalize, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { stat } from 'node:fs/promises'
 import { VaultSession } from './vault/session'
 import { readLastVaultPath, writeLastVaultPath } from './vault/lastVault'
@@ -18,6 +19,18 @@ import type { ExternalChangeEvent, TreeEntry } from '../common/types'
 
 let mainWindow: BrowserWindow | null = null
 let session: VaultSession | null = null
+
+// Serves Local Vault attachment images (Map images today — see
+// docs/plans/2026-08-04-cloud-to-local-copy.md Phase 2/3) to the renderer.
+// A custom scheme rather than a bare file:// URL because the renderer loads
+// from http://localhost in dev (ELECTRON_RENDERER_URL) — a cross-origin
+// file:// load there would hit webSecurity, whereas this is registered as
+// its own privileged, fetchable scheme that works identically in dev and
+// the packaged file:// build. Must be called before app.whenReady().
+const ATTACHMENT_PROTOCOL = 'vault-attachment'
+protocol.registerSchemesAsPrivileged([
+  { scheme: ATTACHMENT_PROTOCOL, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }
+])
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -45,7 +58,30 @@ function createWindow(): BrowserWindow {
   return window
 }
 
+// Resolves a vault-attachment://attachment/<encoded relative path> request
+// against whichever vault is currently open, and streams the file back via
+// net.fetch(file://...) — reusing Chromium's own fetch/range/caching
+// handling rather than reading the whole file into memory here. Rejects
+// anything that would resolve outside the vault root (a defensively-
+// unreachable case today, since callers only ever pass back a path this app
+// itself generated, but cheap to guard against a malformed/tampered URL).
+function handleAttachmentRequest(request: Request): Response | Promise<Response> {
+  const root = session?.getVaultRoot()
+  if (!root) return new Response('No vault open', { status: 404 })
+
+  const relativePath = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, ''))
+  const normalizedRoot = normalize(root)
+  const resolved = normalize(join(normalizedRoot, relativePath))
+  if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + sep)) {
+    return new Response('Invalid attachment path', { status: 403 })
+  }
+
+  return net.fetch(pathToFileURL(resolved).toString())
+}
+
 app.whenReady().then(async () => {
+  protocol.handle(ATTACHMENT_PROTOCOL, handleAttachmentRequest)
+
   const userDataDir = app.getPath('userData')
 
   session = new VaultSession(userDataDir, {
@@ -94,7 +130,7 @@ app.whenReady().then(async () => {
       mainWindow?.webContents.send('cloud:sessionRestored', restoredSession)
     }
   })
-  registerCloudIpc(cloud, mainWindow)
+  registerCloudIpc(cloud, mainWindow, session)
   // Fire-and-forget, deliberately not awaited — unlike the vault reopen
   // above, a slow or failing network request here must never delay
   // showing the window (the window is already created and shown by now).

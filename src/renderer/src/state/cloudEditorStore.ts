@@ -106,8 +106,16 @@ export const useCloudEditorStore = create<CloudEditorState>((set, get) => ({
     if (!activeNote || !dirty) return
     set({ saving: true, saveError: null })
     try {
+      // Mirrors editorStore.ts's own saveNow stamp — see that file's comment
+      // and docs/plans/2026-08-04-cloud-to-local-copy.md design decision #2.
+      // Cloud's frontmatter is already a plain object (no parse/stringify
+      // round-trip needed), and the server echoes it straight back into
+      // `result.note.frontmatter` below, so store state stays consistent
+      // with what was actually saved (unlike the local side, which
+      // deliberately does NOT write the stamp back into its own state).
+      const stampedFrontmatter = { ...frontmatter, updatedAt: new Date().toISOString() }
       const result = await withTimeout(
-        window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter }),
+        window.cloudApi.saveNote({ id: activeNote.id, version: activeNote.version, body, frontmatter: stampedFrontmatter }),
         SAVE_TIMEOUT_MS,
         'Save'
       )

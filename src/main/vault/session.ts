@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
-import { join, dirname, extname } from 'node:path'
+import { join, dirname, extname, basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { shell } from 'electron'
 import type Database from 'better-sqlite3'
 import { fileWriteQueue, readNote as readNoteFromDisk, readVersion } from './fileWriteQueue'
@@ -42,6 +43,24 @@ import type {
 // index with no special-casing needed elsewhere, same as any other dotfile
 // a vault might contain.
 const VAULT_SETTINGS_FILENAME = '.project-vault-settings.json'
+
+// Hidden (dot-prefixed) folder at the vault root, same invisible-to-tree/
+// index convention as VAULT_SETTINGS_FILENAME above — see
+// docs/plans/2026-08-04-cloud-to-local-copy.md design decision #3. Local
+// Vault's only attachment storage (Map images today); referenced from
+// frontmatter as a vault-root-relative path (e.g. ".attachments/<uuid>-
+// name.png"), mirroring how Cloud Workspace stores a bare Supabase Storage
+// object path rather than a full URL.
+const ATTACHMENTS_DIRNAME = '.attachments'
+
+// Keeps a user's original filename for recognizability while guaranteeing
+// no collision (randomUUID prefix) and no path-traversal/invalid-character
+// risk from whatever the OS file picker handed back.
+function sanitizeAttachmentFilename(sourcePath: string): string {
+  const ext = extname(sourcePath)
+  const stem = basename(sourcePath, ext).replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 60)
+  return `${randomUUID()}-${stem || 'image'}${ext}`
+}
 
 // searchTitles powers every autocomplete/datalist picker in the app
 // (Location/Calendar fields, the Settlement religion picker, Family Tree's
@@ -506,5 +525,45 @@ export class VaultSession {
     if (!trashed) await fs.unlink(path)
     removeNote(db, path)
     await this.refreshTree()
+  }
+
+  // Exposed so main/index.ts's vault-attachment:// protocol handler can
+  // resolve a relative attachment path against whatever vault is currently
+  // open — see docs/plans/2026-08-04-cloud-to-local-copy.md design
+  // decision #4. Not part of any existing public getter since nothing else
+  // needed the raw root outside this class before.
+  getVaultRoot(): string | null {
+    return this.vaultRoot
+  }
+
+  // Shared by saveLocalImage (a user-picked file) and saveLocalImageBytes
+  // (already-downloaded bytes, e.g. the cloud-to-local copier pulling a Map
+  // image out of Supabase Storage — see docs/plans/2026-08-04-cloud-to-
+  // local-copy.md Phase 5) — both just need "these bytes, saved under this
+  // suggested name." No fs.mkdir race concern (recursive:true is
+  // idempotent), and no tree refresh needed since ATTACHMENTS_DIRNAME is
+  // dot-prefixed and already invisible to buildTree/the search index.
+  private async writeAttachment(bytes: Uint8Array, suggestedName: string): Promise<{ path: string }> {
+    const root = this.requireVault()
+    const dir = join(root, ATTACHMENTS_DIRNAME)
+    await fs.mkdir(dir, { recursive: true })
+    const fileName = sanitizeAttachmentFilename(suggestedName)
+    await fs.writeFile(join(dir, fileName), bytes)
+    return { path: `${ATTACHMENTS_DIRNAME}/${fileName}` }
+  }
+
+  // Local counterpart to CloudSession.uploadMapImage — copies a user-picked
+  // file into the hidden .attachments/ folder and hands back a vault-root-
+  // relative path, the same shape cloud's own `{ path }` result has.
+  async saveLocalImage(sourceFilePath: string): Promise<{ path: string }> {
+    return this.writeAttachment(await fs.readFile(sourceFilePath), sourceFilePath)
+  }
+
+  // For bytes that didn't come from a native file picker — the cloud-to-
+  // local copier downloads a Map image's bytes itself (via the renderer's
+  // own fetch of cloud's signed Storage URL) and just needs them written
+  // into .attachments/, no dialog involved.
+  async saveLocalImageBytes(bytes: Uint8Array, suggestedName: string): Promise<{ path: string }> {
+    return this.writeAttachment(bytes, suggestedName)
   }
 }

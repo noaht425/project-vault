@@ -21,8 +21,18 @@ function mockCloudApi(overrides: Partial<Record<string, ReturnType<typeof vi.fn>
   }
 }
 
+// Fixed so saveNow's `new Date().toISOString()` stamp (see
+// cloudEditorStore.ts) is deterministic — vitest's fake timers mock Date by
+// default alongside setTimeout/etc.
+const FIXED_NOW = '2026-08-04T12:00:00.000Z'
+// FIXED_NOW + the 1.5s autosave debounce — what the stamp reads for any
+// save that goes through the debounced setBody/setFrontmatter path rather
+// than an immediate saveNow() call.
+const STAMPED_AFTER_DEBOUNCE = '2026-08-04T12:00:01.500Z'
+
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.setSystemTime(new Date(FIXED_NOW))
   mockCloudApi()
   useCloudEditorStore.setState({
     activeNote: null,
@@ -57,9 +67,18 @@ describe('cloudEditorStore', () => {
     expect(useCloudEditorStore.getState().dirty).toBe(true)
     expect(saveNote).not.toHaveBeenCalled()
 
-    await vi.runAllTimersAsync()
+    // Exactly the 1.5s debounce, not runAllTimersAsync — the latter also
+    // fires saveNow's own dangling 60s withTimeout timer (never cleared on
+    // the winning race branch), which would advance the stamp by another
+    // minute and make it unpredictable.
+    await vi.advanceTimersByTimeAsync(1500)
 
-    expect(saveNote).toHaveBeenCalledWith({ id: 'note-1', version: 1, body: 'edited body', frontmatter: { type: 'npc' } })
+    expect(saveNote).toHaveBeenCalledWith({
+      id: 'note-1',
+      version: 1,
+      body: 'edited body',
+      frontmatter: { type: 'npc', updatedAt: STAMPED_AFTER_DEBOUNCE }
+    })
     expect(useCloudEditorStore.getState().dirty).toBe(false)
     expect(useCloudEditorStore.getState().activeNote?.version).toBe(2)
   })
@@ -70,15 +89,29 @@ describe('cloudEditorStore', () => {
     saveNote.mockResolvedValue({ status: 'saved', note: { ...NOTE_A, frontmatter: { type: 'npc', role: 'Guard' }, version: 2 } })
 
     useCloudEditorStore.getState().setFrontmatter({ type: 'npc', role: 'Guard' })
-    await vi.runAllTimersAsync()
+    await vi.advanceTimersByTimeAsync(1500)
 
     expect(saveNote).toHaveBeenCalledWith({
       id: 'note-1',
       version: 1,
       body: 'original body',
-      frontmatter: { type: 'npc', role: 'Guard' }
+      frontmatter: { type: 'npc', role: 'Guard', updatedAt: STAMPED_AFTER_DEBOUNCE }
     })
     expect(useCloudEditorStore.getState().frontmatter).toEqual({ type: 'npc', role: 'Guard' })
+  })
+
+  // Explicit coverage for the stamp itself (see docs/plans/2026-08-04-cloud-
+  // to-local-copy.md Phase 1) — the two tests above already exercise it
+  // incidentally, this names the behavior directly.
+  it('saveNow stamps a fresh updatedAt into the outgoing frontmatter on every save', async () => {
+    await useCloudEditorStore.getState().openNote('note-1')
+    const saveNote = (window as unknown as { cloudApi: { saveNote: ReturnType<typeof vi.fn> } }).cloudApi.saveNote
+    saveNote.mockResolvedValue({ status: 'saved', note: { ...NOTE_A, version: 2 } })
+
+    useCloudEditorStore.getState().setBody('edited body')
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(saveNote.mock.calls[0][0].frontmatter.updatedAt).toBe(STAMPED_AFTER_DEBOUNCE)
   })
 
   it('saveNow does nothing when there are no unsaved changes', async () => {
@@ -131,7 +164,12 @@ describe('cloudEditorStore', () => {
 
     await useCloudEditorStore.getState().retrySaveWithLatestVersion()
 
-    expect(saveNote).toHaveBeenCalledWith({ id: 'note-1', version: 9, body: 'my edit anyway', frontmatter: { type: 'npc' } })
+    expect(saveNote).toHaveBeenCalledWith({
+      id: 'note-1',
+      version: 9,
+      body: 'my edit anyway',
+      frontmatter: { type: 'npc', updatedAt: FIXED_NOW }
+    })
     expect(useCloudEditorStore.getState().conflict).toBeNull()
     expect(useCloudEditorStore.getState().activeNote?.version).toBe(10)
   })
@@ -222,7 +260,12 @@ describe('cloudEditorStore', () => {
     getNote.mockResolvedValue(noteB)
     await useCloudEditorStore.getState().openNote('note-2')
 
-    expect(saveNote).toHaveBeenCalledWith({ id: 'note-1', version: 1, body: 'edited body', frontmatter: { type: 'npc' } })
+    expect(saveNote).toHaveBeenCalledWith({
+      id: 'note-1',
+      version: 1,
+      body: 'edited body',
+      frontmatter: { type: 'npc', updatedAt: FIXED_NOW }
+    })
     expect(useCloudEditorStore.getState().activeNote?.id).toBe('note-2')
   })
 

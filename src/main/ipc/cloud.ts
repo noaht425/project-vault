@@ -1,5 +1,7 @@
 import { ipcMain, dialog, type BrowserWindow } from 'electron'
+import { join } from 'node:path'
 import type { CloudSession } from '../cloud/cloudSession'
+import type { VaultSession } from '../vault/session'
 import type { SettlementBuilding, SettlementResident } from '../../common/noteTypes/settlement'
 import type {
   CloudBacklink,
@@ -16,7 +18,7 @@ import type {
   CloudWorkspaceSettings
 } from '../../common/cloudTypes'
 
-export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow): void {
+export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow, vaultSession: VaultSession): void {
   ipcMain.handle('cloud:getSession', (): { userId: string } | null => cloud.getSession())
 
   ipcMain.handle(
@@ -135,6 +137,18 @@ export function registerCloudIpc(cloud: CloudSession, window: BrowserWindow): vo
   })
 
   ipcMain.handle('cloud:getMapImageUrl', async (_event, path: string): Promise<string> => cloud.getMapImageUrl(path))
+
+  // No dialog, unlike pickAndUploadMapImage above — for the local-to-cloud
+  // copier uploading a Map note's already-known local image (see
+  // docs/plans/2026-08-04-cloud-to-local-copy.md Phase 6). Resolves the
+  // vault-root-relative path against whatever vault is currently open,
+  // mirroring how the vault-attachment:// protocol handler (main/index.ts)
+  // resolves the same kind of path for local display.
+  ipcMain.handle('cloud:uploadLocalMapImage', async (_event, relativePath: string): Promise<{ path: string }> => {
+    const root = vaultSession.getVaultRoot()
+    if (!root) throw new Error('No vault open')
+    return cloud.uploadMapImage(join(root, relativePath))
+  })
 
   ipcMain.handle(
     'cloud:uploadSettlementBulkData',

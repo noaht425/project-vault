@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { parseNote, stringifyNote } from '../../../common/frontmatter'
 import type { FileVersion } from '../../../common/types'
 
 const AUTOSAVE_DELAY_MS = 1500
@@ -125,7 +126,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!activeNotePath || !dirty) return
     set({ saving: true, saveError: null })
     try {
-      const result = await withTimeout(window.vaultApi.saveNote({ path: activeNotePath, content, baseVersion }), SAVE_TIMEOUT_MS, 'Save')
+      // Stamped fresh into the outgoing content only — not written back into
+      // store state — so this never fights the CodeMirror buffer (which
+      // resyncs only on a revision bump, see Editor.tsx) or forces a redraw/
+      // cursor jump on every autosave. See docs/plans/2026-08-04-cloud-to-
+      // local-copy.md design decision #2: this is the cross-note-type
+      // "last edited" timestamp the copier compares, distinct from
+      // index-db/indexer.ts's own internal search-cache updated_at column.
+      const { frontmatter, body } = parseNote(content)
+      const stamped = stringifyNote({ frontmatter: { ...frontmatter, updatedAt: new Date().toISOString() }, body })
+      const result = await withTimeout(window.vaultApi.saveNote({ path: activeNotePath, content: stamped, baseVersion }), SAVE_TIMEOUT_MS, 'Save')
       if (result.status === 'saved') {
         set({ baseVersion: result.version, dirty: false, externalChangePending: false, saving: false, saveError: null })
       } else {

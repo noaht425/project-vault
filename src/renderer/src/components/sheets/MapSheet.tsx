@@ -100,14 +100,20 @@ export function MapSheet({
       setImageUrl(null)
       return
     }
-    window.cloudApi
-      .getMapImageUrl(data.image.path)
+    // Branches on noteRefApi.isCloud the same way SettlementSheet.tsx gates
+    // its own Cloud-only bulk-data offload — see
+    // docs/plans/2026-08-04-cloud-to-local-copy.md Phase 3. Previously this
+    // unconditionally called window.cloudApi even for a note opened in the
+    // Local Vault (harmless before Local had no map notes to open at all,
+    // but wrong now that it does).
+    const getUrl = noteRefApi.isCloud ? window.cloudApi.getMapImageUrl : window.vaultApi.getLocalImageUrl
+    getUrl(data.image.path)
       .then((url) => !cancelled && setImageUrl(url))
       .catch(() => !cancelled && setImageUrl(null))
     return () => {
       cancelled = true
     }
-  }, [data.image?.path])
+  }, [data.image?.path, noteRefApi.isCloud])
 
   useEffect(() => {
     if (!pendingPinPoint || !pinQuery.trim()) {
@@ -125,13 +131,17 @@ export function MapSheet({
     setUploading(true)
     setUploadError(null)
     try {
-      const result = await window.cloudApi.pickAndUploadMapImage()
+      const result = noteRefApi.isCloud
+        ? await window.cloudApi.pickAndUploadMapImage()
+        : await window.vaultApi.pickAndSaveLocalImage()
       if (!result) return // user cancelled the file picker
-      const url = await window.cloudApi.getMapImageUrl(result.path)
+      const url = noteRefApi.isCloud
+        ? await window.cloudApi.getMapImageUrl(result.path)
+        : await window.vaultApi.getLocalImageUrl(result.path)
       const dims = await loadImageDimensions(url)
-      // Replacing an existing image leaves the old file in Storage —
-      // acceptable for a personal single-user tool, not worth a cleanup
-      // pass in v1.
+      // Replacing an existing image leaves the old file behind (Supabase
+      // Storage on Cloud, .attachments/ locally) — acceptable for a
+      // personal single-user tool, not worth a cleanup pass in v1.
       updateFrontmatter({ image: { path: result.path, width: dims.width, height: dims.height } })
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err))
