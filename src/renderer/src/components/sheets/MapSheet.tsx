@@ -542,6 +542,8 @@ export function MapSheet({
               highlightedPinIds={highlightedPinIds}
               tripPath={tripOverlayPath}
               equatorY={derivedEquatorY}
+              wrapsHorizontally={data.wrapsHorizontally}
+              wrapsVertically={data.wrapsVertically}
             />
           </div>
 

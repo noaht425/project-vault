@@ -335,6 +335,20 @@ export interface WrapConfig {
   wrapsVertically: boolean
 }
 
+// Folds a single point back into the map's [0, mapWidth) x [0, mapHeight)
+// bounds via modulo, wherever the corresponding axis wraps — e.g. for a
+// live cursor position while drawing a route, so the user can see exactly
+// where an off-canvas click would land on the opposite edge before they
+// commit to it (see MapCanvas's draw-trip ghost preview), rather than
+// guessing and only finding out after the fact.
+export function foldPoint(point: Point, config: WrapConfig): Point {
+  const wrap = (v: number, period: number): number => ((v % period) + period) % period
+  return {
+    x: config.wrapsHorizontally ? wrap(point.x, config.mapWidth) : point.x,
+    y: config.wrapsVertically ? wrap(point.y, config.mapHeight) : point.y
+  }
+}
+
 // Splits a straight p1->p2 trip into 1-3 real-coordinate legs representing
 // the shortest path once the map's configured edges are treated as
 // wrapping — e.g. a point near the west edge and a point near the east edge

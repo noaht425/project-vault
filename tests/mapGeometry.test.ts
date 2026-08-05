@@ -10,6 +10,7 @@ import {
   calculateTrip,
   wrapLegs,
   foldDrawnPathAtWraps,
+  foldPoint,
   mergeTripResults,
   latitudeRadiansAt,
   distortedSegmentRealDistance,
@@ -478,6 +479,27 @@ describe('wrapLegs', () => {
     // 50px), not the ~180px direct distance.
     const totalLength = legs.reduce((sum, [a, b]) => sum + segmentDistance(a, b), 0)
     expect(totalLength).toBeCloseTo(50, 9)
+  })
+})
+
+describe('foldPoint', () => {
+  const config: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: true }
+
+  it('leaves an in-bounds point unchanged', () => {
+    expect(foldPoint({ x: 50, y: 60 }, config)).toEqual({ x: 50, y: 60 })
+  })
+
+  it('wraps a point past the left/top edge onto the right/bottom edge', () => {
+    expect(foldPoint({ x: -30, y: -10 }, config)).toEqual({ x: 170, y: 90 })
+  })
+
+  it('wraps a point past the right/bottom edge onto the left/top edge', () => {
+    expect(foldPoint({ x: 230, y: 110 }, config)).toEqual({ x: 30, y: 10 })
+  })
+
+  it('only folds axes that are configured to wrap', () => {
+    const xOnly: WrapConfig = { mapWidth: 200, mapHeight: 100, wrapsHorizontally: true, wrapsVertically: false }
+    expect(foldPoint({ x: -30, y: -10 }, xOnly)).toEqual({ x: 170, y: -10 })
   })
 })
 

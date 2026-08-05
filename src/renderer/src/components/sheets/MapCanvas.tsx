@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { segmentDistance, type Point } from '../../../../common/mapGeometry'
+import { foldDrawnPathAtWraps, foldPoint, segmentDistance, type Point, type WrapConfig } from '../../../../common/mapGeometry'
 import { pinDisplayLabel, type LineType, type MapLandmass, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
 
 export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
@@ -73,6 +73,14 @@ export interface MapCanvasProps {
   // whenever set, regardless of drawing mode. Null/undefined in 'manual'
   // scale mode, where no latitude concept exists at all.
   equatorY?: number | null
+  // Whether the map's edges wrap — used only by 'draw-trip' mode here, to
+  // fold the in-progress draft as it's drawn and preview where an
+  // off-canvas cursor position would land before the user commits to a
+  // click (see the ghost-preview rendering below). The actual trip math
+  // lives in MapTripCalculator; this is purely visual feedback so drawing
+  // a route across a wrapping edge isn't a guessing game.
+  wrapsHorizontally?: boolean
+  wrapsVertically?: boolean
 }
 
 export function MapCanvas({
@@ -95,7 +103,9 @@ export function MapCanvas({
   onPinClick,
   highlightedPinIds,
   tripPath,
-  equatorY
+  equatorY,
+  wrapsHorizontally = false,
+  wrapsVertically = false
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -103,6 +113,11 @@ export function MapCanvas({
   const [lineDraft, setLineDraft] = useState<Point[]>([])
   const [landmassDraft, setLandmassDraft] = useState<Point[]>([])
   const [tripDraft, setTripDraft] = useState<Point[]>([])
+  // Live cursor position while in 'draw-trip' mode — only used to preview
+  // where an off-canvas point would land once folded (see the ghost marker
+  // below); cleared on every mode change and whenever the cursor leaves the
+  // canvas, same reasoning as the old equator-hover preview this replaces.
+  const [drawHoverPoint, setDrawHoverPoint] = useState<Point | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
   // The window-level mousemove/mouseup listeners below are only rebound
@@ -121,6 +136,25 @@ export function MapCanvas({
   const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
   const pinRadius = Math.max(6, Math.min(imageWidth, imageHeight) * 0.01)
   const equatorStrokeWidth = Math.max(2, Math.min(imageWidth, imageHeight) * 0.003)
+  const wrapConfig: WrapConfig = { mapWidth: imageWidth, mapHeight: imageHeight, wrapsHorizontally, wrapsVertically }
+  const isPastWrappingEdge = (p: Point): boolean =>
+    (wrapsHorizontally && (p.x < 0 || p.x > imageWidth)) || (wrapsVertically && (p.y < 0 || p.y > imageHeight))
+
+  // The in-progress draft, folded the same way the final route is (see
+  // MapTripCalculator's effectiveLegs) — so as soon as a point is placed
+  // past a wrapping edge, the draft itself immediately shows the split/
+  // folded interpretation instead of one raw line trailing off-canvas.
+  const foldedTripDraft = useMemo(() => {
+    if (tripDraft.length < 2) return []
+    if (!wrapsHorizontally && !wrapsVertically) return [tripDraft]
+    return foldDrawnPathAtWraps(tripDraft, wrapConfig)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripDraft, wrapsHorizontally, wrapsVertically, imageWidth, imageHeight])
+
+  const drawTripGhost =
+    mode === 'draw-trip' && (wrapsHorizontally || wrapsVertically) && drawHoverPoint && isPastWrappingEdge(drawHoverPoint)
+      ? foldPoint(drawHoverPoint, wrapConfig)
+      : null
 
   // This component re-renders on every mousemove tick while panning and
   // every wheel event while zooming (both just update viewBox). Without
@@ -191,6 +225,7 @@ export function MapCanvas({
     setLineDraft([])
     setLandmassDraft([])
     setTripDraft([])
+    setDrawHoverPoint(null)
   }, [mode])
 
   useEffect(() => {
@@ -261,6 +296,17 @@ export function MapCanvas({
     }
   }
 
+  // Only active in 'draw-trip' mode — tracks the cursor so the ghost
+  // preview below can show where an off-canvas point would land before the
+  // user commits to a click. A plain React handler (not a window-level
+  // listener like panning uses) is enough since this doesn't need to keep
+  // firing once the pointer leaves the SVG.
+  const handleMouseMoveForDrawTrip = (e: React.MouseEvent<SVGSVGElement>): void => {
+    if (mode !== 'draw-trip') return
+    const point = clientToSvgPoint(e.clientX, e.clientY)
+    if (point) setDrawHoverPoint(point)
+  }
+
   const handleWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
     e.preventDefault()
     const rect = svgRef.current?.getBoundingClientRect()
@@ -329,6 +375,8 @@ export function MapCanvas({
       viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
       style={{ cursor: mode === 'view' ? 'grab' : 'crosshair' }}
       onWheel={handleWheel}
+      onMouseMove={handleMouseMoveForDrawTrip}
+      onMouseLeave={() => setDrawHoverPoint(null)}
       onMouseDown={handleMouseDown}
     >
       <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />
@@ -380,11 +428,38 @@ export function MapCanvas({
 
       {mode === 'draw-trip' && tripDraft.length > 0 && (
         <g>
-          <polyline points={tripDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-          <polyline points={tripDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+          {/* The connecting line(s) use the FOLDED interpretation (see
+              foldedTripDraft above), not the raw clicked points — so the
+              moment a point past a wrapping edge is placed, the draft
+              already shows the split/folded route instead of one line
+              running straight through blank space. The small circles below
+              still mark the literal click positions (which can legitimately
+              be off-canvas), so you can see exactly what you clicked as
+              well as how it's being interpreted. */}
+          {foldedTripDraft.map((leg, legIndex) => (
+            <g key={legIndex}>
+              <polyline points={leg.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+              <polyline points={leg.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+            </g>
+          ))}
           {tripDraft.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
           ))}
+        </g>
+      )}
+
+      {/* Ghost preview while drawing — shows where the cursor's CURRENT
+          position would land once folded, before the user commits with a
+          click, so drawing a route across a wrapping edge isn't a guessing
+          game. Only shown once the cursor has actually strayed past a
+          wrapping edge; an in-bounds cursor needs no ghost since it already
+          is its own landing spot. */}
+      {drawTripGhost && (
+        <g>
+          <circle cx={drawTripGhost.x} cy={drawTripGhost.y} r={pinRadius} fill="none" stroke="#ff8800" strokeWidth={2} strokeDasharray="4,3" />
+          <text x={drawTripGhost.x} y={drawTripGhost.y - pinRadius - 6} textAnchor="middle" fill="#ff8800">
+            lands here
+          </text>
         </g>
       )}
 
