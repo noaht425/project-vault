@@ -4,10 +4,16 @@
     <meta charset="UTF-8" />
     <!-- img-src's supabase.co host must match SUPABASE_URL in
          src/main/cloud/cloudSession.ts — it's what lets map images (signed
-         Storage URLs) actually render instead of being silently blocked. -->
+         Storage URLs) actually render instead of being silently blocked.
+         vault-attachment: is the custom scheme main/index.ts registers for
+         serving Local Vault images (see docs/plans/2026-08-04-cloud-to-
+         local-copy.md Phase 2/3) — without it here, a local Map image's
+         <img> load is silently blocked by this same policy (confirmed via
+         a real "garbled map image" bug report: DevTools showed a CSP
+         img-src violation, not a decode/network failure). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://qrkixhzglpillaqtzfxu.supabase.co;"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://qrkixhzglpillaqtzfxu.supabase.co vault-attachment:;"
     />
     <title>Project Vault</title>
   </head>
