@@ -282,7 +282,12 @@ export async function importVaultIntoCloud(
               // doesn't — a full overwrite would otherwise silently drop
               // them even though pins are exactly the kind of independently
               // -addressable data a "newer wins" comparison isn't about.
-              if (pinMerge) translated.frontmatter = { ...translated.frontmatter, pins: pinMerge.pins }
+              // Reuses mergeMapPins but with the winning (local) side passed
+              // as "dest" so its own pins win any id collision too — the
+              // pre-computed `pinMerge` above is dest(cloud)-wins and is only
+              // correct for the partial-merge branch below, not this one.
+              const overwritePinMerge = mergeMapPins(translated.frontmatter, dest.frontmatter)
+              if (overwritePinMerge) translated.frontmatter = { ...translated.frontmatter, pins: overwritePinMerge.pins }
               const result = await cloudApi.saveNote({ id: existing.id, version: dest.version, ...translated })
               // A conflict here means the cloud note changed between the
               // dest read above and this write — the transferred content
@@ -472,7 +477,12 @@ export async function importCloudIntoVault(
               // doesn't — a full overwrite would otherwise silently drop
               // them even though pins are exactly the kind of independently
               // -addressable data a "newer wins" comparison isn't about.
-              if (pinMerge) translated.frontmatter = { ...translated.frontmatter, pins: pinMerge.pins }
+              // Reuses mergeMapPins but with the winning (cloud) side passed
+              // as "dest" so its own pins win any id collision too — the
+              // pre-computed `pinMerge` above is dest(local)-wins and is only
+              // correct for the partial-merge branch below, not this one.
+              const overwritePinMerge = mergeMapPins(translated.frontmatter, destFrontmatter)
+              if (overwritePinMerge) translated.frontmatter = { ...translated.frontmatter, pins: overwritePinMerge.pins }
               const result = await vaultApi.saveNote({ path: existingPath, content: stringifyNote(translated), baseVersion: dest.version })
               // Same reasoning as the CREATE branch's own check above, minus
               // the rollback — this path is an already-existing note, not an

@@ -874,6 +874,51 @@ describe('importCloudIntoVault', () => {
       expect(savedFrontmatter.updatedAt).toBe('2026-08-05T00:00:00.000Z')
     })
 
+    it('importCloudIntoVault: a full overwrite (cloud strictly newer) keeps the winning cloud side of a pin that exists on both sides under the same id, not the stale local copy', async () => {
+      const cloudTree: CloudTreeNode[] = [{ id: 'note-map', name: 'Map', isDirectory: false, version: 2 }]
+      const cloudApi = fakeCloudSourceApi(cloudTree, {
+        'note-map': cloudNoteData('note-map', 'Map', {
+          type: 'map',
+          // 'shared-pin' moved to (9, 9) on the cloud side — this is the
+          // edit that should survive, since cloud is confirmed newer below.
+          // 'cloud-only-pin' is here purely so mergeMapPins has something to
+          // add (an id-collision-only case has nothing "missing" from the
+          // destination's perspective and short-circuits to null before the
+          // bug this test guards against ever gets a chance to trigger).
+          pins: [
+            { id: 'shared-pin', x: 9, y: 9, locationTitle: null, label: 'shared-pin' },
+            { id: 'cloud-only-pin', x: 5, y: 5, locationTitle: null, label: 'cloud-only-pin' }
+          ],
+          updatedAt: '2026-08-05T00:00:00.000Z'
+        })
+      })
+      const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/Map.md`, name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultDestApi(existingTree, {
+        [`${VAULT_ROOT}/Map.md`]: {
+          // Local's (stale) copy of 'shared-pin' is still at (1, 1).
+          content:
+            "---\ntype: map\npins:\n  - id: shared-pin\n    x: 1\n    y: 1\n    locationTitle: null\n    label: shared-pin\nupdatedAt: '2026-08-01T00:00:00.000Z'\n---\n",
+          version: { mtimeMs: 1, contentHash: 'old' }
+        }
+      })
+
+      await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {})
+
+      const savedPins = parseNote(vaultApi.notes[`${VAULT_ROOT}/Map.md`].content).frontmatter.pins as {
+        id: string
+        x: number
+        y: number
+      }[]
+      expect(savedPins.find((p) => p.id === 'shared-pin')).toEqual({
+        id: 'shared-pin',
+        x: 9,
+        y: 9,
+        locationTitle: null,
+        label: 'shared-pin'
+      })
+      expect(savedPins.map((p) => p.id).sort()).toEqual(['cloud-only-pin', 'shared-pin'])
+    })
+
     it('importCloudIntoVault: dryRun counts a pins-only merge as toUpdate without writing anything', async () => {
       const cloudTree: CloudTreeNode[] = [{ id: 'note-map', name: 'Map', isDirectory: false, version: 2 }]
       const cloudApi = fakeCloudSourceApi(cloudTree, {
@@ -970,6 +1015,51 @@ describe('importCloudIntoVault', () => {
       const pinIds = (cloudApi.notesById['note-map'].frontmatter.pins as { id: string }[]).map((p) => p.id).sort()
       expect(pinIds).toEqual(['cloud-pin', 'local-pin'])
       expect(cloudApi.notesById['note-map'].frontmatter.updatedAt).toBe('2026-08-05T00:00:00.000Z')
+    })
+
+    it('importVaultIntoCloud: a full overwrite (local strictly newer) keeps the winning local side of a pin that exists on both sides under the same id, not the stale cloud copy', async () => {
+      const tree: TreeEntry[] = [{ path: '/vault/Map.md', name: 'Map.md', isDirectory: false }]
+      const vaultApi = fakeVaultApi(tree, {
+        // 'shared-pin' moved to (9, 9) on the local side — this is the edit
+        // that should survive, since local is confirmed newer below.
+        // 'local-only-pin' is here purely so mergeMapPins has something to
+        // add (an id-collision-only case has nothing "missing" from the
+        // destination's perspective and short-circuits to null before the
+        // bug this test guards against ever gets a chance to trigger).
+        '/vault/Map.md':
+          "---\ntype: map\npins:\n  - id: shared-pin\n    x: 9\n    y: 9\n    locationTitle: null\n    label: shared-pin\n  - id: local-only-pin\n    x: 5\n    y: 5\n    locationTitle: null\n    label: local-only-pin\nupdatedAt: '2026-08-05T00:00:00.000Z'\n---\n"
+      })
+      const cloudApi = fakeCloudApi(
+        [{ id: 'note-map', name: 'Map', isDirectory: false, noteType: 'map', version: 1 }],
+        {
+          'note-map': {
+            id: 'note-map',
+            name: 'Map',
+            folderId: null,
+            // Cloud's (stale) copy of 'shared-pin' is still at (1, 1).
+            frontmatter: {
+              type: 'map',
+              pins: [{ id: 'shared-pin', x: 1, y: 1, locationTitle: null, label: 'shared-pin' }],
+              updatedAt: '2026-08-01T00:00:00.000Z'
+            },
+            body: '',
+            noteType: 'map',
+            version: 1
+          }
+        }
+      )
+
+      await importVaultIntoCloud(vaultApi, cloudApi, () => {})
+
+      const savedPins = cloudApi.notesById['note-map'].frontmatter.pins as { id: string; x: number; y: number }[]
+      expect(savedPins.find((p) => p.id === 'shared-pin')).toEqual({
+        id: 'shared-pin',
+        x: 9,
+        y: 9,
+        locationTitle: null,
+        label: 'shared-pin'
+      })
+      expect(savedPins.map((p) => p.id).sort()).toEqual(['local-only-pin', 'shared-pin'])
     })
   })
 })
