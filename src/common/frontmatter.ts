@@ -80,7 +80,7 @@ export function stampUpdatedAt(content: string, iso: string): string {
 }
 
 export interface FieldStringifyCache {
-  entries: Map<string, { value: unknown; dumped: string }>
+  entries: Map<string, string> // key -> last-dumped YAML text for that key
 }
 
 export function createFieldStringifyCache(): FieldStringifyCache {
@@ -99,39 +99,56 @@ function dumpField(key: string, value: unknown): string {
   return wrapped.slice(4, end + 1)
 }
 
-// Like stringifyNote, but for each key in `cacheKeys` whose value is
-// reference-identical to what it was the last time this SAME cache was
-// used, reuses the previously-dumped YAML text instead of re-serializing
-// it. Built for local Settlement notes: residents/buildings stay inline in
-// frontmatter with no size offload (see docs/plans/2026-08-04-cloud-to-
-// local-copy.md design decision #5 — Cloud never has this problem because
-// it offloads above ~2MB, keeping its own inline frontmatter always small;
-// Local has no such bound). A local settlement's frontmatter can run tens
-// of MB, and SettlementSheet.tsx's commitFrontmatter used to re-stringify
-// the WHOLE frontmatter — residents/buildings included — on every single
-// keystroke in an unrelated field like "summary". Confirmed regression: a
-// user typing in that field froze, and once crashed, the renderer.
+// Like stringifyNote, but for each key in `cacheKeys` that ALSO appears in
+// `unchangedKeys`, reuses the previously-dumped YAML text instead of
+// re-serializing it. Built for local Settlement notes: residents/buildings
+// stay inline in frontmatter with no size offload (see docs/plans/2026-08-
+// 04-cloud-to-local-copy.md design decision #5 — Cloud never has this
+// problem because it offloads above ~2MB, keeping its own inline
+// frontmatter always small; Local has no such bound). A local settlement's
+// frontmatter can run tens of MB, and SettlementSheet.tsx's
+// commitFrontmatter used to re-stringify the WHOLE frontmatter —
+// residents/buildings included — on every single keystroke in an unrelated
+// field like "summary". Confirmed regression: a user typing in that field
+// froze, and once crashed, the renderer.
+//
+// `unchangedKeys` is asserted by the CALLER, not detected here via
+// reference equality — an earlier version of this function tried
+// `cachedValue === value`, but this app always round-trips an edit back
+// through `content` (a string): every onContentChange call re-parses fresh
+// via parseNote(content), which allocates BRAND NEW arrays/objects even
+// when the actual data is byte-identical. Reference equality was false on
+// every single call after the first, silently defeating the cache
+// entirely — confirmed regression, the bug recurred even after this
+// function existed. The caller (SettlementSheet.tsx) instead derives
+// unchangedKeys from whether ITS OWN patch touched that key — reliable
+// because every call site in this app already follows the convention of
+// only including changed fields in a patch — and guards against a
+// content change from anywhere ELSE (a raw markdown hand-edit, switching
+// notes) invalidating that assumption by resetting its cache whenever
+// `content` doesn't match what it itself last wrote.
 //
 // Implementation: dumps the whole frontmatter through the real
-// stringifyNote(), but with each cache-hit field's value temporarily
-// swapped for a short, collision-proof placeholder string — js-yaml only
-// has to serialize a tiny scalar for that field, not the real array — then
+// stringifyNote(), but with each reused field's value temporarily swapped
+// for a short, collision-proof placeholder string — js-yaml only has to
+// serialize a tiny scalar for that field, not the real array — then
 // splices the cached real YAML block back in for that one line via an
 // exact string replace. All delimiter/whitespace/body handling still runs
 // through the unmodified real stringifyNote() call; the only custom part
-// is a single-line swap per cache hit.
-export function stringifyNoteCached(note: ParsedNote, cacheKeys: string[], cache: FieldStringifyCache): string {
+// is a single-line swap per reused field.
+export function stringifyNoteCached(note: ParsedNote, cacheKeys: string[], unchangedKeys: string[], cache: FieldStringifyCache): string {
   const patched: Record<string, unknown> = { ...note.frontmatter }
   const swaps: { line: string; dumped: string }[] = []
+  const reused = new Set<string>()
 
   for (const key of cacheKeys) {
     if (!(key in note.frontmatter)) continue
-    const value = note.frontmatter[key]
-    const cached = cache.entries.get(key)
-    if (cached && cached.value === value) {
+    const dumped = unchangedKeys.includes(key) ? cache.entries.get(key) : undefined
+    if (dumped !== undefined) {
       const placeholder = `__frontmatter_field_cache__${key}`
       patched[key] = placeholder
-      swaps.push({ line: `${key}: ${placeholder}\n`, dumped: cached.dumped })
+      swaps.push({ line: `${key}: ${placeholder}\n`, dumped })
+      reused.add(key)
     }
   }
 
@@ -140,18 +157,16 @@ export function stringifyNoteCached(note: ParsedNote, cacheKeys: string[], cache
     content = content.replace(line, dumped)
   }
 
-  // Cache every key that wasn't a hit this call (new, or its value just
-  // changed) so a future call with the same value can reuse it. A cache
-  // miss here means dumping that field twice (once as part of the call
-  // above, once more here) — acceptable since misses only happen when the
-  // underlying data actually changed (e.g. a settlement's Generate/Promote
-  // buttons), never on a plain keystroke.
+  // Cache (or refresh) every key that wasn't reused this call — either it
+  // was never cached before, or the caller says it might have changed —
+  // so a future call has valid text to reuse. A cache miss here means
+  // dumping that field twice (once as part of the call above, once more
+  // here) — acceptable since misses only happen when the underlying data
+  // actually changed (e.g. a settlement's Generate/Promote buttons) or on
+  // the very first call, never on a plain keystroke.
   for (const key of cacheKeys) {
-    if (!(key in note.frontmatter)) continue
-    const value = note.frontmatter[key]
-    const cached = cache.entries.get(key)
-    if (cached && cached.value === value) continue
-    cache.entries.set(key, { value, dumped: dumpField(key, value) })
+    if (reused.has(key) || !(key in note.frontmatter)) continue
+    cache.entries.set(key, dumpField(key, note.frontmatter[key]))
   }
 
   return content

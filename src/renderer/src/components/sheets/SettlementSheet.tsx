@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { z } from 'zod'
 import { parseNote, stringifyNoteCached, createFieldStringifyCache } from '../../../../common/frontmatter'
-import { settlementFrontmatterSchema, type SettlementBuilding, type SettlementResident } from '../../../../common/noteTypes/settlement'
+import {
+  settlementFrontmatterSchema,
+  settlementResidentSchema,
+  settlementBuildingSchema,
+  type SettlementBuilding,
+  type SettlementResident
+} from '../../../../common/noteTypes/settlement'
 import { shouldOffloadBulkData } from '../../../../common/settlementBulkData'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { SettlementSetupTab } from './SettlementSetupTab'
@@ -25,11 +32,62 @@ export function SettlementSheet({
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
 }): React.JSX.Element {
-  // Memoized on content — a settlement's residents array can be tens of
-  // thousands of entries, and without this the zod parse re-ran on every
-  // render, including switching tabs (setTab), not just on real edits.
-  const { frontmatter, body } = useMemo(() => parseNote(content), [content])
-  const rawData = useMemo(() => settlementFrontmatterSchema.parse(frontmatter), [frontmatter])
+  // Remembers the exact {content, frontmatter, body} THIS component itself
+  // last produced (via commitFrontmatter below) — lets the parse below be
+  // skipped entirely when `content` is unchanged from what we just wrote
+  // ourselves, and doubles as the "did something external touch content"
+  // signal commitFrontmatter uses to know when its own field-stringify
+  // cache needs resetting. See commitFrontmatter's own comment for why
+  // this exists: parseNote(content) always allocates brand new residents/
+  // buildings objects, even when byte-identical — without this, EVERY
+  // keystroke re-parsed the full settlement from scratch regardless of any
+  // other optimization, which was still enough on its own to freeze/crash
+  // the renderer for a large imported settlement (real reported bug, twice).
+  const lastOwn = useRef<{ content: string; frontmatter: Record<string, unknown>; body: string } | null>(null)
+  const fieldCache = useRef(createFieldStringifyCache())
+
+  const { frontmatter, body } = useMemo(() => {
+    if (lastOwn.current && lastOwn.current.content === content) {
+      return { frontmatter: lastOwn.current.frontmatter, body: lastOwn.current.body }
+    }
+    // content changed from something other than our own last write (initial
+    // load, switching notes, a raw markdown hand-edit, an external file
+    // change) — a real parse is needed, and the stringify cache's own
+    // "unchanged since last write" assumption no longer holds either.
+    fieldCache.current = createFieldStringifyCache()
+    return parseNote(content)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content])
+
+  // Validates residents/buildings separately from the rest of the
+  // frontmatter, memoized on THEIR OWN references rather than the whole
+  // frontmatter object — commitFrontmatter's `{...frontmatter, ...patch}`
+  // spread always creates a new top-level frontmatter object on every
+  // edit (by design, so patches compose correctly), which would otherwise
+  // make a single `settlementFrontmatterSchema.parse(frontmatter)` call
+  // re-validate a settlement's entire residents/buildings arrays — tens of
+  // thousands of entries — on every keystroke in an unrelated field like
+  // Summary, even with the parse-skip and stringify-cache fixes above
+  // (confirmed directly: ~140ms for 20k residents + 5k buildings, and
+  // that's before accounting for a "Metropolis"-scale settlement).
+  // frontmatter.residents/buildings DO keep a stable reference across
+  // edits that don't touch them (thanks to the parse-skip above), so this
+  // memo correctly skips re-validating them in that case.
+  const bulkFields = useMemo(
+    () => ({
+      residents: z.array(settlementResidentSchema).catch([]).parse(frontmatter.residents),
+      buildings: z.array(settlementBuildingSchema).catch([]).parse(frontmatter.buildings)
+    }),
+    [frontmatter.residents, frontmatter.buildings]
+  )
+  const rawData = useMemo(() => {
+    // residents/buildings stubbed to [] here — cheap to validate, and
+    // overwritten by the separately-validated (and cached) bulkFields
+    // right after. Produces the identical overall shape a single
+    // settlementFrontmatterSchema.parse(frontmatter) call would.
+    const cheapFields = settlementFrontmatterSchema.parse({ ...frontmatter, residents: [], buildings: [] })
+    return { ...cheapFields, ...bulkFields }
+  }, [frontmatter, bulkFields])
 
   // See docs/plans/2026-08-03-cloud-settlement-storage-offload.md. When
   // rawData.bulkDataStoragePath is set (Cloud Workspace only — Local Vault
@@ -79,25 +137,23 @@ export function SettlementSheet({
     return rawData
   }, [rawData, bulkData])
 
-  // Persists across renders/patches for this sheet instance — a fresh
-  // residents/buildings array (a new Generate/Promote) is simply a cache
-  // miss (correctly re-serialized and re-cached), so there's no need to
-  // reset this when switching notes.
-  const fieldCache = useRef(createFieldStringifyCache())
-
   // stringifyNoteCached, not a plain stringifyNote — see its own comment.
   // Every keystroke in a field like Summary calls this, and a local
   // settlement's residents/buildings stay inline with no size bound (no
   // offload locally); re-serializing them on every keystroke regardless of
   // whether THIS patch touched them froze — and once crashed — the
-  // renderer for a large imported settlement (real reported bug).
+  // renderer for a large imported settlement (real reported bug). Also
+  // records `lastOwn` (see its declaration above) so the NEXT render's
+  // parse-skip and this function's own next cache-reset check both have an
+  // accurate "what did we just write" baseline.
   const commitFrontmatter = (patch: Record<string, unknown>): void => {
-    const content = stringifyNoteCached(
-      { frontmatter: { ...frontmatter, ...patch }, body },
-      ['residents', 'buildings'],
-      fieldCache.current
-    )
-    onContentChange(content)
+    const cacheKeys = ['residents', 'buildings']
+    const unchangedKeys = cacheKeys.filter((key) => !(key in patch))
+    const nextFrontmatter = { ...frontmatter, ...patch }
+    const nextContent = stringifyNoteCached({ frontmatter: nextFrontmatter, body }, cacheKeys, unchangedKeys, fieldCache.current)
+
+    lastOwn.current = { content: nextContent, frontmatter: nextFrontmatter, body }
+    onContentChange(nextContent)
   }
 
   // Storage-aware wrapper: a patch that touches residents/buildings on a
