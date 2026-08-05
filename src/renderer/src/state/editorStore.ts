@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { parseNote, stringifyNote } from '../../../common/frontmatter'
+import { stampUpdatedAt } from '../../../common/frontmatter'
 import type { FileVersion } from '../../../common/types'
 
 const AUTOSAVE_DELAY_MS = 1500
@@ -133,8 +133,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // local-copy.md design decision #2: this is the cross-note-type
       // "last edited" timestamp the copier compares, distinct from
       // index-db/indexer.ts's own internal search-cache updated_at column.
-      const { frontmatter, body } = parseNote(content)
-      const stamped = stringifyNote({ frontmatter: { ...frontmatter, updatedAt: new Date().toISOString() }, body })
+      // stampUpdatedAt (not parseNote+stringifyNote) deliberately avoids a
+      // full YAML round trip on every autosave — see its own comment for
+      // why: a large Settlement's frontmatter can run tens of MB, and the
+      // full round trip froze (and in one case crashed) the renderer.
+      const stamped = stampUpdatedAt(content, new Date().toISOString())
       const result = await withTimeout(window.vaultApi.saveNote({ path: activeNotePath, content: stamped, baseVersion }), SAVE_TIMEOUT_MS, 'Save')
       if (result.status === 'saved') {
         set({ baseVersion: result.version, dirty: false, externalChangePending: false, saving: false, saveError: null })
