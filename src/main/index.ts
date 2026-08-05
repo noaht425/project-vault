@@ -1,7 +1,6 @@
-import { app, BrowserWindow, ipcMain, protocol, net } from 'electron'
-import { join, normalize, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { stat } from 'node:fs/promises'
+import { app, BrowserWindow, ipcMain, protocol } from 'electron'
+import { join, normalize, sep, extname } from 'node:path'
+import { stat, readFile } from 'node:fs/promises'
 import { VaultSession } from './vault/session'
 import { readLastVaultPath, writeLastVaultPath } from './vault/lastVault'
 import { registerVaultIpc } from './ipc/vault'
@@ -58,14 +57,26 @@ function createWindow(): BrowserWindow {
   return window
 }
 
+const ATTACHMENT_CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp'
+}
+
 // Resolves a vault-attachment://attachment/<encoded relative path> request
-// against whichever vault is currently open, and streams the file back via
-// net.fetch(file://...) — reusing Chromium's own fetch/range/caching
-// handling rather than reading the whole file into memory here. Rejects
-// anything that would resolve outside the vault root (a defensively-
-// unreachable case today, since callers only ever pass back a path this app
-// itself generated, but cheap to guard against a malformed/tampered URL).
-function handleAttachmentRequest(request: Request): Response | Promise<Response> {
+// against whichever vault is currently open and returns the file's bytes
+// with an explicit Content-Type. Originally used net.fetch(file://...) to
+// reuse Chromium's own file:// handling, but that leaves Content-Type
+// unset — the renderer has to MIME-sniff the response instead of being
+// told what it is, which is exactly the kind of thing worth ruling out for
+// a reported "image looks garbled" bug. A plain readFile + typed Response
+// is the standard, more predictable pattern for serving local files from a
+// custom Electron protocol handler. Rejects anything that would resolve
+// outside the vault root (defensively unreachable today, since callers only
+// ever pass back a path this app itself generated, but cheap to guard
+// against a malformed/tampered URL).
+async function handleAttachmentRequest(request: Request): Promise<Response> {
   const root = session?.getVaultRoot()
   if (!root) return new Response('No vault open', { status: 404 })
 
@@ -76,7 +87,13 @@ function handleAttachmentRequest(request: Request): Response | Promise<Response>
     return new Response('Invalid attachment path', { status: 403 })
   }
 
-  return net.fetch(pathToFileURL(resolved).toString())
+  try {
+    const bytes = await readFile(resolved)
+    const contentType = ATTACHMENT_CONTENT_TYPES[extname(resolved).toLowerCase()] ?? 'application/octet-stream'
+    return new Response(bytes, { headers: { 'Content-Type': contentType, 'Content-Length': String(bytes.byteLength) } })
+  } catch (err) {
+    return new Response(`Failed to read attachment: ${err instanceof Error ? err.message : String(err)}`, { status: 404 })
+  }
 }
 
 app.whenReady().then(async () => {
