@@ -997,6 +997,12 @@ button.active {
   text-transform: uppercase;
   flex: 1;
   min-width: 90px;
+  /* A narrow column (see .sheet-field-narrow's 64px) is easily less than
+     the width of one long uppercase word in a label like "Planet
+     circumference" or "Bottom edge latitude" — without this, that word
+     doesn't wrap, it just overflows past the column edge and visually
+     overlaps whatever field sits next to it. */
+  overflow-wrap: break-word;
 }
 
 .sheet-field-narrow {
