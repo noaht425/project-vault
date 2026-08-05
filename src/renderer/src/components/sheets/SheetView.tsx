@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { parseNote } from '../../../../common/frontmatter'
+import { useState } from 'react'
+import { extractFrontmatterType } from '../../../../common/frontmatter'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { PcSheet } from './PcSheet'
 import { NpcSheet } from './NpcSheet'
@@ -37,13 +37,22 @@ export function SheetView({
    *  note-to-note resolution. */
   noteRefApi: NoteRefApi
 }): React.JSX.Element | null {
-  // Memoized on content — this used to re-parse on every render regardless
-  // of whether content actually changed, which for a large Settlement note
-  // meant paying a real parse cost (over a second at Metropolis scale) on
-  // every unrelated re-render just to read one field. Every per-type child
-  // below now memoizes its own parseNote/schema.parse the same way.
-  const { frontmatter } = useMemo(() => parseNote(content), [content])
-  const type = typeof frontmatter.type === 'string' ? frontmatter.type : undefined
+  // extractFrontmatterType, not parseNote — this used to do a full
+  // parseNote(content) memoized on [content], which looked like caching
+  // but wasn't: `content` changes on every keystroke, so this "memo" never
+  // actually hit, and for a large Settlement note (residents/buildings
+  // stay inline, no size limit locally) that's a full YAML parse — 1.4+
+  // seconds, measured directly — on every single edit, just to read this
+  // one field. Confirmed regression: this ran regardless of anything
+  // SettlementSheet.tsx itself optimized internally, since this component
+  // sits above it and always parsed first. `type` never changes during a
+  // normal editing session, so a cheap, targeted string extraction is all
+  // that's needed here (no useMemo — it's a bounded regex scan now, not a
+  // full parse, so there's nothing worth memoizing against a dependency
+  // that changes every keystroke anyway) — every per-type child below
+  // still does its own real parseNote/schema.parse of the fields it
+  // actually needs.
+  const type = extractFrontmatterType(content)
   // A collapse toggle, not per-note — a sheet that runs long (a Language
   // note's dictionary, a big Settlement) can squeeze the raw-markdown
   // editor down to its bare min-height (see .cm-container/.preview-pane in

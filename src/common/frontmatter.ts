@@ -10,6 +10,34 @@ export function parseNote(content: string): ParsedNote {
   return { frontmatter: data, body }
 }
 
+// Cheap, string-level extraction of just the top-level `type` field from a
+// note's raw content — SheetView.tsx uses this to decide which sheet
+// component to render WITHOUT paying for a full parseNote() on every
+// keystroke, even though `type` itself never changes during a normal
+// editing session (a settlement note stays a settlement note). A full
+// parseNote() of a large Settlement's inline residents/buildings measured
+// 1.4+ seconds on its own (confirmed directly) — real, reported cost: this
+// ran on EVERY edit regardless of anything SettlementSheet.tsx itself did
+// internally, since SheetView.tsx sits ABOVE it and did its own separate
+// full parse first, just to read this one field. Anchored to the
+// frontmatter block specifically (not the raw content), same reasoning as
+// stampUpdatedAt: a body that happens to start a line with "type:" must
+// never be mistaken for the real frontmatter key, which gray-matter/js-
+// yaml always write unindented at column 0.
+export function extractFrontmatterType(content: string): string | undefined {
+  if (!content.startsWith('---\n')) return undefined
+  const closeIndex = content.indexOf('\n---\n', 4)
+  if (closeIndex === -1) return undefined
+  const frontmatterBlock = content.slice(4, closeIndex + 1)
+  const match = frontmatterBlock.match(/^type:\s*(.+)$/m)
+  if (!match) return undefined
+  // Strip a quoted scalar's surrounding quotes (js-yaml only quotes a
+  // plain word like a note type when it'd otherwise be ambiguous — not
+  // observed in practice for this field, but cheap to handle correctly
+  // rather than assume it never happens).
+  return match[1].trim().replace(/^['"]|['"]$/g, '')
+}
+
 export function stringifyNote(note: ParsedNote): string {
   // noRefs: true skips js-yaml's default shared-reference/circular-alias
   // detection pass — a full walk comparing object identity across the

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { parseNote, stringifyNote, stampUpdatedAt, stringifyNoteCached, createFieldStringifyCache } from '../src/common/frontmatter'
+import {
+  parseNote,
+  stringifyNote,
+  stampUpdatedAt,
+  stringifyNoteCached,
+  createFieldStringifyCache,
+  extractFrontmatterType
+} from '../src/common/frontmatter'
 
 describe('parseNote/stringifyNote', () => {
   it('round-trips frontmatter and body unchanged', () => {
@@ -288,5 +295,54 @@ describe('stringifyNoteCached', () => {
     expect(parsed.frontmatter.summary).toBe(sentence)
     expect((parsed.frontmatter.residents as unknown[]).length).toBe(20000)
     expect((parsed.frontmatter.buildings as unknown[]).length).toBe(5000)
+  })
+})
+
+describe('extractFrontmatterType', () => {
+  it('extracts a plain, unquoted type', () => {
+    const content = stringifyNote({ frontmatter: { type: 'npc', tags: [] }, body: 'hello' })
+    expect(extractFrontmatterType(content)).toBe('npc')
+  })
+
+  it('strips surrounding quotes from a quoted type', () => {
+    expect(extractFrontmatterType("---\ntype: 'settlement'\n---\n")).toBe('settlement')
+    expect(extractFrontmatterType('---\ntype: "settlement"\n---\n')).toBe('settlement')
+  })
+
+  it('returns undefined when there is no frontmatter block at all', () => {
+    expect(extractFrontmatterType('just plain body text\n')).toBeUndefined()
+  })
+
+  it('returns undefined when type is absent from the frontmatter', () => {
+    const content = stringifyNote({ frontmatter: { tags: [] }, body: '' })
+    expect(extractFrontmatterType(content)).toBeUndefined()
+  })
+
+  // Regression: a naive unscoped regex over the whole content string would
+  // match a body line that happens to start with "type:" too — anchored to
+  // the frontmatter block specifically (same reasoning as stampUpdatedAt),
+  // since gray-matter/js-yaml only ever write real frontmatter keys
+  // unindented at column 0.
+  it('never matches a body line that happens to start with "type:"', () => {
+    const content = stringifyNote({ frontmatter: { type: 'note' }, body: 'type: not a real field, just body text\n' })
+    expect(extractFrontmatterType(content)).toBe('note')
+  })
+
+  // Regression test for the actual reported bug: SheetView.tsx used to
+  // call parseNote(content) — a full YAML parse — on every keystroke just
+  // to read this one field, completely bypassing every optimization
+  // SettlementSheet.tsx made internally, since SheetView sits above it and
+  // always parsed first. Proves the replacement stays fast at the scale
+  // where that was measured taking 1.4+ seconds.
+  it('stays fast for a huge inline-residents settlement note, unlike a full parseNote', () => {
+    const residents = Array.from({ length: 20000 }, (_, i) => ({ id: `r${i}`, name: `Resident ${i}`, race: 'human', age: 30 }))
+    const content = stringifyNote({ frontmatter: { type: 'settlement', residents }, body: '' })
+
+    const start = Date.now()
+    const type = extractFrontmatterType(content)
+    const elapsedMs = Date.now() - start
+
+    expect(type).toBe('settlement')
+    expect(elapsedMs).toBeLessThan(50)
   })
 })
