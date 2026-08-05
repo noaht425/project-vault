@@ -381,6 +381,12 @@ export function MapSheet({
               distance during trip calculation.
             </p>
           )}
+          <p className="right-panel-note">
+            For accurate results with curvature on, calibrate scale (Calibrate Scale mode) using two points stacked
+            vertically, not side-by-side — north-south distance-per-pixel is the same at every latitude on this kind of map,
+            but east-west distance-per-pixel isn't, so a horizontal calibration bakes in whatever latitude you happened to
+            click at and the curvature correction can't detect or undo that.
+          </p>
 
           {mode === 'set-equator' && (
             <p className="right-panel-note">
