@@ -80,6 +80,11 @@ export function MapTripCalculator({
 
   const from = pins.find((p) => p.id === fromId) ?? pins[0]
   const to = pins.find((p) => p.id === toId) ?? pins[1]
+  // Alphabetical by display label for the From/To dropdowns below — pins
+  // themselves stay in their original (insertion) order everywhere else,
+  // this is purely a display-order convenience for finding a place in a
+  // long list.
+  const sortedPins = useMemo(() => [...pins].sort((a, b) => pinDisplayLabel(a).localeCompare(pinDisplayLabel(b))), [pins])
   const landTravelMode = modes.find((m) => m.id === landModeId) ?? modes[0]
   // Only meaningfully distinct once the map has landmasses — with none, the
   // whole map counts as land (see isLandAt), so a separate water mode picker
@@ -187,7 +192,7 @@ export function MapTripCalculator({
             <label className="sheet-field">
               From
               <select value={from?.id ?? ''} onChange={(e) => setFromId(e.target.value)}>
-                {pins.map((p) => (
+                {sortedPins.map((p) => (
                   <option key={p.id} value={p.id}>
                     {pinDisplayLabel(p)}
                   </option>
@@ -197,7 +202,7 @@ export function MapTripCalculator({
             <label className="sheet-field">
               To
               <select value={to?.id ?? ''} onChange={(e) => setToId(e.target.value)}>
-                {pins.map((p) => (
+                {sortedPins.map((p) => (
                   <option key={p.id} value={p.id}>
                     {pinDisplayLabel(p)}
                   </option>
