@@ -246,6 +246,41 @@ describe('importVaultIntoCloud', () => {
     expect(cloudApi.tree).toEqual([expect.objectContaining({ name: 'B' })])
   })
 
+  // Regression test for a real production incident: a single note whose
+  // processing hung (most likely the transform hook's Map image download or
+  // Settlement bulk-data fetch, neither of which had a timeout) froze the
+  // entire copy indefinitely — stuck at 214/248 for 18+ minutes with no way
+  // to tell "hung" apart from "slow." Every note now gets a bounded
+  // PER_NOTE_TIMEOUT_MS via withTimeout, so a hang becomes a normal per-item
+  // error instead of a permanent stall.
+  it('a hung note times out and is recorded as an error, without blocking the notes after it', async () => {
+    vi.useFakeTimers()
+    try {
+      const tree: TreeEntry[] = [
+        { path: '/vault/Stuck.md', name: 'Stuck.md', isDirectory: false },
+        { path: '/vault/B.md', name: 'B.md', isDirectory: false }
+      ]
+      const vaultApi = fakeVaultApi(tree, {
+        '/vault/Stuck.md': '---\ntype: map\n---\n',
+        '/vault/B.md': '---\ntype: npc\n---\n'
+      })
+      const cloudApi = fakeCloudApi()
+      const transformNote = vi.fn(async (note: { frontmatter: Record<string, unknown>; body: string }) => {
+        if (note.frontmatter.type === 'map') return new Promise<never>(() => {}) // never resolves
+        return note
+      })
+
+      const promise = importVaultIntoCloud(vaultApi, cloudApi, () => {}, transformNote)
+      await vi.advanceTimersByTimeAsync(120000)
+      const progress = await promise
+
+      expect(progress.errors).toEqual([{ name: 'Stuck', message: expect.stringContaining('Timed out') }])
+      expect(cloudApi.tree).toEqual([expect.objectContaining({ name: 'B' })])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('runs the per-note-type transform hook on both the create and update path', async () => {
     const tree: TreeEntry[] = [
       { path: '/vault/New.md', name: 'New.md', isDirectory: false },
@@ -610,6 +645,37 @@ describe('importCloudIntoVault', () => {
     expect(progress.errors).toEqual([{ name: 'A', message: 'boom' }])
     expect(vaultApi.notes[`${VAULT_ROOT}/B.md`]).toBeDefined()
     expect(vaultApi.notes[`${VAULT_ROOT}/A.md`]).toBeUndefined()
+  })
+
+  // See importVaultIntoCloud's own version of this test for the full
+  // regression context (real production incident: a hung note froze an
+  // entire copy at 214/248 for 18+ minutes).
+  it('a hung note times out and is recorded as an error, without blocking the notes after it', async () => {
+    vi.useFakeTimers()
+    try {
+      const cloudTree: CloudTreeNode[] = [
+        { id: 'note-stuck', name: 'Stuck', isDirectory: false, version: 1 },
+        { id: 'note-b', name: 'B', isDirectory: false, version: 1 }
+      ]
+      const cloudApi: MigrationCloudSourceApi = {
+        refreshTree: async () => cloudTree,
+        getNote: async (id): Promise<CloudNoteData> => {
+          if (id === 'note-stuck') return new Promise<CloudNoteData>(() => {}) // never resolves
+          return cloudNoteData('note-b', 'B', { type: 'npc' })
+        }
+      }
+      const vaultApi = fakeVaultDestApi()
+
+      const promise = importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {})
+      await vi.advanceTimersByTimeAsync(120000)
+      const progress = await promise
+
+      expect(progress.errors).toEqual([{ name: 'Stuck', message: expect.stringContaining('Timed out') }])
+      expect(vaultApi.notes[`${VAULT_ROOT}/B.md`]).toBeDefined()
+      expect(vaultApi.notes[`${VAULT_ROOT}/Stuck.md`]).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('skips a folder\'s whole subtree (rather than erroring per-descendant) when the folder itself fails to create', async () => {

@@ -139,6 +139,42 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+// Regression fix: a single hung note used to freeze the entire copy forever
+// — nothing here had a timeout, unlike editorStore.ts's/cloudEditorStore.ts's
+// own saveNow (SAVE_TIMEOUT_MS). The per-note-type transform hook is the
+// most likely culprit (a Map image download or Settlement bulk-data fetch
+// in migrationNoteTypeHooks.ts, both raw network calls with no bound of
+// their own), but this wraps the WHOLE per-note try body so any hang
+// anywhere in it — a stuck IPC call, a network request that never resolves
+// or errors — gets caught and turned into a normal per-item error instead
+// of stalling every note after it. Same "doesn't cancel the underlying
+// call, just stops waiting on it" tradeoff as editorStore.ts's withTimeout:
+// a late-arriving response may still land in the background; a rerun's
+// idempotent index check treats that as an already-existing note and
+// compares timestamps normally, same as any other completed item.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(`Timed out after ${Math.round(ms / 1000)}s processing "${label}" — it may be too large, or something else is stuck.`)
+          ),
+        ms
+      )
+    )
+  ])
+}
+
+// Generous on purpose — a single note can chain several network round trips
+// through the transform hook (fetch a signed URL, download the bytes, write
+// them back out) on top of the create/update calls themselves, and a large
+// Map image or Settlement bulk-data blob over a slow connection can
+// legitimately take a while. Long enough that only a genuine hang trips it,
+// not a merely slow transfer.
+const PER_NOTE_TIMEOUT_MS = 120000
+
 export async function importVaultIntoCloud(
   vaultApi: MigrationVaultApi,
   cloudApi: MigrationCloudApi,
@@ -206,7 +242,7 @@ export async function importVaultIntoCloud(
       progress.currentName = name
       const existing = index.get(indexKey(parentCloudId, name))
 
-      try {
+      const processNote = async (): Promise<void> => {
         if (!existing) {
           if (dryRun) {
             progress.toCreate += 1
@@ -241,6 +277,10 @@ export async function importVaultIntoCloud(
             })
           }
         }
+      }
+
+      try {
+        await withTimeout(processNote(), PER_NOTE_TIMEOUT_MS, name)
       } catch (err) {
         progress.errors.push({ name, message: errorMessage(err) })
       }
@@ -345,7 +385,7 @@ export async function importCloudIntoVault(
       progress.currentName = name
       const notePath = childPath(parentDir, `${name}.md`)
 
-      try {
+      const processNote = async (): Promise<void> => {
         const existingPath = index.has(notePath) ? notePath : null
         if (!existingPath) {
           if (dryRun) {
@@ -373,6 +413,10 @@ export async function importCloudIntoVault(
             })
           }
         }
+      }
+
+      try {
+        await withTimeout(processNote(), PER_NOTE_TIMEOUT_MS, name)
       } catch (err) {
         progress.errors.push({ name, message: errorMessage(err) })
       }
