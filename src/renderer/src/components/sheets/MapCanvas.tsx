@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { segmentDistance, type Point } from '../../../../common/mapGeometry'
 import { pinDisplayLabel, type LineType, type MapLandmass, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
 
-export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin' | 'set-equator'
+export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
 
 interface ViewBox {
   x: number
@@ -67,12 +67,12 @@ export interface MapCanvasProps {
   // between opposite edges and must NOT be connected by a line straight
   // across the map. Null when nothing's being shown.
   tripPath?: Point[][] | null
-  // Where latitude 0 currently is (see noteTypes/map.ts's equatorY) — drawn
-  // as a thin persistent reference line whenever set, regardless of mode, so
-  // it's easy to see (and re-set) without switching into 'set-equator' mode
-  // to remember where it landed. Null/undefined when not yet set.
+  // Where latitude 0 currently is, in 'latitude' scale mode — derived from
+  // topLatitude/bottomLatitude (see mapGeometry.ts's deriveEquatorY), not
+  // set by clicking on the canvas. Drawn as a thin persistent reference line
+  // whenever set, regardless of drawing mode. Null/undefined in 'manual'
+  // scale mode, where no latitude concept exists at all.
   equatorY?: number | null
-  onEquatorChosen: (y: number) => void
 }
 
 export function MapCanvas({
@@ -95,8 +95,7 @@ export function MapCanvas({
   onPinClick,
   highlightedPinIds,
   tripPath,
-  equatorY,
-  onEquatorChosen
+  equatorY
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -104,11 +103,6 @@ export function MapCanvas({
   const [lineDraft, setLineDraft] = useState<Point[]>([])
   const [landmassDraft, setLandmassDraft] = useState<Point[]>([])
   const [tripDraft, setTripDraft] = useState<Point[]>([])
-  // Live hover position while in 'set-equator' mode, so a preview line can
-  // track the cursor before the user commits with a click — cleared on
-  // every mode change (see the effect below) and whenever the cursor leaves
-  // the canvas, so a stale line can't linger after the pointer moves away.
-  const [equatorHoverY, setEquatorHoverY] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
   // The window-level mousemove/mouseup listeners below are only rebound
@@ -197,7 +191,6 @@ export function MapCanvas({
     setLineDraft([])
     setLandmassDraft([])
     setTripDraft([])
-    setEquatorHoverY(null)
   }, [mode])
 
   useEffect(() => {
@@ -265,19 +258,7 @@ export function MapCanvas({
       setTripDraft((pts) => [...pts, point])
     } else if (mode === 'place-pin') {
       onPinPlaced(point)
-    } else if (mode === 'set-equator') {
-      onEquatorChosen(point.y)
     }
-  }
-
-  // Only active in 'set-equator' mode — tracks the cursor so the preview
-  // line below can follow it before the user commits with a click. A plain
-  // React handler (not a window-level listener like panning uses) is enough
-  // since this doesn't need to keep firing once the pointer leaves the SVG.
-  const handleMouseMoveForEquator = (e: React.MouseEvent<SVGSVGElement>): void => {
-    if (mode !== 'set-equator') return
-    const point = clientToSvgPoint(e.clientX, e.clientY)
-    if (point) setEquatorHoverY(point.y)
   }
 
   const handleWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
@@ -348,8 +329,6 @@ export function MapCanvas({
       viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
       style={{ cursor: mode === 'view' ? 'grab' : 'crosshair' }}
       onWheel={handleWheel}
-      onMouseMove={handleMouseMoveForEquator}
-      onMouseLeave={() => setEquatorHoverY(null)}
       onMouseDown={handleMouseDown}
     >
       <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />
@@ -413,12 +392,13 @@ export function MapCanvas({
         <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
       )}
 
-      {/* The equator, once set — a persistent thin reference line spanning
-          the current view's full width (not just the image), since equatorY
-          can legitimately sit outside the image bounds for a map that
-          doesn't include the equator (a kingdom far to the north, say).
-          Shown regardless of mode so it's visible while drawing/painting
-          near it, not only while re-setting it. */}
+      {/* The equator, in 'latitude' scale mode — a thin reference line
+          spanning the current view's full width (not just the image), since
+          it's derived from topLatitude/bottomLatitude (see MapSheet) and can
+          legitimately fall outside the image bounds for a map that doesn't
+          depict the equator (a kingdom far to the north, say). Purely
+          informational now — position comes from the two latitude fields,
+          not from clicking on the canvas. */}
       {equatorY != null && (
         <g>
           <line
@@ -443,24 +423,6 @@ export function MapCanvas({
             Equator
           </text>
         </g>
-      )}
-
-      {/* Live preview while choosing where the equator goes — follows the
-          cursor across the full view width (see handleMouseMoveForEquator),
-          distinctly colored/dashed from the persistent line above so it
-          reads as "not committed yet". Panning/zooming out lets this reach
-          well outside the image itself, for a map that doesn't depict the
-          equator at all. */}
-      {mode === 'set-equator' && equatorHoverY !== null && (
-        <line
-          x1={viewBox.x}
-          x2={viewBox.x + viewBox.w}
-          y1={equatorHoverY}
-          y2={equatorHoverY}
-          stroke="#ff8800"
-          strokeWidth={equatorStrokeWidth}
-          strokeDasharray={`${equatorStrokeWidth * 2},${equatorStrokeWidth * 2}`}
-        />
       )}
 
       {tripPath && tripPath.length > 0 && (

@@ -39,20 +39,56 @@ export interface LatitudeDistortionConfig {
   planetCircumference: number
 }
 
-// Latitude (in radians, signed — negative south of the equator) at a given
-// image-pixel y, treating the map as an equirectangular projection (y is
-// linear in latitude, same assumption nearly every flat hand-drawn or
-// digital map already makes implicitly). Derived from the map's existing
+// Latitude (in radians, signed to match true geographic convention —
+// positive north of the equator, negative south) at a given image-pixel y,
+// treating the map as an equirectangular projection (y is linear in
+// latitude, same assumption nearly every flat hand-drawn or digital map
+// already makes implicitly, and image y increases downward = south, same as
+// "north is up" on virtually every map). Derived from the map's existing
 // vertical scale plus two extra settings: where the equator falls (equatorY,
 // which may sit outside the image entirely — a map of one kingdom far from
 // the equator still works) and the planet's real circumference (which fixes
 // how much real distance one degree of latitude covers, independent of how
 // much of the planet this particular map depicts).
 export function latitudeRadiansAt(y: number, scale: MapScale, config: LatitudeDistortionConfig): number {
-  const distanceFromEquator = pixelsToReal(y - config.equatorY, scale) // signed — negative north or south, consistently
+  const distanceFromEquator = pixelsToReal(config.equatorY - y, scale) // positive when y is above (north of) the equator row
   const distancePerDegree = config.planetCircumference / 360
   const degrees = distanceFromEquator / distancePerDegree
   return (degrees * Math.PI) / 180
+}
+
+// The image-pixel y where latitude crosses 0, linearly interpolated/
+// extrapolated from the latitude at the image's top (y=0) and bottom
+// (y=imageHeight) edges — may legitimately fall outside [0, imageHeight]
+// for a map that doesn't depict the equator at all (e.g. one kingdom far to
+// the north), same as the old manually-clicked equatorY could. Null for a
+// degenerate top===bottom span (a map with zero north-south extent has no
+// well-defined equator crossing).
+export function deriveEquatorY(topLatitude: number, bottomLatitude: number, imageHeight: number): number | null {
+  if (bottomLatitude === topLatitude) return null
+  return (-topLatitude / (bottomLatitude - topLatitude)) * imageHeight
+}
+
+// Derives a MapScale directly from how many degrees of latitude the image
+// spans top-to-bottom plus the planet's real circumference, instead of
+// requiring a manual two-point calibration click. This is what makes
+// 'latitude' scale mode self-consistent by construction: vertical
+// distance-per-pixel can never disagree with planetCircumference, because
+// it's computed FROM planetCircumference rather than independently
+// calibrated and hoped to agree — see the scaleMode comment in
+// noteTypes/map.ts for why that mattered. Works identically whether the
+// image depicts the whole planet (e.g. topLatitude=90, bottomLatitude=-90)
+// or a narrow regional band — same formula either way.
+export function deriveScaleFromLatitudeSpan(
+  topLatitude: number,
+  bottomLatitude: number,
+  planetCircumference: number,
+  imageHeight: number,
+  unit: string
+): MapScale {
+  const milesPerDegree = planetCircumference / 360
+  const realDistance = Math.abs(bottomLatitude - topLatitude) * milesPerDegree
+  return { pixelDistance: imageHeight, realDistance, unit }
 }
 
 // Real-world distance across one straight, undistorted sub-segment (start ->

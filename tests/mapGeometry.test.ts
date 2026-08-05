@@ -12,6 +12,8 @@ import {
   mergeTripResults,
   latitudeRadiansAt,
   distortedSegmentRealDistance,
+  deriveEquatorY,
+  deriveScaleFromLatitudeSpan,
   type WrapConfig,
   type LatitudeDistortionConfig
 } from '../src/common/mapGeometry'
@@ -534,10 +536,10 @@ describe('latitudeRadiansAt / distortedSegmentRealDistance', () => {
     expect(latitudeRadiansAt(500, scale, config)).toBe(0)
   })
 
-  it('is positive south of the equator and negative north of it, scaled by the vertical scale', () => {
+  it('is negative south of the equator (larger y) and positive north of it (smaller y), matching true geographic sign', () => {
     // 600px south of equatorY = 60mi = 1 degree.
-    expect(latitudeRadiansAt(1100, scale, config)).toBeCloseTo(Math.PI / 180, 12)
-    expect(latitudeRadiansAt(-100, scale, config)).toBeCloseTo(-Math.PI / 180, 12)
+    expect(latitudeRadiansAt(1100, scale, config)).toBeCloseTo(-Math.PI / 180, 12)
+    expect(latitudeRadiansAt(-100, scale, config)).toBeCloseTo(Math.PI / 180, 12)
   })
 
   it('leaves a purely north-south segment undistorted', () => {
@@ -587,5 +589,43 @@ describe('calculateTrip with latitudeDistortion', () => {
     const omitted = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking)
     const explicitNull = calculateTrip(path, [], [], terrainTypes, lineTypes, [], null, scale, walking, walking, null)
     expect(omitted).toEqual(explicitNull)
+  })
+})
+
+describe('deriveEquatorY', () => {
+  it('interpolates linearly between the top and bottom edge latitudes', () => {
+    // Top (y=0) is 60N, bottom (y=1000) is -40 (40S) — equator is 60% of the way down.
+    expect(deriveEquatorY(60, -40, 1000)).toBeCloseTo(600, 9)
+  })
+
+  it('extrapolates outside [0, imageHeight] when the image does not depict the equator', () => {
+    // Both edges north of the equator (10N at top, 40N at bottom) — the
+    // equator falls above the image (negative y), same as a manually-clicked
+    // equatorY could under the old system.
+    expect(deriveEquatorY(10, 40, 1000)).toBeLessThan(0)
+  })
+
+  it('is null for a degenerate zero-latitude-span image', () => {
+    expect(deriveEquatorY(20, 20, 1000)).toBeNull()
+  })
+})
+
+describe('deriveScaleFromLatitudeSpan', () => {
+  it('derives realDistance from the latitude span and circumference, independent of sign/order', () => {
+    // 21600mi circumference -> 60mi/degree; a 10-degree span over a 500px-tall image.
+    const scale = deriveScaleFromLatitudeSpan(60, 50, 21600, 500, 'miles')
+    expect(scale).toEqual({ pixelDistance: 500, realDistance: 600, unit: 'miles' })
+    // Same span, given top/bottom in the other order (south-to-north instead
+    // of north-to-south) — the derived scale shouldn't care which edge is "top".
+    expect(deriveScaleFromLatitudeSpan(50, 60, 21600, 500, 'miles')).toEqual(scale)
+  })
+
+  it('composes with deriveEquatorY and latitudeRadiansAt consistently for a whole-world map', () => {
+    // A full pole-to-pole map: 90 at top, -90 at bottom, 1000px tall.
+    const scale = deriveScaleFromLatitudeSpan(90, -90, 21600, 1000, 'miles')
+    const equatorY = deriveEquatorY(90, -90, 1000)
+    expect(equatorY).toBeCloseTo(500, 9) // dead center, as expected for a symmetric pole-to-pole span
+    expect(latitudeRadiansAt(0, scale, { equatorY: equatorY!, planetCircumference: 21600 })).toBeCloseTo(Math.PI / 2, 6) // top = 90N
+    expect(latitudeRadiansAt(1000, scale, { equatorY: equatorY!, planetCircumference: 21600 })).toBeCloseTo(-Math.PI / 2, 6) // bottom = 90S
   })
 })

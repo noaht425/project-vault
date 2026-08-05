@@ -117,25 +117,44 @@ export const mapFrontmatterSchema = z
     // wrapping world) are unaffected. See mapGeometry.ts's wrapLegs.
     wrapsHorizontally: z.boolean().catch(false),
     wrapsVertically: z.boolean().catch(false),
-    // Where latitude 0 falls, in the same image-pixel y coordinate as
-    // everything else on the map (see mapPinSchema etc.) — may legitimately
-    // sit outside [0, image.height] for a map that doesn't include the
-    // equator (e.g. a single kingdom far north of it). Null until set via
-    // "Set Equator" mode. Paired with planetCircumference below to derive a
-    // latitude for any y (see mapGeometry.ts's latitudeRadiansAt).
-    equatorY: z.number().nullable().catch(null),
-    // The planet's real circumference, in this map's own scale.unit — lets
-    // 1 degree of latitude be converted to a real distance
-    // (circumference / 360), independent of how much of the planet this
-    // particular map actually depicts. Null until set.
+    // 'manual' (default) is the original system, unchanged: scale.pixelDistance
+    // /realDistance comes entirely from clicking two points (Calibrate Scale)
+    // and no latitude concept exists at all — the simplest option for anyone
+    // who doesn't want to think about curvature. 'latitude' replaces BOTH
+    // Calibrate Scale and manually placing the equator with three plain
+    // numbers below (topLatitude/bottomLatitude/planetCircumference), which
+    // derive scale and the equator's position automatically — see
+    // mapGeometry.ts's deriveScaleFromLatitudeSpan/deriveEquatorY. Deriving
+    // rather than independently calibrating removes the failure mode where a
+    // horizontal scale calibration away from the equator silently
+    // contradicts the curvature math (see the "Set Equator" mode history in
+    // git log for the version this replaced).
+    scaleMode: z.enum(['manual', 'latitude']).catch('manual'),
+    // Latitude at the image's top edge (y=0) and bottom edge (y=image.height)
+    // — only used when scaleMode is 'latitude'. Works identically for a
+    // whole-world map (e.g. 90 / -90) or a map of just one region (e.g. 65 /
+    // 10) — same two numbers either way, no separate "is this a world map"
+    // toggle needed. Null until both are set.
+    topLatitude: z.number().nullable().catch(null),
+    bottomLatitude: z.number().nullable().catch(null),
+    // The planet's real circumference, in latitudeUnit below — lets 1 degree
+    // of latitude convert to a real distance (circumference / 360),
+    // independent of how much of the planet this particular map depicts.
+    // Null until set. Used by 'latitude' scale mode to derive scale itself,
+    // and by either mode (if set) to power the curvature toggle below.
     planetCircumference: z.number().nullable().catch(null),
+    // 'latitude' scale mode's own unit label — deliberately separate from
+    // scale.unit (which belongs to 'manual' mode's own click-calibrated
+    // scale) rather than shared, so switching scale modes can never leak a
+    // placeholder scale value from one mode into the other.
+    latitudeUnit: z.string().catch('miles'),
     // Approximates a flat (equirectangular) map's real east-west distance as
     // shrinking by cos(latitude) away from the equator, same reason
     // Greenland looks continent-sized on real-world flat maps — while
-    // north-south distance is left as-is. Only takes effect once equatorY
-    // and planetCircumference are both set; off by default so existing maps
-    // (and the simpler flat-scale math) are unaffected. See
-    // mapGeometry.ts's calculateTrip.
+    // north-south distance is left as-is. Only takes effect in 'latitude'
+    // scale mode (no latitude is known at all in 'manual' mode); off by
+    // default even there, so it's opt-in rather than a surprise once you
+    // switch modes. See mapGeometry.ts's calculateTrip.
     accountForLatitudeDistortion: z.boolean().catch(false)
   })
   .passthrough()

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { mapFrontmatterSchema } from '../../../../common/noteTypes/map'
 import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../../../../common/noteTypes/map'
-import { crossingTime, type Point } from '../../../../common/mapGeometry'
+import { crossingTime, deriveEquatorY, deriveScaleFromLatitudeSpan, type Point } from '../../../../common/mapGeometry'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 import { MapCanvas, type MapCanvasMode } from './MapCanvas'
@@ -279,6 +279,27 @@ export function MapSheet({
   const terrainNameById = new Map(data.terrainTypes.map((t) => [t.id, t.name]))
   const lineTypeNameById = new Map(data.lineTypes.map((t) => [t.id, t.name]))
 
+  // 'manual' mode uses data.scale (the clicked calibration) directly, same
+  // as always. 'latitude' mode derives its own scale fresh every render from
+  // topLatitude/bottomLatitude/planetCircumference instead — deliberately
+  // NOT written back into data.scale, so switching modes back and forth to
+  // compare never overwrites either mode's own settings (a manual
+  // calibration survives a detour through 'latitude' mode, and vice versa).
+  // Both null/None until all three latitude-mode inputs are filled in.
+  const derivedScale =
+    data.scaleMode === 'latitude' && data.topLatitude !== null && data.bottomLatitude !== null && data.planetCircumference && data.image
+      ? deriveScaleFromLatitudeSpan(data.topLatitude, data.bottomLatitude, data.planetCircumference, data.image.height, data.latitudeUnit)
+      : null
+  const derivedEquatorY =
+    data.scaleMode === 'latitude' && data.topLatitude !== null && data.bottomLatitude !== null
+      ? deriveEquatorY(data.topLatitude, data.bottomLatitude, data.image?.height ?? 0)
+      : null
+  // The scale actually used everywhere else (Trip Calculator, the
+  // line-drawing crossing-time preview, etc.) — threaded through explicitly
+  // rather than having every consumer read data.scale directly, since in
+  // 'latitude' mode the real scale is derived, not stored.
+  const effectiveScale = data.scaleMode === 'latitude' ? derivedScale : data.scale
+
   return (
     <div className="sheet-view">
       <div className="sheet-row">
@@ -301,9 +322,11 @@ export function MapSheet({
             <button className={mode === 'view' ? 'active' : ''} onClick={() => setMode('view')}>
               View
             </button>
-            <button className={mode === 'calibrate' ? 'active' : ''} onClick={() => setMode('calibrate')}>
-              Calibrate Scale
-            </button>
+            {data.scaleMode === 'manual' && (
+              <button className={mode === 'calibrate' ? 'active' : ''} onClick={() => setMode('calibrate')}>
+                Calibrate Scale
+              </button>
+            )}
             <button className={mode === 'paint-zone' ? 'active' : ''} onClick={() => setMode('paint-zone')}>
               Paint Terrain
             </button>
@@ -315,9 +338,6 @@ export function MapSheet({
             </button>
             <button className={mode === 'place-pin' ? 'active' : ''} onClick={() => setMode('place-pin')}>
               Place Pin
-            </button>
-            <button className={mode === 'set-equator' ? 'active' : ''} onClick={() => setMode('set-equator')}>
-              Set Equator
             </button>
           </div>
 
@@ -345,54 +365,92 @@ export function MapSheet({
             )}
           </div>
 
-          <div className="sheet-row" style={{ alignItems: 'center', marginBottom: 8 }}>
-            <label className="sheet-field sheet-field-narrow">
-              Planet circumference ({data.scale?.unit ?? 'miles'})
-              <input
-                type="number"
-                value={data.planetCircumference ?? ''}
-                onChange={(e) =>
-                  updateFrontmatter({ planetCircumference: e.target.value === '' ? null : Number(e.target.value) })
-                }
-                placeholder="e.g. 24901"
-              />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={data.accountForLatitudeDistortion}
-                disabled={data.equatorY === null || !data.planetCircumference}
-                onChange={(e) => updateFrontmatter({ accountForLatitudeDistortion: e.target.checked })}
-              />
-              Account for planet curvature
-            </label>
-            {data.equatorY !== null && (
-              <button className="sheet-open-ref-button" onClick={() => updateFrontmatter({ equatorY: null })}>
-                Clear equator
-              </button>
-            )}
+          {/* Two independent, switchable scale systems rather than one
+              system with optional extra fields — 'manual' is exactly the
+              original click-to-calibrate flow (no latitude concept at all,
+              for anyone who doesn't want the extra complexity), 'latitude'
+              replaces both Calibrate Scale and manually placing the equator
+              with three plain numbers that derive everything else. Switching
+              between them never destroys either mode's own settings, so
+              it's safe to toggle back and forth to compare. */}
+          <div className="editor-toolbar" style={{ marginBottom: 8 }}>
+            <button
+              className={data.scaleMode === 'manual' ? 'active' : ''}
+              onClick={() => {
+                updateFrontmatter({ scaleMode: 'manual' })
+                if (mode === 'calibrate') setMode('view')
+              }}
+            >
+              Simple scale
+            </button>
+            <button className={data.scaleMode === 'latitude' ? 'active' : ''} onClick={() => updateFrontmatter({ scaleMode: 'latitude' })}>
+              Realistic (latitude-based) scale
+            </button>
           </div>
-          {(data.equatorY === null || !data.planetCircumference) && (
-            <p className="right-panel-note">
-              Set both a planet circumference above and the equator's position ("Set Equator" button) to enable the curvature
-              option — it approximates how a flat map exaggerates east-west distance away from the equator (same reason
-              Greenland looks continent-sized on real-world flat maps). North-south distance and every terrain/road/river
-              you've already drawn are unaffected either way — this only changes how pixel distance converts to real
-              distance during trip calculation.
-            </p>
-          )}
-          <p className="right-panel-note">
-            For accurate results with curvature on, calibrate scale (Calibrate Scale mode) using two points stacked
-            vertically, not side-by-side — north-south distance-per-pixel is the same at every latitude on this kind of map,
-            but east-west distance-per-pixel isn't, so a horizontal calibration bakes in whatever latitude you happened to
-            click at and the curvature correction can't detect or undo that.
-          </p>
 
-          {mode === 'set-equator' && (
-            <p className="right-panel-note">
-              Hover to preview the equator line, then click to set it. If your map doesn't include the equator (e.g. a single
-              kingdom far to the north), zoom/pan out first — the line can be placed above or below the image itself.
-            </p>
+          {data.scaleMode === 'latitude' && (
+            <>
+              <div className="sheet-row" style={{ alignItems: 'center', marginBottom: 8 }}>
+                <label className="sheet-field sheet-field-narrow">
+                  Top edge latitude
+                  <input
+                    type="number"
+                    value={data.topLatitude ?? ''}
+                    onChange={(e) => updateFrontmatter({ topLatitude: e.target.value === '' ? null : Number(e.target.value) })}
+                    placeholder="e.g. 65"
+                  />
+                </label>
+                <label className="sheet-field sheet-field-narrow">
+                  Bottom edge latitude
+                  <input
+                    type="number"
+                    value={data.bottomLatitude ?? ''}
+                    onChange={(e) => updateFrontmatter({ bottomLatitude: e.target.value === '' ? null : Number(e.target.value) })}
+                    placeholder="e.g. 10"
+                  />
+                </label>
+                <label className="sheet-field sheet-field-narrow">
+                  Planet circumference ({data.latitudeUnit})
+                  <input
+                    type="number"
+                    value={data.planetCircumference ?? ''}
+                    onChange={(e) =>
+                      updateFrontmatter({ planetCircumference: e.target.value === '' ? null : Number(e.target.value) })
+                    }
+                    placeholder="e.g. 24901"
+                  />
+                </label>
+                <label className="sheet-field sheet-field-narrow">
+                  Unit
+                  <input
+                    value={data.latitudeUnit}
+                    onChange={(e) => updateFrontmatter({ latitudeUnit: e.target.value || 'miles' })}
+                    placeholder="miles"
+                  />
+                </label>
+              </div>
+              <div className="sheet-row" style={{ alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={data.accountForLatitudeDistortion}
+                    disabled={derivedEquatorY === null || !data.planetCircumference}
+                    onChange={(e) => updateFrontmatter({ accountForLatitudeDistortion: e.target.checked })}
+                  />
+                  Account for planet curvature
+                </label>
+              </div>
+              {(data.topLatitude === null || data.bottomLatitude === null || !data.planetCircumference) && (
+                <p className="right-panel-note">
+                  Set the latitude at this image's top and bottom edges, plus the planet's circumference, to derive scale and
+                  the equator's position automatically — works the same whether this image depicts the whole world (e.g. 90 /
+                  -90) or just one region (e.g. 65 / 10), no separate toggle needed. Once all three are set, the curvature
+                  option above becomes available: it approximates how a flat map exaggerates east-west distance away from the
+                  equator (same reason Greenland looks continent-sized on real-world flat maps). North-south distance and
+                  every terrain/road/river you've already drawn are unaffected either way.
+                </p>
+              )}
+            </>
           )}
 
           {mode === 'calibrate' && pendingPixelDistance === null && (
@@ -449,11 +507,7 @@ export function MapSheet({
               onPinClick={(pin) => pin.locationTitle && void noteRefApi.openByTitle(pin.locationTitle, 'location')}
               highlightedPinIds={highlightedPinIds}
               tripPath={tripOverlayPath}
-              equatorY={data.equatorY}
-              onEquatorChosen={(y) => {
-                updateFrontmatter({ equatorY: y })
-                setMode('view')
-              }}
+              equatorY={derivedEquatorY}
             />
           </div>
 
@@ -558,14 +612,14 @@ export function MapSheet({
                 </button>
               </div>
 
-              {data.scale && previewMultiplier !== undefined && travelModes.length > 0 && (
+              {effectiveScale && previewMultiplier !== undefined && travelModes.length > 0 && (
                 <div style={{ marginTop: 4 }}>
                   <span className="right-panel-note">Approx. time to cross this width, per travel mode:</span>
                   <table style={{ fontSize: 12, borderCollapse: 'collapse' }}>
                     <tbody>
                       {travelModes.map((mode) => {
-                        const time = crossingTime(lineWidthInput, data.scale!, previewMultiplier, mode)
-                        const normal = crossingTime(lineWidthInput, data.scale!, 1, mode)
+                        const time = crossingTime(lineWidthInput, effectiveScale, previewMultiplier, mode)
+                        const normal = crossingTime(lineWidthInput, effectiveScale, 1, mode)
                         const delta = time - normal
                         return (
                           <tr key={mode.id}>
@@ -583,7 +637,12 @@ export function MapSheet({
                   </table>
                 </div>
               )}
-              {!data.scale && <p className="right-panel-note">Calibrate this map's scale to preview crossing times.</p>}
+              {!effectiveScale && (
+                <p className="right-panel-note">
+                  {data.scaleMode === 'latitude' ? 'Fill in the latitude/circumference fields above' : "Calibrate this map's scale"}{' '}
+                  to preview crossing times.
+                </p>
+              )}
             </div>
           )}
 
@@ -794,11 +853,11 @@ export function MapSheet({
           lineTypes={data.lineTypes}
           landmasses={data.landmasses}
           waterTerrainTypeId={data.waterTerrainTypeId}
-          scale={data.scale}
+          scale={effectiveScale}
           image={data.image}
           wrapsHorizontally={data.wrapsHorizontally}
           wrapsVertically={data.wrapsVertically}
-          equatorY={data.equatorY}
+          equatorY={derivedEquatorY}
           planetCircumference={data.planetCircumference}
           accountForLatitudeDistortion={data.accountForLatitudeDistortion}
           drawnPath={drawnTripPath}
@@ -821,7 +880,7 @@ export function MapSheet({
           lineTypes={data.lineTypes}
           landmasses={data.landmasses}
           waterTerrainTypeId={data.waterTerrainTypeId}
-          scale={data.scale}
+          scale={effectiveScale}
           noteRefApi={noteRefApi}
           onHighlightChange={setHighlightedPinIds}
         />
