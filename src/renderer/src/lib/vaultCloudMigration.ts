@@ -268,7 +268,20 @@ export async function importVaultIntoCloud(
               progress.toUpdate += 1
             } else {
               const translated = await transformNote({ frontmatter, body })
-              await cloudApi.saveNote({ id: existing.id, version: dest.version, ...translated })
+              const result = await cloudApi.saveNote({ id: existing.id, version: dest.version, ...translated })
+              // A conflict here means the cloud note changed between the
+              // dest read above and this write — the transferred content
+              // never actually landed. Left silently unchecked, this used
+              // to be indistinguishable from a real success: progress.done
+              // still incremented, no error or warning recorded, even
+              // though the note's content is exactly as it was before this
+              // run. Surfacing it as a per-note error (via the existing
+              // try/catch around processNote(), same as any other failure
+              // mode) means a rerun will see it and retry instead of the
+              // gap going unnoticed.
+              if (result.status === 'conflict') {
+                throw new Error('The cloud copy changed while this update was in flight — nothing was overwritten. Safe to retry.')
+              }
             }
           } else {
             progress.warnings.push({
@@ -394,7 +407,25 @@ export async function importCloudIntoVault(
             const source = await cloudApi.getNote(cloudNote.id)
             const translated = await transformNote({ frontmatter: source.frontmatter, body: source.body })
             const created = await vaultApi.createNote(parentDir, name)
-            await vaultApi.saveNote({ path: created.path, content: stringifyNote(translated), baseVersion: created.version })
+            const result = await vaultApi.saveNote({ path: created.path, content: stringifyNote(translated), baseVersion: created.version })
+            // This is a two-step create-then-overwrite (createNote always
+            // seeds a blank {type:'note',tags:[]} stub — there's no API to
+            // create a note with arbitrary frontmatter directly), so there's
+            // a real gap between the two writes. A conflict here means
+            // something else wrote to this exact new path in that gap — left
+            // unchecked, the real cloud content silently never lands (it's
+            // diverted to a `-conflict-*.md` file instead) while this note
+            // still gets counted as a normal success. Surfacing it as an
+            // error (instead of deleting whatever's now at that path) is the
+            // safe choice: the conflicting write could just as easily be a
+            // real, concurrent local edit racing the same new path, and
+            // deleting that to "clean up" would destroy real content instead
+            // of an orphaned stub. If it genuinely was still the untouched
+            // blank stub, the user can delete it by hand to unblock a rerun
+            // — worse than automatic, but never destructive.
+            if (result.status === 'conflict') {
+              throw new Error('Another write landed on this note while it was being created — nothing was overwritten. Safe to retry.')
+            }
           }
         } else {
           const [source, dest] = await Promise.all([cloudApi.getNote(cloudNote.id), vaultApi.readNote(existingPath)])
@@ -404,7 +435,16 @@ export async function importCloudIntoVault(
               progress.toUpdate += 1
             } else {
               const translated = await transformNote({ frontmatter: source.frontmatter, body: source.body })
-              await vaultApi.saveNote({ path: existingPath, content: stringifyNote(translated), baseVersion: dest.version })
+              const result = await vaultApi.saveNote({ path: existingPath, content: stringifyNote(translated), baseVersion: dest.version })
+              // Same reasoning as the CREATE branch's own check above, minus
+              // the rollback — this path is an already-existing note, not an
+              // orphaned stub, so there's nothing to clean up. A conflict
+              // just means it changed between the dest read and this write;
+              // surfacing it as an error (instead of silent success) means a
+              // rerun will see it and retry with a fresh read.
+              if (result.status === 'conflict') {
+                throw new Error('The local copy changed while this update was in flight — nothing was overwritten. Safe to retry.')
+              }
             }
           } else {
             progress.warnings.push({
