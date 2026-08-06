@@ -9,11 +9,13 @@ import {
   parseNounParadigm,
   parseVerbParadigm,
   parsePronounParadigm,
+  parseVowelCombinationRules,
   declineNoun,
   conjugateVerb,
   type NounParadigm,
   type VerbParadigm,
-  type PronounParadigm
+  type PronounParadigm,
+  type VowelCombinationRules
 } from '../../../../common/noteTypes/languageParadigms'
 
 function findRuleContent(rules: GrammarRule[], name: string): string | null {
@@ -63,7 +65,15 @@ function resolveGenderKey(paradigm: NounParadigm, rawGender: string | null): str
 // property of whichever word you typed, already recorded on that word's own
 // dictionary entry. Forcing a separate gender selector would just be asking
 // the user to repeat information the note already has.
-function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: WordEntry[] }): React.JSX.Element {
+function NounCalculator({
+  paradigm,
+  nouns,
+  vowelRules
+}: {
+  paradigm: NounParadigm
+  nouns: WordEntry[]
+  vowelRules: VowelCombinationRules | null
+}): React.JSX.Element {
   const [word, setWord] = useState('')
   const matchedEntry = useMemo(() => nouns.find((n) => n.word === word.trim()), [nouns, word])
   const gender = resolveGenderKey(paradigm, matchedEntry?.gender ?? null)
@@ -77,7 +87,9 @@ function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: Wo
   const number = numbers.includes(numberChoice) ? numberChoice : numbers[0]
 
   const result =
-    word.trim() && gender && caseName && number ? declineNoun(paradigm, word.trim(), gender, caseName, number) : null
+    word.trim() && gender && caseName && number
+      ? declineNoun(paradigm, word.trim(), gender, caseName, number, vowelRules)
+      : null
 
   return (
     <div className="calc-block">
@@ -135,11 +147,13 @@ function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: Wo
 function VerbCalculator({
   activeParadigms,
   passiveParadigms,
-  verbs
+  verbs,
+  vowelRules
 }: {
   activeParadigms: Record<string, VerbParadigm>
   passiveParadigms: Record<string, VerbParadigm>
   verbs: string[]
+  vowelRules: VowelCombinationRules | null
 }): React.JSX.Element {
   const [word, setWord] = useState('')
 
@@ -172,7 +186,7 @@ function VerbCalculator({
 
   const result =
     word.trim() && paradigm && tense && person && number
-      ? conjugateVerb(rootParadigm, paradigm, word.trim(), tense, person, number)
+      ? conjugateVerb(rootParadigm, paradigm, word.trim(), tense, person, number, vowelRules)
       : null
 
   return (
@@ -279,6 +293,11 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
   const verbActiveParadigms = useMemo(() => collectVerbParadigmsByMood(rules, 'Verbs (Active'), [rules])
   const verbPassiveParadigms = useMemo(() => collectVerbParadigmsByMood(rules, 'Verbs (Passive'), [rules])
 
+  const vowelRules = useMemo(() => {
+    const content = findRuleContent(rules, 'Vowel Combinations')
+    return content ? parseVowelCombinationRules(content) : null
+  }, [rules])
+
   const pronounSubject = useMemo(() => {
     const content = findRuleContent(rules, 'Pronouns (Subject)')
     return content ? parsePronounParadigm(content) : null
@@ -305,13 +324,18 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
       {nounParadigm && (
         <div className="word-entry">
           <div className="word-entry-word">Noun Declension</div>
-          <NounCalculator paradigm={nounParadigm} nouns={nouns} />
+          <NounCalculator paradigm={nounParadigm} nouns={nouns} vowelRules={vowelRules} />
         </div>
       )}
       {hasVerbs && (
         <div className="word-entry">
           <div className="word-entry-word">Verb Conjugation</div>
-          <VerbCalculator activeParadigms={verbActiveParadigms} passiveParadigms={verbPassiveParadigms} verbs={verbs} />
+          <VerbCalculator
+            activeParadigms={verbActiveParadigms}
+            passiveParadigms={verbPassiveParadigms}
+            verbs={verbs}
+            vowelRules={vowelRules}
+          />
         </div>
       )}
       {(pronounSubject || pronounObject) && (

@@ -89,8 +89,82 @@ function stripAffix(word: string, affix: Affix): string | null {
   return word.startsWith(affix.text) ? word.slice(affix.text.length) : null
 }
 
-function attachAffix(stem: string, affix: Affix): string {
-  return affix.kind === 'suffix' ? stem + affix.text : affix.text + stem
+// "## Grammar: Vowel Combinations" describes what happens when an
+// attachment puts two vowels next to each other — e.g. "a + o = ω" — plus
+// contextual follow-up rules like "When followed by a consonant, y changes
+// to u". Both are plain prose lines, not tables, so they're parsed
+// separately from parseMarkdownTables.
+export interface VowelCombinationRules {
+  // left vowel -> right vowel -> combined result. Order matters — "a + o"
+  // and "o + a" are independent entries, not automatically symmetric.
+  pairs: Record<string, Record<string, string>>
+  // vowel -> replacement, applied only when that vowel is immediately
+  // followed by a consonant (anything not in the derived vowel set below).
+  beforeConsonant: Record<string, string>
+}
+
+const VOWEL_PAIR_LINE_RE = /^(\S+)\s*\+\s*(\S+)\s*=\s*(\S+)\s*$/gm
+const BEFORE_CONSONANT_RE = /When followed by a consonant,\s*(\S+)\s*changes to\s*(\S+)/gi
+
+export function parseVowelCombinationRules(grammarRuleContent: string): VowelCombinationRules | null {
+  const pairs: VowelCombinationRules['pairs'] = {}
+  for (const [, left, right, result] of grammarRuleContent.matchAll(VOWEL_PAIR_LINE_RE)) {
+    pairs[left] ??= {}
+    pairs[left][right] = result
+  }
+
+  const beforeConsonant: VowelCombinationRules['beforeConsonant'] = {}
+  for (const [, from, to] of grammarRuleContent.matchAll(BEFORE_CONSONANT_RE)) {
+    beforeConsonant[from] = to
+  }
+
+  if (Object.keys(pairs).length === 0 && Object.keys(beforeConsonant).length === 0) return null
+  return { pairs, beforeConsonant }
+}
+
+// "Vowel" here means "known to the rules," derived from the rules
+// themselves rather than a hardcoded a/e/i/o/u — a language isn't
+// restricted to those five symbols.
+function knownVowels(rules: VowelCombinationRules): Set<string> {
+  const vowels = new Set<string>()
+  for (const [left, rightMap] of Object.entries(rules.pairs)) {
+    vowels.add(left)
+    for (const right of Object.keys(rightMap)) vowels.add(right)
+  }
+  for (const vowel of Object.keys(rules.beforeConsonant)) vowels.add(vowel)
+  return vowels
+}
+
+// Only the single character on either side of the join is checked — these
+// rules describe what happens where two pieces meet, not a general
+// phonological rewrite of the whole word.
+function joinWithVowelCombination(left: string, right: string, rules: VowelCombinationRules | null): string {
+  if (!rules || left.length === 0 || right.length === 0) return left + right
+  const combined = rules.pairs[left[left.length - 1]]?.[right[0]]
+  if (combined === undefined) return left + right
+  return left.slice(0, -1) + combined + right.slice(1)
+}
+
+function applyBeforeConsonantRules(word: string, rules: VowelCombinationRules): string {
+  if (Object.keys(rules.beforeConsonant).length === 0) return word
+  const vowels = knownVowels(rules)
+  let result = ''
+  for (let i = 0; i < word.length; i++) {
+    const next = word[i + 1]
+    const replacement = rules.beforeConsonant[word[i]]
+    result += replacement !== undefined && next !== undefined && !vowels.has(next) ? replacement : word[i]
+  }
+  return result
+}
+
+function finalizeForm(form: string, vowelRules: VowelCombinationRules | null): string {
+  return vowelRules ? applyBeforeConsonantRules(form, vowelRules) : form
+}
+
+function attachAffix(stem: string, affix: Affix, vowelRules: VowelCombinationRules | null = null): string {
+  return affix.kind === 'suffix'
+    ? joinWithVowelCombination(stem, affix.text, vowelRules)
+    : joinWithVowelCombination(affix.text, stem, vowelRules)
 }
 
 function hasAffix(word: string, affix: Affix): boolean {
@@ -187,13 +261,17 @@ export interface DeclineResult {
  * The nominative-singular marker and the target case/number's marker are
  * each independently a prefix or suffix — a language can strip a suffixed
  * citation form and attach a prefixed ending, or any other combination.
+ * vowelRules, if given, is applied at the stem/ending join and as a final
+ * pass over the result (for contextual follow-up rules like "y before a
+ * consonant becomes u") — omit it to get the plain concatenation.
  */
 export function declineNoun(
   paradigm: NounParadigm,
   citationForm: string,
   gender: string,
   targetCase: string,
-  targetNumber: string
+  targetNumber: string,
+  vowelRules: VowelCombinationRules | null = null
 ): DeclineResult | null {
   const cases = paradigm.genders[gender]
   if (!cases) return null
@@ -203,20 +281,24 @@ export function declineNoun(
 
   const stem = stripAffix(citationForm, nominativeSingular)
   if (stem !== null) {
-    return { form: attachAffix(stem, targetEnding), irregular: false }
+    return { form: finalizeForm(attachAffix(stem, targetEnding, vowelRules), vowelRules), irregular: false }
   }
 
   if (hasAffix(citationForm, targetEnding)) {
     return { form: citationForm, irregular: true }
   }
-  return { form: attachAffix(citationForm, targetEnding), irregular: true }
+  return {
+    form: finalizeForm(attachAffix(citationForm, targetEnding, vowelRules), vowelRules),
+    irregular: true
+  }
 }
 
 /**
  * Always strips the ACTIVE infinitive marker to find the root, even when
  * conjugating the passive — dictionary entries are given in active
  * infinitive form (e.g. "Fasilis"), not "Fasilissa", so that's the only
- * marker that's actually present on the word being looked up.
+ * marker that's actually present on the word being looked up. vowelRules
+ * behaves the same as in declineNoun.
  */
 export function conjugateVerb(
   activeParadigm: VerbParadigm,
@@ -224,11 +306,12 @@ export function conjugateVerb(
   citationForm: string,
   tense: string,
   person: string,
-  number: string
+  number: string,
+  vowelRules: VowelCombinationRules | null = null
 ): string | null {
   const root = stripAffix(citationForm, activeParadigm.infinitive)
   if (root === null) return null
   const ending = targetParadigm.tenses[tense]?.[person]?.[number]
   if (ending === undefined) return null
-  return attachAffix(root, ending)
+  return finalizeForm(attachAffix(root, ending, vowelRules), vowelRules)
 }

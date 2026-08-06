@@ -4,6 +4,7 @@ import {
   parseNounParadigm,
   parseVerbParadigm,
   parsePronounParadigm,
+  parseVowelCombinationRules,
   declineNoun,
   conjugateVerb
 } from '../src/common/noteTypes/languageParadigms'
@@ -94,6 +95,43 @@ Testgender:
 | Accusative | er- |
 `
 
+// Verbatim from the real Draconic.md "Vowel Combinations" section.
+const VOWEL_COMBINATIONS_CONTENT = `
+If certain combinations of vowels would be put next to each other due to the addition of a prefix, suffix, stem, etc. the following transformations are applied
+
+a + a = äa
+
+a + o = ω
+
+e + e = e
+
+e + o = u
+
+e + u = ü
+
+i + i = y
+
+o + o = oö
+
+u + a = ü
+
+u + u = u
+
+When followed by a consonant, y changes to u
+`
+
+// Synthetic paradigm sized just to exercise a real vowel-combination rule:
+// stripping "-a" from a citation form leaves a stem ending in "i", and the
+// accusative ending starts with "i" too, so "i + i = y" (a real rule)
+// should fire at the join, followed by the real "y before a consonant" rule.
+const VOWEL_TRIGGER_NOUNS_CONTENT = `
+Testgender:
+| Case | Singular |
+| --- | --- |
+| Nominative | -a |
+| Accusative | -is |
+`
+
 // Synthetic — the infinitive marker itself written as a prefix ("to-").
 const PREFIX_INFINITIVE_VERB_CONTENT = `
 Infinitive: to-
@@ -157,6 +195,62 @@ describe('parsePronounParadigm', () => {
   it('reads person -> number -> pronoun from a bare table with no label', () => {
     const paradigm = parsePronounParadigm(PRONOUNS_SUBJECT_CONTENT)
     expect(paradigm?.persons['3rd']['Singular']).toBe('Ash')
+  })
+})
+
+describe('parseVowelCombinationRules', () => {
+  it('parses the real "X + Y = Z" lines from the Vowel Combinations section', () => {
+    const rules = parseVowelCombinationRules(VOWEL_COMBINATIONS_CONTENT)
+    expect(rules?.pairs['a']['o']).toBe('ω')
+    expect(rules?.pairs['i']['i']).toBe('y')
+  })
+
+  it('does not assume symmetry — "o + a" is not defined even though "a + o" is', () => {
+    const rules = parseVowelCombinationRules(VOWEL_COMBINATIONS_CONTENT)
+    expect(rules?.pairs['o']?.['a']).toBeUndefined()
+  })
+
+  it('parses the "before a consonant" follow-up rule', () => {
+    const rules = parseVowelCombinationRules(VOWEL_COMBINATIONS_CONTENT)
+    expect(rules?.beforeConsonant['y']).toBe('u')
+  })
+})
+
+describe('vowel combination applied during declension', () => {
+  const nounParadigm = parseNounParadigm(VOWEL_TRIGGER_NOUNS_CONTENT)!
+  const vowelRules = parseVowelCombinationRules(VOWEL_COMBINATIONS_CONTENT)!
+
+  it('combines vowels at the stem/ending join, then applies the before-consonant follow-up', () => {
+    // "Testia" strips "-a" to stem "Testi"; the accusative ending "-is"
+    // starts with "i", so "i + i = y" fires at the join giving "Testys" —
+    // then "y before s (a consonant)" becomes "u", giving "Testus".
+    expect(declineNoun(nounParadigm, 'Testia', 'Testgender', 'Accusative', 'Singular', vowelRules)).toEqual({
+      form: 'Testus',
+      irregular: false
+    })
+  })
+
+  it('does not combine when vowelRules is omitted, even for the same input', () => {
+    expect(declineNoun(nounParadigm, 'Testia', 'Testgender', 'Accusative', 'Singular')).toEqual({
+      form: 'Testiis',
+      irregular: false
+    })
+  })
+
+  it('leaves non-colliding endings alone', () => {
+    // No rule exists for "o + a" (only "a + o" is defined) — stem ends in
+    // "o", ending starts with "a", stays a plain join
+    const paradigm = parseNounParadigm(`
+Testgender:
+| Case | Singular |
+| --- | --- |
+| Nominative | -tos |
+| Accusative | -as |
+`)!
+    expect(declineNoun(paradigm, 'Testotos', 'Testgender', 'Accusative', 'Singular', vowelRules)).toEqual({
+      form: 'Testoas',
+      irregular: false
+    })
   })
 })
 
