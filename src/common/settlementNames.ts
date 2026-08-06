@@ -94,7 +94,9 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       // East Asian
       normal('Haruto'), normal('Wei'), normal('Min-jun'),
       // Southeast Asian / Pacific
-      normal('Minh'), normal('Koa'), normal('Tavita')
+      normal('Minh'), normal('Koa'), normal('Tavita'),
+      // Contributed
+      normal('Noah'), normal('Ben')
     ],
     firstNamesFemale: [
       // English
@@ -122,7 +124,9 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       // East Asian
       normal('Yuki'), normal('Mei'), normal('Seo-yeon'),
       // Southeast Asian / Pacific
-      normal('Linh'), normal('Leilani'), normal('Malia')
+      normal('Linh'), normal('Leilani'), normal('Malia'),
+      // Contributed
+      normal('Annalee'), normal('Isabelle'), normal('Loretta'), normal('Alyssa'), normal('Violet')
     ],
     firstNamesNeutral: [
       normal('Avery'), // English
@@ -136,7 +140,14 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Ade'), // West African
       normal('Amani'), // East African (Swahili)
       normal('Kiran'), // South Asian
-      normal('Ren') // East Asian
+      normal('Ren'), // East Asian
+      normal('Khai'), // Contributed
+      normal('Sydney'), // Contributed
+      normal('Xiaowei'), // Contributed
+      normal('Sam'), // Contributed
+      normal('Alder'), // Contributed
+      normal('Charlie'), // Contributed
+      normal('Robin') // Contributed
     ],
     lastNames: [
       // English
