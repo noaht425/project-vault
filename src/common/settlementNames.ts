@@ -783,7 +783,56 @@ export const NOTABLE_TRAITS: string[] = [
   'Always looks angry',
   'Very entitled, comes from a rich family',
   'Hates magic',
-  'Loves magic'
+  'Loves magic',
+  'Dances around when moving',
+  'Cannot dance but thinks they can',
+  'Always has their nose in a book',
+  'Head in the clouds',
+  'Goes on lots of tangents',
+  'Cross-eyed',
+  'Nose twitches',
+  "Can't smell",
+  'Tone deaf',
+  'Conspiracy theorist',
+  'Always talks about "the good old days"',
+  'Grumpy',
+  'Has very nice teeth',
+  'Has very bad teeth',
+  'Has a flower/flowers in their hair',
+  'Talks about how they only have {days} days left to live',
+  'Hates new technology/magic',
+  'Believes they are the descendant of a god',
+  'Sings to animals',
+  'Sings to plants',
+  'Constantly refers to "the spiders"',
+  'Believes they need to be the one to fix everything',
+  'Protective of children',
+  'Protective of the elderly',
+  'Runs away from their problems',
+  'Kleptomaniac',
+  'Pyromaniac',
+  'Is always trying to help everyone',
+  'Only thinks about themselves',
+  'Narcissistic',
+  'Vegan',
+  'Easily bribed',
+  'Easily bribed with candy',
+  'Easily bribed with drugs',
+  'Knows a lot about plants',
+  'Knows a lot about anatomy',
+  'Knows a lot about birds',
+  'Talks about their special interest at every opportunity',
+  'Winks a lot',
+  "Doesn't understand sarcasm",
+  'Needs everything to be in order',
+  'Never smiles',
+  'Dyslexic',
+  'Has a fear of birds',
+  'Has a fear of heights',
+  'Has claustrophobia',
+  'Has a fear of spiders',
+  'Scared of the dark',
+  'Is terrified of failing'
 ]
 
 export const NOTABLE_GOALS: string[] = [
@@ -847,11 +896,44 @@ export const NOTABLE_GOALS: string[] = [
   'wants to help a family member or friend find love',
   'wants to help strangers',
   'wants to make the world a better place',
-  'wants to make the world a worse place'
+  'wants to make the world a worse place',
+  'is a storm-chaser',
+  'is looking for a rare plant',
+  'is looking for a rare animal',
+  'wants to meet someone famous',
+  'wants to travel more',
+  'wants to be a pirate',
+  'wants to be a chef',
+  'wants to be a professor',
+  'wants to be a hero',
+  'wants to save the world',
+  'wants to discover secrets about the past',
+  'wants to discover secrets about the universe',
+  'wants more justice in the world',
+  'wants anarchy',
+  'wants world peace',
+  'wants to settle down',
+  'wants to be a baker',
+  'wants to be a florist',
+  'wants to own a bookshop',
+  'wants to be a toy maker',
+  'wants to get revenge on their childhood bully',
+  'wants to drop everything and move somewhere else',
+  'wants to be a healer'
 ]
 
 export function generatePersonalityLine(rng: () => number = Math.random): string {
-  return NOTABLE_TRAITS[Math.floor(rng() * NOTABLE_TRAITS.length)]
+  const line = NOTABLE_TRAITS[Math.floor(rng() * NOTABLE_TRAITS.length)]
+  // One trait is templated rather than static text — "only has N days left
+  // to live" — because the user wants a fresh random 1-12 every time it's
+  // picked, not the same number for every NPC who gets this trait. Drawn
+  // from the same seeded rng as the trait pick itself so settlement
+  // generation stays fully reproducible from its seed.
+  if (line.includes('{days}')) {
+    const days = Math.floor(rng() * 12) + 1
+    return line.replace('{days}', String(days))
+  }
+  return line
 }
 
 export function generateGoal(rng: () => number = Math.random): string {
