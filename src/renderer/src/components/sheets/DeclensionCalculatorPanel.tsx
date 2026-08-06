@@ -20,12 +20,33 @@ function findRuleContent(rules: GrammarRule[], name: string): string | null {
   return rules.find((r) => r.name.toLowerCase() === name.toLowerCase())?.content ?? null
 }
 
-// "Verbs (Active)" started out as an exact name but became "Verbs (Active,
-// Indicative)" once a mood qualifier was added — match by prefix so adding
-// another mood variant (Subjunctive, etc.) later doesn't silently break
-// this lookup again the same way.
-function findRuleContentByPrefix(rules: GrammarRule[], prefix: string): string | null {
-  return rules.find((r) => r.name.toLowerCase().startsWith(prefix.toLowerCase()))?.content ?? null
+// Pulls the bit in parentheses after the prefix as a mood label — "Verbs
+// (Active, Indicative)" with prefix "Verbs (Active" gives "Indicative". A
+// rule with no qualifier at all ("Verbs (Active)") has nothing to pull out,
+// so it's labeled "Default" instead of an empty string.
+function extractMoodLabel(ruleName: string, prefix: string): string {
+  const rest = ruleName
+    .slice(prefix.length)
+    .replace(/^,\s*/, '')
+    .replace(/\)\s*$/, '')
+    .trim()
+  return rest || 'Default'
+}
+
+// "Verbs (Active)" started out as the one and only active-voice rule, then
+// became "Verbs (Active, Indicative)" once a mood qualifier was added, and
+// may eventually sit alongside a separate "Verbs (Active, Subjunctive)" —
+// collect every rule matching the prefix (not just the first) so each mood
+// stays independently selectable instead of the newest one silently hiding
+// the others.
+function collectVerbParadigmsByMood(rules: GrammarRule[], prefix: string): Record<string, VerbParadigm> {
+  const result: Record<string, VerbParadigm> = {}
+  for (const rule of rules) {
+    if (!rule.name.toLowerCase().startsWith(prefix.toLowerCase())) continue
+    const paradigm = parseVerbParadigm(rule.content)
+    if (paradigm) result[extractMoodLabel(rule.name, prefix)] = paradigm
+  }
+  return result
 }
 
 // A dictionary entry's Gender line is freeform ("Neuter", "Neuter (irregular
@@ -104,7 +125,7 @@ function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: Wo
       {result && (
         <div className="calc-result">
           {result.form}
-          {result.irregular && <span className="calc-note"> (irregular — ending appended directly)</span>}
+          {result.irregular && <span className="calc-note"> (irregular — ending attached directly)</span>}
         </div>
       )}
     </div>
@@ -112,34 +133,46 @@ function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: Wo
 }
 
 function VerbCalculator({
-  active,
-  passive,
+  activeParadigms,
+  passiveParadigms,
   verbs
 }: {
-  active: VerbParadigm
-  passive: VerbParadigm | null
+  activeParadigms: Record<string, VerbParadigm>
+  passiveParadigms: Record<string, VerbParadigm>
   verbs: string[]
 }): React.JSX.Element {
   const [word, setWord] = useState('')
-  const [voiceChoice, setVoiceChoice] = useState('Active')
-  const voice = voiceChoice === 'Passive' && passive ? 'Passive' : 'Active'
-  const paradigm = voice === 'Passive' && passive ? passive : active
 
-  const tenses = Object.keys(paradigm.tenses)
+  const hasPassive = Object.keys(passiveParadigms).length > 0
+  const [voiceChoice, setVoiceChoice] = useState('Active')
+  const voice = voiceChoice === 'Passive' && hasPassive ? 'Passive' : 'Active'
+  const moodParadigms = voice === 'Passive' ? passiveParadigms : activeParadigms
+  const moods = Object.keys(moodParadigms)
+
+  const [moodChoice, setMoodChoice] = useState('')
+  const mood = moods.includes(moodChoice) ? moodChoice : moods[0]
+  const paradigm = moodParadigms[mood]
+
+  // The root is always found via an active-voice infinitive marker — a
+  // language's infinitive shouldn't vary by mood, so any active paradigm
+  // works for this regardless of which mood is currently selected.
+  const rootParadigm = Object.values(activeParadigms)[0]
+
+  const tenses = paradigm ? Object.keys(paradigm.tenses) : []
   const [tenseChoice, setTenseChoice] = useState('')
   const tense = tenses.includes(tenseChoice) ? tenseChoice : tenses[0]
 
-  const persons = Object.keys(paradigm.tenses[tense] ?? {})
+  const persons = paradigm ? Object.keys(paradigm.tenses[tense] ?? {}) : []
   const [personChoice, setPersonChoice] = useState('')
   const person = persons.includes(personChoice) ? personChoice : persons[0]
 
-  const numbers = Object.keys(paradigm.tenses[tense]?.[person] ?? {})
+  const numbers = paradigm ? Object.keys(paradigm.tenses[tense]?.[person] ?? {}) : []
   const [numberChoice, setNumberChoice] = useState('')
   const number = numbers.includes(numberChoice) ? numberChoice : numbers[0]
 
   const result =
-    word.trim() && tense && person && number
-      ? conjugateVerb(active, paradigm, word.trim(), tense, person, number)
+    word.trim() && paradigm && tense && person && number
+      ? conjugateVerb(rootParadigm, paradigm, word.trim(), tense, person, number)
       : null
 
   return (
@@ -157,10 +190,19 @@ function VerbCalculator({
             <option key={v} value={v} />
           ))}
         </datalist>
-        {passive && (
+        {hasPassive && (
           <select value={voice} onChange={(e) => setVoiceChoice(e.target.value)}>
             <option value="Active">Active</option>
             <option value="Passive">Passive</option>
+          </select>
+        )}
+        {moods.length > 1 && (
+          <select value={mood} onChange={(e) => setMoodChoice(e.target.value)}>
+            {moods.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
         )}
         <select value={tense} onChange={(e) => setTenseChoice(e.target.value)}>
@@ -234,15 +276,8 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
     return content ? parseNounParadigm(content) : null
   }, [rules])
 
-  const verbActiveParadigm = useMemo(() => {
-    const content = findRuleContentByPrefix(rules, 'Verbs (Active')
-    return content ? parseVerbParadigm(content) : null
-  }, [rules])
-
-  const verbPassiveParadigm = useMemo(() => {
-    const content = findRuleContentByPrefix(rules, 'Verbs (Passive')
-    return content ? parseVerbParadigm(content) : null
-  }, [rules])
+  const verbActiveParadigms = useMemo(() => collectVerbParadigmsByMood(rules, 'Verbs (Active'), [rules])
+  const verbPassiveParadigms = useMemo(() => collectVerbParadigmsByMood(rules, 'Verbs (Passive'), [rules])
 
   const pronounSubject = useMemo(() => {
     const content = findRuleContent(rules, 'Pronouns (Subject)')
@@ -260,7 +295,9 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
     [entries]
   )
 
-  if (!nounParadigm && !verbActiveParadigm && !pronounSubject && !pronounObject) return null
+  const hasVerbs = Object.keys(verbActiveParadigms).length > 0
+
+  if (!nounParadigm && !hasVerbs && !pronounSubject && !pronounObject) return null
 
   return (
     <div className="word-dictionary">
@@ -271,10 +308,10 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
           <NounCalculator paradigm={nounParadigm} nouns={nouns} />
         </div>
       )}
-      {verbActiveParadigm && (
+      {hasVerbs && (
         <div className="word-entry">
           <div className="word-entry-word">Verb Conjugation</div>
-          <VerbCalculator active={verbActiveParadigm} passive={verbPassiveParadigm} verbs={verbs} />
+          <VerbCalculator activeParadigms={verbActiveParadigms} passiveParadigms={verbPassiveParadigms} verbs={verbs} />
         </div>
       )}
       {(pronounSubject || pronounObject) && (

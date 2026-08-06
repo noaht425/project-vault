@@ -65,19 +65,56 @@ export function parseMarkdownTables(content: string): ParsedTable[] {
   return tables
 }
 
-// Endings are written "-is", "-um", etc. in the markdown — the leading
-// hyphen is a notational "this is a suffix" marker, not a literal
-// character that belongs in the concatenated word.
-function stripLeadingHyphen(value: string): string {
-  return value.replace(/^-/, '')
+// A hyphen's position, not its mere presence, says which end of the word an
+// ending attaches to: "-re" (hyphen first) attaches at the end — a suffix.
+// "re-" (hyphen last) attaches at the start — a prefix. A value with a
+// hyphen on both ends, or neither, has no clear direction and falls back to
+// a suffix, matching every ending written before this convention existed.
+export interface Affix {
+  kind: 'prefix' | 'suffix'
+  text: string
 }
 
-function tableToNestedRecord(table: ParsedTable): Record<string, Record<string, string>> {
+function parseAffix(raw: string): Affix {
+  const leading = raw.startsWith('-')
+  const trailing = raw.length > 1 && raw.endsWith('-')
+  if (trailing && !leading) return { kind: 'prefix', text: raw.slice(0, -1) }
+  return { kind: 'suffix', text: leading ? raw.slice(1) : raw }
+}
+
+function stripAffix(word: string, affix: Affix): string | null {
+  if (affix.kind === 'suffix') {
+    return word.endsWith(affix.text) ? word.slice(0, word.length - affix.text.length) : null
+  }
+  return word.startsWith(affix.text) ? word.slice(affix.text.length) : null
+}
+
+function attachAffix(stem: string, affix: Affix): string {
+  return affix.kind === 'suffix' ? stem + affix.text : affix.text + stem
+}
+
+function hasAffix(word: string, affix: Affix): boolean {
+  return affix.kind === 'suffix' ? word.endsWith(affix.text) : word.startsWith(affix.text)
+}
+
+function tableToNestedRecord(table: ParsedTable): Record<string, Record<string, Affix>> {
+  const result: Record<string, Record<string, Affix>> = {}
+  for (const [rowKey, values] of Object.entries(table.rows)) {
+    const byColumn: Record<string, Affix> = {}
+    table.columns.forEach((column, idx) => {
+      if (values[idx] !== undefined) byColumn[column] = parseAffix(values[idx])
+    })
+    result[rowKey] = byColumn
+  }
+  return result
+}
+
+function tableToPlainNestedRecord(table: ParsedTable): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {}
   for (const [rowKey, values] of Object.entries(table.rows)) {
     const byColumn: Record<string, string> = {}
     table.columns.forEach((column, idx) => {
-      if (values[idx] !== undefined) byColumn[column] = stripLeadingHyphen(values[idx])
+      if (values[idx] !== undefined) byColumn[column] = values[idx]
     })
     result[rowKey] = byColumn
   }
@@ -86,7 +123,7 @@ function tableToNestedRecord(table: ParsedTable): Record<string, Record<string, 
 
 export interface NounParadigm {
   // gender label (as given, e.g. "Masculine") -> case -> number -> ending
-  genders: Record<string, Record<string, Record<string, string>>>
+  genders: Record<string, Record<string, Record<string, Affix>>>
 }
 
 export function parseNounParadigm(grammarRuleContent: string): NounParadigm | null {
@@ -99,9 +136,9 @@ export function parseNounParadigm(grammarRuleContent: string): NounParadigm | nu
 }
 
 export interface VerbParadigm {
-  infinitive: string
+  infinitive: Affix
   // tense label (e.g. "Present") -> person -> number -> ending
-  tenses: Record<string, Record<string, Record<string, string>>>
+  tenses: Record<string, Record<string, Record<string, Affix>>>
 }
 
 const INFINITIVE_LINE_RE = /^Infinitive:\s*(\S+)/im
@@ -116,27 +153,28 @@ export function parseVerbParadigm(grammarRuleContent: string): VerbParadigm | nu
     tenses[table.label.replace(/\s*Tense$/i, '')] = tableToNestedRecord(table)
   }
   if (Object.keys(tenses).length === 0) return null
-  return { infinitive: stripLeadingHyphen(infMatch[1].trim()), tenses }
+  return { infinitive: parseAffix(infMatch[1].trim()), tenses }
 }
 
 export interface PronounParadigm {
-  // person -> number -> pronoun
+  // person -> number -> pronoun (plain text, not an Affix — a pronoun is a
+  // whole word, not something attached to one)
   persons: Record<string, Record<string, string>>
 }
 
 export function parsePronounParadigm(grammarRuleContent: string): PronounParadigm | null {
   const [table] = parseMarkdownTables(grammarRuleContent)
   if (!table) return null
-  return { persons: tableToNestedRecord(table) }
+  return { persons: tableToPlainNestedRecord(table) }
 }
 
 export interface DeclineResult {
   form: string
-  // True when the citation form didn't end in the expected nominative
-  // singular suffix for its gender — per "Grammar: Irregular Nouns," the
-  // target ending is appended straight onto the given form instead of
-  // replacing a stripped suffix, unless the form already ends with the
-  // target ending (in which case nothing changes).
+  // True when the citation form didn't carry the expected nominative
+  // singular marker for its gender — per "Grammar: Irregular Nouns," the
+  // target ending is attached straight onto the given form instead of
+  // replacing a stripped one, unless the form already carries the target
+  // ending (in which case nothing changes).
   irregular: boolean
 }
 
@@ -145,7 +183,10 @@ export interface DeclineResult {
  * irregular noun's entry is expected to already say "Neuter" per the
  * language's own irregular-noun rule) — this function detects irregularity
  * by checking whether the citation form actually carries that gender's
- * regular nominative-singular ending, it doesn't re-derive gender itself.
+ * regular nominative-singular marker, it doesn't re-derive gender itself.
+ * The nominative-singular marker and the target case/number's marker are
+ * each independently a prefix or suffix — a language can strip a suffixed
+ * citation form and attach a prefixed ending, or any other combination.
  */
 export function declineNoun(
   paradigm: NounParadigm,
@@ -160,15 +201,15 @@ export function declineNoun(
   const targetEnding = cases[targetCase]?.[targetNumber]
   if (!nominativeSingular || targetEnding === undefined) return null
 
-  if (citationForm.endsWith(nominativeSingular)) {
-    const stem = citationForm.slice(0, -nominativeSingular.length)
-    return { form: stem + targetEnding, irregular: false }
+  const stem = stripAffix(citationForm, nominativeSingular)
+  if (stem !== null) {
+    return { form: attachAffix(stem, targetEnding), irregular: false }
   }
 
-  if (citationForm.endsWith(targetEnding)) {
+  if (hasAffix(citationForm, targetEnding)) {
     return { form: citationForm, irregular: true }
   }
-  return { form: citationForm + targetEnding, irregular: true }
+  return { form: attachAffix(citationForm, targetEnding), irregular: true }
 }
 
 /**
@@ -185,9 +226,9 @@ export function conjugateVerb(
   person: string,
   number: string
 ): string | null {
-  if (!citationForm.endsWith(activeParadigm.infinitive)) return null
-  const root = citationForm.slice(0, -activeParadigm.infinitive.length)
+  const root = stripAffix(citationForm, activeParadigm.infinitive)
+  if (root === null) return null
   const ending = targetParadigm.tenses[tense]?.[person]?.[number]
   if (ending === undefined) return null
-  return root + ending
+  return attachAffix(root, ending)
 }

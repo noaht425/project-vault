@@ -82,6 +82,28 @@ Past Tense:
 | 3rd | -ense | -enise | -esani |
 `
 
+// Synthetic — Draconic itself doesn't have prefix-attaching endings yet,
+// this is exercising the mechanism ahead of a real language using it.
+// Nominative stays a suffix ("-os"); Accusative is written with the hyphen
+// trailing ("er-"), meaning it attaches at the front of the word instead.
+const MIXED_DIRECTION_NOUNS_CONTENT = `
+Testgender:
+| Case | Singular |
+| --- | --- |
+| Nominative | -os |
+| Accusative | er- |
+`
+
+// Synthetic — the infinitive marker itself written as a prefix ("to-").
+const PREFIX_INFINITIVE_VERB_CONTENT = `
+Infinitive: to-
+
+Present Tense:
+| Person | Singular |
+| --- | --- |
+| 1st | -a |
+`
+
 const PRONOUNS_SUBJECT_CONTENT = `
 | Person | Singular | Plural | Communal |
 | --- | --- | --- | --- |
@@ -110,18 +132,18 @@ describe('parseMarkdownTables', () => {
 })
 
 describe('parseNounParadigm', () => {
-  it('builds gender -> case -> number -> ending from the real Nouns table, with the notational leading hyphen stripped', () => {
+  it('builds gender -> case -> number -> ending from the real Nouns table, as suffix affixes', () => {
     const paradigm = parseNounParadigm(NOUNS_CONTENT)
-    expect(paradigm?.genders['Neuter']['Accusative']['Singular']).toBe('is')
-    expect(paradigm?.genders['Feminine']['Dative']['Singular']).toBe('um')
+    expect(paradigm?.genders['Neuter']['Accusative']['Singular']).toEqual({ kind: 'suffix', text: 'is' })
+    expect(paradigm?.genders['Feminine']['Dative']['Singular']).toEqual({ kind: 'suffix', text: 'um' })
   })
 })
 
 describe('parseVerbParadigm', () => {
-  it('reads the infinitive marker and tense tables from the real Verbs (Active) content, hyphen stripped', () => {
+  it('reads the infinitive marker and tense tables from the real Verbs (Active) content, as suffix affixes', () => {
     const paradigm = parseVerbParadigm(VERBS_ACTIVE_CONTENT)
-    expect(paradigm?.infinitive).toBe('is')
-    expect(paradigm?.tenses['Past']['3rd']['Singular']).toBe('en')
+    expect(paradigm?.infinitive).toEqual({ kind: 'suffix', text: 'is' })
+    expect(paradigm?.tenses['Past']['3rd']['Singular']).toEqual({ kind: 'suffix', text: 'en' })
   })
 
   it('normalizes "Present Tense" labels down to "Present"', () => {
@@ -135,6 +157,41 @@ describe('parsePronounParadigm', () => {
   it('reads person -> number -> pronoun from a bare table with no label', () => {
     const paradigm = parsePronounParadigm(PRONOUNS_SUBJECT_CONTENT)
     expect(paradigm?.persons['3rd']['Singular']).toBe('Ash')
+  })
+})
+
+describe('affix direction (prefix vs suffix)', () => {
+  it('parses a trailing-hyphen ending as a prefix', () => {
+    const paradigm = parseNounParadigm(MIXED_DIRECTION_NOUNS_CONTENT)
+    expect(paradigm?.genders['Testgender']['Accusative']['Singular']).toEqual({ kind: 'prefix', text: 'er' })
+    expect(paradigm?.genders['Testgender']['Nominative']['Singular']).toEqual({ kind: 'suffix', text: 'os' })
+  })
+
+  it('declines a noun using a suffixed citation form but a prefixed target ending', () => {
+    const paradigm = parseNounParadigm(MIXED_DIRECTION_NOUNS_CONTENT)!
+    // "Testos" strips the suffixed nominative "-os" to the stem "Test", then
+    // the prefixed accusative "er-" attaches at the front instead of the end.
+    expect(declineNoun(paradigm, 'Testos', 'Testgender', 'Accusative', 'Singular')).toEqual({
+      form: 'erTest',
+      irregular: false
+    })
+  })
+
+  it('parses a prefix infinitive marker and conjugates from it', () => {
+    const paradigm = parseVerbParadigm(PREFIX_INFINITIVE_VERB_CONTENT)
+    expect(paradigm?.infinitive).toEqual({ kind: 'prefix', text: 'to' })
+  })
+
+  it('conjugates a verb whose citation form uses a prefixed infinitive marker', () => {
+    const paradigm = parseVerbParadigm(PREFIX_INFINITIVE_VERB_CONTENT)!
+    // "toRun" strips the prefixed infinitive "to-" to the root "Run", then
+    // the suffixed present 1st singular "-a" attaches normally at the end.
+    expect(conjugateVerb(paradigm, paradigm, 'toRun', 'Present', '1st', 'Singular')).toBe('Runa')
+  })
+
+  it('returns null when a prefix infinitive marker is missing from the citation form', () => {
+    const paradigm = parseVerbParadigm(PREFIX_INFINITIVE_VERB_CONTENT)!
+    expect(conjugateVerb(paradigm, paradigm, 'Run', 'Present', '1st', 'Singular')).toBeNull()
   })
 })
 
