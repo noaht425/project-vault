@@ -45,9 +45,9 @@ export function LanguageSheet({
       <pre className="right-panel-note right-panel-example">
         {'| Person | Singular | Plural |\n| --- | --- | --- |\n| 1st | -o | -mos |\n| 2nd | -as | -is |'}
       </pre>
+      <DeclensionCalculatorPanel body={body} />
       <WordDictionaryPanel body={body} />
       <GrammarRulesPanel body={body} />
-      <DeclensionCalculatorPanel body={body} />
     </div>
   )
 }

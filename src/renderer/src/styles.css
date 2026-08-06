@@ -1225,6 +1225,14 @@ button.active {
   color: var(--text-muted);
 }
 
+.calc-gender-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
 .calc-pronoun-table {
   border-collapse: collapse;
   margin: 6px 12px 6px 0;

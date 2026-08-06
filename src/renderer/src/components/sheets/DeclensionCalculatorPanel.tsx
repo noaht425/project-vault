@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react'
-import { parseGrammarRules, parseWordEntries, type GrammarRule } from '../../../../common/noteTypes/language'
+import {
+  parseGrammarRules,
+  parseWordEntries,
+  type GrammarRule,
+  type WordEntry
+} from '../../../../common/noteTypes/language'
 import {
   parseNounParadigm,
   parseVerbParadigm,
@@ -15,17 +20,30 @@ function findRuleContent(rules: GrammarRule[], name: string): string | null {
   return rules.find((r) => r.name.toLowerCase() === name.toLowerCase())?.content ?? null
 }
 
-function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: string[] }): React.JSX.Element {
-  const genders = Object.keys(paradigm.genders)
-  const [word, setWord] = useState('')
-  const [genderChoice, setGenderChoice] = useState('')
-  const gender = genders.includes(genderChoice) ? genderChoice : genders[0]
+// A dictionary entry's Gender line is freeform ("Neuter", "Neuter (irregular
+// in nominative singular)", etc.) — match it against the paradigm's own
+// gender labels by prefix rather than requiring an exact string, so
+// parenthetical notes on the entry don't break the lookup.
+function resolveGenderKey(paradigm: NounParadigm, rawGender: string | null): string | null {
+  if (!rawGender) return null
+  const normalized = rawGender.trim().toLowerCase()
+  return Object.keys(paradigm.genders).find((g) => normalized.startsWith(g.toLowerCase())) ?? null
+}
 
-  const cases = Object.keys(paradigm.genders[gender] ?? {})
+// Gender isn't a free choice here the way case/number are — it's a fixed
+// property of whichever word you typed, already recorded on that word's own
+// dictionary entry. Forcing a separate gender selector would just be asking
+// the user to repeat information the note already has.
+function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: WordEntry[] }): React.JSX.Element {
+  const [word, setWord] = useState('')
+  const matchedEntry = useMemo(() => nouns.find((n) => n.word === word.trim()), [nouns, word])
+  const gender = resolveGenderKey(paradigm, matchedEntry?.gender ?? null)
+
+  const cases = gender ? Object.keys(paradigm.genders[gender] ?? {}) : []
   const [caseChoice, setCaseChoice] = useState('')
   const caseName = cases.includes(caseChoice) ? caseChoice : cases[0]
 
-  const numbers = Object.keys(paradigm.genders[gender]?.[caseName] ?? {})
+  const numbers = gender && caseName ? Object.keys(paradigm.genders[gender]?.[caseName] ?? {}) : []
   const [numberChoice, setNumberChoice] = useState('')
   const number = numbers.includes(numberChoice) ? numberChoice : numbers[0]
 
@@ -44,30 +62,36 @@ function NounCalculator({ paradigm, nouns }: { paradigm: NounParadigm; nouns: st
         />
         <datalist id="noun-calc-words">
           {nouns.map((n) => (
-            <option key={n} value={n} />
+            <option key={n.word} value={n.word} />
           ))}
         </datalist>
-        <select value={gender} onChange={(e) => setGenderChoice(e.target.value)}>
-          {genders.map((g) => (
-            <option key={g} value={g}>
-              {g}
-            </option>
-          ))}
-        </select>
-        <select value={caseName} onChange={(e) => setCaseChoice(e.target.value)}>
-          {cases.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <select value={number} onChange={(e) => setNumberChoice(e.target.value)}>
-          {numbers.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
+        {gender ? (
+          <span className="calc-gender-badge">{gender}</span>
+        ) : (
+          word.trim() && (
+            <span className="calc-note">
+              No gender on file for "{word.trim()}" — add a "Gender:" line to its dictionary entry.
+            </span>
+          )
+        )}
+        {gender && (
+          <>
+            <select value={caseName} onChange={(e) => setCaseChoice(e.target.value)}>
+              {cases.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select value={number} onChange={(e) => setNumberChoice(e.target.value)}>
+              {numbers.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
       </div>
       {result && (
         <div className="calc-result">
@@ -222,10 +246,7 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
     return content ? parsePronounParadigm(content) : null
   }, [rules])
 
-  const nouns = useMemo(
-    () => entries.filter((e) => e.partOfSpeech?.toLowerCase() === 'noun').map((e) => e.word),
-    [entries]
-  )
+  const nouns = useMemo(() => entries.filter((e) => e.partOfSpeech?.toLowerCase() === 'noun'), [entries])
   const verbs = useMemo(
     () => entries.filter((e) => e.partOfSpeech?.toLowerCase() === 'verb').map((e) => e.word),
     [entries]
