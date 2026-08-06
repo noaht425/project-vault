@@ -1186,6 +1186,62 @@ button.active {
   font-weight: 600;
 }
 
+.calc-block {
+  margin-top: 4px;
+}
+
+.calc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.calc-row select,
+.calc-word-input {
+  font-size: 13px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text-normal);
+}
+
+.calc-word-input {
+  min-width: 140px;
+}
+
+.calc-result {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.calc-note {
+  font-size: 12px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.calc-pronoun-table {
+  border-collapse: collapse;
+  margin: 6px 12px 6px 0;
+  font-size: 13px;
+}
+
+.calc-pronoun-table :is(th, td) {
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: left;
+}
+
+.calc-pronoun-table th {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
 .family-tree-empty {
   margin-top: 14px;
   padding-top: 12px;

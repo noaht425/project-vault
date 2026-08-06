@@ -3,6 +3,7 @@ import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { languageFrontmatterSchema } from '../../../../common/noteTypes/language'
 import { WordDictionaryPanel } from './WordDictionaryPanel'
 import { GrammarRulesPanel } from './GrammarRulesPanel'
+import { DeclensionCalculatorPanel } from './DeclensionCalculatorPanel'
 
 export function LanguageSheet({
   content,
@@ -46,6 +47,7 @@ export function LanguageSheet({
       </pre>
       <WordDictionaryPanel body={body} />
       <GrammarRulesPanel body={body} />
+      <DeclensionCalculatorPanel body={body} />
     </div>
   )
 }
