@@ -20,6 +20,14 @@ function findRuleContent(rules: GrammarRule[], name: string): string | null {
   return rules.find((r) => r.name.toLowerCase() === name.toLowerCase())?.content ?? null
 }
 
+// "Verbs (Active)" started out as an exact name but became "Verbs (Active,
+// Indicative)" once a mood qualifier was added — match by prefix so adding
+// another mood variant (Subjunctive, etc.) later doesn't silently break
+// this lookup again the same way.
+function findRuleContentByPrefix(rules: GrammarRule[], prefix: string): string | null {
+  return rules.find((r) => r.name.toLowerCase().startsWith(prefix.toLowerCase()))?.content ?? null
+}
+
 // A dictionary entry's Gender line is freeform ("Neuter", "Neuter (irregular
 // in nominative singular)", etc.) — match it against the paradigm's own
 // gender labels by prefix rather than requiring an exact string, so
@@ -227,12 +235,12 @@ export function DeclensionCalculatorPanel({ body }: { body: string }): React.JSX
   }, [rules])
 
   const verbActiveParadigm = useMemo(() => {
-    const content = findRuleContent(rules, 'Verbs (Active)')
+    const content = findRuleContentByPrefix(rules, 'Verbs (Active')
     return content ? parseVerbParadigm(content) : null
   }, [rules])
 
   const verbPassiveParadigm = useMemo(() => {
-    const content = findRuleContent(rules, 'Verbs (Passive)')
+    const content = findRuleContentByPrefix(rules, 'Verbs (Passive')
     return content ? parseVerbParadigm(content) : null
   }, [rules])
 
