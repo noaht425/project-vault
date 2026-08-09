@@ -57,7 +57,7 @@ function pickWeighted<T extends { weight: number }>(items: T[], rng: () => numbe
 
 // Human is deliberately NOT a single Western-European bank — a human
 // population is meant to stand in for real-world human diversity, so this
-// pool draws a few names each from ~14 world naming traditions (grouped by
+// pool draws a few names each from ~16 world naming traditions (grouped by
 // comment below for readability/editability, though at generation time it's
 // just one flat pool per gender). Every Human name is weight 1 (uniform):
 // weighting any region above another would reintroduce exactly the "one
@@ -97,6 +97,10 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Haruto'), normal('Wei'), normal('Min-jun'),
       // Southeast Asian / Pacific
       normal('Minh'), normal('Koa'), normal('Tavita'),
+      // Hawaiian
+      normal('Ikaika'), normal('Noa'), normal('Haku'),
+      // Māori
+      normal('Tāne'), normal('Ariki'), normal('Manu'),
       // Contributed
       normal('Noah'), normal('Ben')
     ],
@@ -129,6 +133,10 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Yuki'), normal('Mei'), normal('Seo-yeon'),
       // Southeast Asian / Pacific
       normal('Linh'), normal('Leilani'), normal('Malia'),
+      // Hawaiian
+      normal('Pua'), normal('Maile'), normal('Nani'),
+      // Māori
+      normal('Aroha'), normal('Kahurangi'), normal('Hine'),
       // Contributed
       normal('Annalee'), normal('Isabelle'), normal('Loretta'), normal('Alyssa'), normal('Violet')
     ],
@@ -146,6 +154,8 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Amani'), // East African (Swahili)
       normal('Kiran'), // South Asian
       normal('Ren'), // East Asian
+      normal('Lani'), // Hawaiian
+      normal('Rangi'), // Māori
       normal('Khai'), // Contributed
       normal('Sydney'), // Contributed
       normal('Xiaowei'), // Contributed
@@ -182,7 +192,11 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       // East Asian
       normal('Tanaka'), normal('Wang'), normal('Kim'),
       // Southeast Asian / Pacific
-      normal('Tran'), normal('Santos'), normal('Kealoha')
+      normal('Tran'), normal('Santos'), normal('Kealoha'),
+      // Hawaiian
+      normal('Leilani'), normal('Pualani'), normal('Wailani'),
+      // Māori
+      normal('Hinemoana'), normal('Hineitīweka'), normal('Hinekaikōmako')
     ]
   },
   {
