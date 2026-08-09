@@ -2,12 +2,16 @@
 
 Read this at the start of the session, don't re-derive from scratch. This is a **research and sourcing task first, a build task second** — do not write any name content into the codebase until a source has been vetted against the bar below and the user has confirmed it.
 
+## Native American / First Nations: excluded, decided 2026-08-09 — do not resume
+
+The user decided this topic is too sensitive to include in the project at all, after this doc's own research kept running into the same wall across multiple sessions (see "Native American / First Nations: excluded" reasoning below — ceremonial/sacred naming practices, no source that cleanly avoids that concern). **This is a closed decision, not a "waiting on a better source" pause.** Do not propose resuming it, and do not build a `native-american` (or any single-nation) bank, even if a seemingly good source turns up later, unless the user explicitly reopens this themselves.
+
 ## Goal
 
-Add name-bank content for two new regions to the Settlement Populator's custom-race name system (`src/common/settlementNames.ts`), matching the shape/quality of the 9 existing `NAME_INSPIRATION_SOURCES` regions (nordic, romantic, eastern-european, east-asian, south-asian, west-asian, north-african-middle-eastern, central-african, south-african):
+Add name-bank content to the Settlement Populator's custom-race name system (`src/common/settlementNames.ts`), matching the shape/quality of the 9 existing `NAME_INSPIRATION_SOURCES` regions (nordic, romantic, eastern-european, east-asian, south-asian, west-asian, north-african-middle-eastern, central-african, south-african):
 
-1. **Native American / First Nations**
-2. **Pacific / Oceania** (confirmed in scope 2026-08-08 — Hawaiian, Māori, and broader Pasifika)
+1. ~~**Native American / First Nations**~~ — excluded, see above.
+2. **Pacific / Oceania** (confirmed in scope 2026-08-08 — Hawaiian, Māori, and broader Pasifika) — Hawaiian and Māori done, see status below.
 
 After a region's standalone bank exists, a small ~3-name-per-category sample can optionally be blended into `BASELINE_NAME_BANKS`'s Human entry too — same two-step pattern used for West Asian (built standalone first at `id: 'west-asian'`, blended into Human afterward in a separate commit, 2026-08-08).
 
@@ -78,8 +82,8 @@ Two open design questions worth raising explicitly, not assuming:
 
 ## Decisions (confirmed with user 2026-08-09)
 
-- **FirstVoices: ruled out entirely**, not just deferred. The non-commercial-use restriction in the footer is treated as a hard stop, not something to negotiate around with paraphrased/transformed use. Native American/First Nations stays deferred — do not build it from FirstVoices, and do not restart on it without a new source proposal from the user.
-- **Sequencing: Pacific/Oceania first.** Build Hawaiian and Māori now, on the strength of the two directly-confirmed academic dictionaries. Native American/First Nations remains parked.
+- **FirstVoices: ruled out entirely**, not just deferred. The non-commercial-use restriction in the footer is treated as a hard stop, not something to negotiate around with paraphrased/transformed use.
+- **Sequencing: Pacific/Oceania first.** Build Hawaiian and Māori now, on the strength of the two directly-confirmed academic dictionaries. (Native American/First Nations was fully excluded the following day, 2026-08-09 — see the top of this doc.)
 - **Bank structure: separate banks, not one umbrella bank.** A standalone `hawaiian` bank and a standalone `maori` bank (own `id`, own `name`, own entry in `NAME_INSPIRATION_SOURCES`), each independently sourced and labeled — not a single blended "Pacific/Oceania" entry. Any additional Pasifika tradition added later (Samoan, Tongan, etc.) should also be its own bank once it clears the same sourcing bar, not folded into these two.
 
 ## Words directly verified so far (2026-08-09), by dictionary lookup
@@ -138,5 +142,5 @@ That's 8 solid, individually-attested compounds for the Hawaiian surname pool �
 - **Hawaiian bank: done.** Added as `id: 'hawaiian'` in `NAME_INSPIRATION_SOURCES` in `src/common/settlementNames.ts` — 5 male / 7 female / 8 neutral firstnames + 8 lastNames, all individually sourced from Pukui & Elbert's *Hawaiian Dictionary* via wehewehe.org, lastNames are real attested compounds (not invented — found via the dictionary's own "contains" search on `lani` and `hōkū`).
 - **Māori bank: done.** Added as `id: 'maori'` right after it — 4 male / 5 female / 6 neutral firstnames, all individually sourced from Te Aka (maoridictionary.co.nz, John C. Moorfield). lastNames use a different approach than Hawaiian's: Te Aka didn't have an equivalent "ordinary compound word" seam to mine, so this leans on minor/secondary personifications (a sea atua, a tree spirit, a moth/flute-music atua, a mist personification, two astronomical personifications) — explicitly excluding primal creator-deities (Rangi-nui, Tāne, Hine-nui-te-pō) and the one real historical named individual (a specific 1910–1976 military leader) that turned up in the same searches. This tier was confirmed acceptable with the user before writing it into code.
 - Both entries pass `npx tsc --noEmit` clean. **Blended into `BASELINE_NAME_BANKS`'s Human entry** (2026-08-09), same two-step pattern as west-asian: 3 names per gender + 1 neutral + 3 lastNames, inserted right after the existing "Southeast Asian / Pacific" section. Picked words that don't literally duplicate strings already in that pre-existing section (Koa, Leilani, Kealoha, and Kai-tagged-Hawaiian were already there from before this work) — e.g. Hawaiian male uses Ikaika/Noa/Haku rather than re-adding Koa. `npx tsc --noEmit` passes clean after the blend too.
-- Native American/First Nations stays parked (see Decisions section above) — do not resume without a new source proposal from the user.
+- Native American/First Nations: fully excluded, closed decision (see top of this doc) — not a research gap, do not resume.
 - Not yet committed to git — user said to keep working and commit everything together at the end of the session.

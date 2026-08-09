@@ -368,12 +368,15 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
 //
 // NOT included: a "Native American" category. The user asked for one and
 // pointed at two research sources; both that research and follow-up
-// searches on specific nations (Diné/Navajo, Cherokee) turned up traditional
-// given names described as ceremonial/sacred — reserved for spiritual
-// contexts, not generic reuse — plus mostly low-quality, non-tribal-
-// authored source material. Deliberately left out rather than built on a
-// shaky research basis; revisit only with a specific nation + a source the
-// user actually trusts (ideally tribal-authored).
+// searches on specific nations (Diné/Navajo, Cherokee), plus a further
+// FirstVoices deep-dive in 2026-08 (see
+// docs/plans/2026-08-08-native-pacific-names-research.md), turned up
+// traditional given names described as ceremonial/sacred — reserved for
+// spiritual contexts, not generic reuse — plus mostly low-quality,
+// non-tribal-authored source material. The user decided 2026-08-09 this
+// topic is too sensitive to include at all — this is a closed decision,
+// not a research gap. Do not revisit without the user explicitly reopening
+// it themselves.
 export const NAME_INSPIRATION_SOURCES: NameBank[] = [
   {
     id: 'nordic',
