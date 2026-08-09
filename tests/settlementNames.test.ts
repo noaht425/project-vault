@@ -69,19 +69,31 @@ describe('NAME_INSPIRATION_SOURCES', () => {
     'west-asian',
     'north-african-middle-eastern',
     'central-african',
-    'south-african'
+    'south-african',
+    'hawaiian',
+    'maori'
   ]
 
-  it('has exactly the 10 confirmed real-world regional sources (no Native American entry — see file comment)', () => {
+  // Hawaiian and Māori are deliberately smaller than the other 10 regions —
+  // per the commit that added them, every word was individually verified
+  // against a dictionary (Pukui & Elbert / Te Aka) rather than padded out
+  // to match the other regions' size. The bar below reflects their actual,
+  // intentionally-small pools instead of the 15-per-pool bar that applies
+  // to the padded/generic-baby-name-list sources.
+  const SMALL_BY_DESIGN_SOURCE_IDS = new Set(['hawaiian', 'maori'])
+
+  it('has exactly the 12 confirmed real-world regional sources (no Native American entry — see file comment)', () => {
     expect(NAME_INSPIRATION_SOURCES.map((s) => s.id).sort()).toEqual([...EXPECTED_SOURCE_IDS].sort())
   })
 
   it('has a substantial, non-uniformly-weighted pool for every source', () => {
     for (const source of NAME_INSPIRATION_SOURCES) {
-      expect(source.firstNamesMale.length, `${source.id} male`).toBeGreaterThanOrEqual(15)
-      expect(source.firstNamesFemale.length, `${source.id} female`).toBeGreaterThanOrEqual(15)
+      const minFirstNames = SMALL_BY_DESIGN_SOURCE_IDS.has(source.id) ? 4 : 15
+      const minLastNames = SMALL_BY_DESIGN_SOURCE_IDS.has(source.id) ? 6 : 15
+      expect(source.firstNamesMale.length, `${source.id} male`).toBeGreaterThanOrEqual(minFirstNames)
+      expect(source.firstNamesFemale.length, `${source.id} female`).toBeGreaterThanOrEqual(minFirstNames)
       expect(source.firstNamesNeutral.length, `${source.id} neutral`).toBeGreaterThanOrEqual(5)
-      expect(source.lastNames.length, `${source.id} last`).toBeGreaterThanOrEqual(15)
+      expect(source.lastNames.length, `${source.id} last`).toBeGreaterThanOrEqual(minLastNames)
       // Unlike Human, each of these is a single tradition — weighting is
       // expected to vary (common/normal/rare), not be uniform.
       const weights = [...source.firstNamesMale, ...source.firstNamesFemale].map((w) => w.weight)
