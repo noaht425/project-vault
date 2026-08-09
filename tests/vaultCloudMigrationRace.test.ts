@@ -168,7 +168,17 @@ describe('importCloudIntoVault against the real fileWriteQueue (not a mock)', ()
   // {type, tags, summary} but deliberately no `updatedAt`), leave it open
   // un-edited (editorStore.openNote sets dirty:false, so no autosave is
   // ever scheduled), then run the import.
-  it('literal repro steps (stub via +New, left open unedited, then import): current code leaves the stub untouched and warns — confirmed safe', async () => {
+  //
+  // Updated after a later, real report of the isSourceNewer gap this
+  // exposed: an untouched local stub has no updatedAt, so under the
+  // original symmetric isSourceNewer it could never be confirmed "older"
+  // than the cloud source no matter how obviously stale it was — stuck
+  // warning forever. isSourceNewer now treats a missing DESTINATION
+  // timestamp as older whenever the source has a real one (source has
+  // definitely been through a real save; a never-updated destination
+  // almost certainly hasn't), so this scenario now correctly resolves by
+  // overwriting the blank stub with the cloud's real content.
+  it('literal repro steps (stub via +New, left open unedited, then import): the cloud content now lands cleanly, no corruption', async () => {
     const root = await makeVaultDir()
     const stub = await realCreateNote(root, 'Draconic', 'language')
     expect(parseNote(stub.content).frontmatter).toEqual({ type: 'language', tags: [], summary: '' })
@@ -183,13 +193,15 @@ describe('importCloudIntoVault against the real fileWriteQueue (not a mock)', ()
 
     const progress = await importCloudIntoVault(cloudApi, realVaultDestApi(root), root, () => {})
 
-    // isSourceNewer requires a valid updatedAt on BOTH sides; the stub has
-    // none, so this is a warn-and-skip, not an overwrite — the note is
-    // left exactly as the blank stub, cloud content never lands.
-    expect(progress.warnings).toEqual([expect.objectContaining({ name: 'Draconic' })])
+    expect(progress.warnings).toEqual([])
+    expect(progress.errors).toEqual([])
     const finalContent = (await readNote(stub.path)).content
-    expect(finalContent).toBe(stub.content)
-    expect(finalContent).not.toContain('keth')
+    const finalParsed = parseNote(finalContent)
+    expect(finalParsed.frontmatter).toEqual({ type: 'language', tags: ['conlang'], summary: 'The tongue of dragons', updatedAt: '2026-08-05T00:00:00.000Z' })
+    expect(finalContent).toContain('keth')
+    // The critical invariant this whole investigation was about: never
+    // reduced to just updatedAt, regardless of which side wins.
+    expect(Object.keys(finalParsed.frontmatter).sort()).not.toEqual(['updatedAt'])
   })
 
   // Same as above, but the stub DOES have a prior updatedAt (as it would

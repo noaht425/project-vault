@@ -103,16 +103,37 @@ export type NoteTransform = (note: { frontmatter: Record<string, unknown>; body:
 const identityTransform: NoteTransform = async (note) => note
 
 // "Is the source's updatedAt strictly newer than the destination's?" — the
-// single safe-to-overwrite condition (design decision #1/#2). Anything else
-// (equal, destination newer, either side missing/unparseable) returns
+// single safe-to-overwrite condition (design decision #1/#2).
+//
+// One deliberate asymmetry: a MISSING destination timestamp counts as
+// older (safe to overwrite) whenever the source has a real one, even
+// though a missing SOURCE timestamp still counts as unknown (stays
+// conservative, same as ever). This isn't a double standard — every real
+// edit through this app's own UI stamps a fresh updatedAt on save
+// (editorStore.ts's/cloudEditorStore.ts's saveNow(), both unconditional on
+// every autosave), so a note with no updatedAt at all has, with very high
+// confidence, simply never been touched since it was first created —
+// there's no "recent real edit" it could be hiding. A note with a real
+// updatedAt has definitely been through that save path at least once, so
+// "source has one, destination doesn't" is as safe a signal as an actual
+// timestamp comparison, just from the other direction. Confirmed via a
+// real report: two notes imported long before updatedAt-stamping existed
+// (so neither side ever got one) stayed permanently stuck skipping every
+// rerun even after being freshly edited locally, because the old version of
+// this function required BOTH sides to have a comparable timestamp before
+// it would ever say "safe to overwrite" — an untimestamped destination
+// could never lose, no matter how confirmed-stale it actually was.
+// Every other combination (equal, destination newer, source missing/
+// unparseable regardless of destination, or both missing) still returns
 // false, folding into the warn-and-skip branch rather than ever risking a
 // silent overwrite. Exported for reuse by both copy directions and direct
 // testing.
 export function isSourceNewer(sourceUpdatedAt: unknown, destUpdatedAt: unknown): boolean {
-  if (typeof sourceUpdatedAt !== 'string' || typeof destUpdatedAt !== 'string') return false
-  const source = Date.parse(sourceUpdatedAt)
+  const source = typeof sourceUpdatedAt === 'string' ? Date.parse(sourceUpdatedAt) : NaN
+  if (Number.isNaN(source)) return false
+  if (typeof destUpdatedAt !== 'string') return true
   const dest = Date.parse(destUpdatedAt)
-  if (Number.isNaN(source) || Number.isNaN(dest)) return false
+  if (Number.isNaN(dest)) return true
   return source > dest
 }
 

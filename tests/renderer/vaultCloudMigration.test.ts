@@ -206,6 +206,26 @@ describe('importVaultIntoCloud', () => {
     }
   })
 
+  // Mirror of importCloudIntoVault's own regression test (same fix, same
+  // direction-agnostic isSourceNewer) — a cloud note with no updatedAt at
+  // all, alongside a local source that has a real one, is safe to overwrite.
+  it('overwrites when the cloud note has no updatedAt at all and the local source has a real one', async () => {
+    const tree: TreeEntry[] = [{ path: '/vault/A.md', name: 'A.md', isDirectory: false }]
+    const vaultApi = fakeVaultApi(tree, {
+      '/vault/A.md': "---\ntype: npc\nupdatedAt: '2026-08-04T00:00:00.000Z'\n---\nnew body"
+    })
+    const cloudApi = fakeCloudApi(
+      [{ id: 'note-existing', name: 'A', isDirectory: false, noteType: 'npc', version: 1 }],
+      { 'note-existing': { id: 'note-existing', name: 'A', folderId: null, frontmatter: { type: 'npc' }, body: 'old body', noteType: 'npc', version: 1 } }
+    )
+
+    const progress = await importVaultIntoCloud(vaultApi, cloudApi, () => {})
+
+    expect(progress.warnings).toEqual([])
+    expect(progress.errors).toEqual([])
+    expect(cloudApi.notesById['note-existing'].body).toBe('new body')
+  })
+
   it('rerunning after a full import is a no-op — the key regression case for root-level NULL-parent duplicates', async () => {
     const tree: TreeEntry[] = [
       { path: '/vault/A.md', name: 'A.md', isDirectory: false },
@@ -417,14 +437,28 @@ describe('isSourceNewer', () => {
     expect(isSourceNewer('2026-08-04T12:00:00.000Z', '2026-08-04T12:00:00.000Z')).toBe(false) // same age — warn, don't overwrite
   })
 
-  it('treats a missing/undefined timestamp on either side as unknown, not "infinitely old"', () => {
+  it('a missing source timestamp is always unknown, never treated as newer', () => {
     expect(isSourceNewer(undefined, '2026-08-01T00:00:00.000Z')).toBe(false)
-    expect(isSourceNewer('2026-08-04T12:00:00.000Z', undefined)).toBe(false)
     expect(isSourceNewer(undefined, undefined)).toBe(false)
   })
 
-  it('treats an unparseable string as unknown', () => {
+  // Deliberately asymmetric with the source-missing case above — see this
+  // function's own comment for why. A note that's never been touched by
+  // any real save (through this app's own UI) has no updatedAt at all;
+  // a source that DOES have one has definitely been through a real save.
+  // Regression case: two notes imported before updatedAt-stamping existed
+  // (so neither side ever got one) stayed permanently stuck skipping every
+  // future rerun even after a confirmed, fresh local edit, because the old
+  // symmetric version of this check required a destination timestamp to
+  // even attempt the comparison.
+  it('a missing destination timestamp is treated as older, whenever the source has a real one', () => {
+    expect(isSourceNewer('2026-08-04T12:00:00.000Z', undefined)).toBe(true)
+    expect(isSourceNewer('2026-08-04T12:00:00.000Z', 'not a date')).toBe(true)
+  })
+
+  it('treats an unparseable source string as unknown, regardless of the destination', () => {
     expect(isSourceNewer('not a date', '2026-08-01T00:00:00.000Z')).toBe(false)
+    expect(isSourceNewer('not a date', undefined)).toBe(false)
   })
 
   // Regression: gray-matter's YAML layer (js-yaml) parses an UNQUOTED
@@ -590,10 +624,37 @@ describe('importCloudIntoVault', () => {
     }
   })
 
-  it('warns rather than overwrites when the local note has no updatedAt at all (predates the field)', async () => {
+  // Regression test for a real reported bug: two notes imported before
+  // updatedAt-stamping existed (so the LOCAL side never got one) stayed
+  // permanently stuck skipping every rerun even after a confirmed, fresh
+  // cloud edit — the old symmetric isSourceNewer required a destination
+  // timestamp to even attempt the comparison, so an untimestamped
+  // destination could never lose no matter how confirmed-stale it actually
+  // was. A cloud source WITH a real updatedAt has definitely been through a
+  // real save; a local destination with none has, with very high
+  // confidence, never been touched since creation — safe to overwrite. See
+  // isSourceNewer's own comment for the full reasoning.
+  it('overwrites when the local note has no updatedAt at all (predates the field) and the cloud source has a real one', async () => {
     const cloudTree: CloudTreeNode[] = [{ id: 'note-a', name: 'A', isDirectory: false, version: 2 }]
     const cloudApi = fakeCloudSourceApi(cloudTree, {
       'note-a': cloudNoteData('note-a', 'A', { type: 'npc', updatedAt: '2026-08-04T00:00:00.000Z' }, 'new body')
+    })
+    const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/A.md`, name: 'A.md', isDirectory: false }]
+    const vaultApi = fakeVaultDestApi(existingTree, {
+      [`${VAULT_ROOT}/A.md`]: { content: '---\ntype: npc\n---\nold body', version: { mtimeMs: 1, contentHash: 'old' } }
+    })
+
+    const progress = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {})
+
+    expect(progress.warnings).toEqual([])
+    expect(progress.errors).toEqual([])
+    expect(vaultApi.notes[`${VAULT_ROOT}/A.md`].content).toContain('new body')
+  })
+
+  it('still warns rather than overwrites when the CLOUD source has no updatedAt, even if the local destination has none either', async () => {
+    const cloudTree: CloudTreeNode[] = [{ id: 'note-a', name: 'A', isDirectory: false, version: 2 }]
+    const cloudApi = fakeCloudSourceApi(cloudTree, {
+      'note-a': cloudNoteData('note-a', 'A', { type: 'npc' }, 'new body')
     })
     const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/A.md`, name: 'A.md', isDirectory: false }]
     const vaultApi = fakeVaultDestApi(existingTree, {
