@@ -625,6 +625,75 @@ export const NAME_INSPIRATION_SOURCES: NameBank[] = [
       normal('Fourie'), normal('Mabaso'), normal('Radebe'),
       rare('Naude'), rare('Mthembu'), rare('Skosana'), rare('Baloyi'), rare('Chiweshe'), rare('Moyo')
     ]
+  },
+  {
+    // Smaller than the other regions above by design, not an oversight —
+    // every word here was individually looked up against Pukui & Elbert's
+    // Hawaiian Dictionary (via wehewehe.org/Ulukau) and only kept if it came
+    // back as a real headword with the stated meaning. lastNames are real
+    // attested two-word compounds already in the dictionary (found via its
+    // "contains" search, e.g. "wai lani" / "pua lani" / "loke lani"), not
+    // combinations invented this session — see
+    // docs/plans/2026-08-08-native-pacific-names-research.md for the
+    // word-by-word sourcing notes and the reasoning behind both calls.
+    id: 'hawaiian',
+    name: 'Hawaiian',
+    firstNamesMale: [
+      common('Kai'), common('Koa'),
+      normal('Ikaika'), normal('Noa'),
+      rare('Haku')
+    ],
+    firstNamesFemale: [
+      common('Pua'), common('Maile'), common('Nani'),
+      normal('Mele'), normal('Kiele'), normal('ʻIlima'),
+      rare('Momi')
+    ],
+    firstNamesNeutral: [
+      common('Lani'), common('Aloha'),
+      normal('Nalu'), normal('Mana'), normal('Hōkū'),
+      rare('Aliʻi'), rare('Mauli'), rare('Lei')
+    ],
+    lastNames: [
+      common('Leilani'), common('Pualani'),
+      normal('Wailani'), normal('Lokelani'), normal('Hōkūkai'),
+      rare('Waolani'), rare('Papalani'), rare('Puahōkū')
+    ]
+  },
+  {
+    // Same sourcing standard as the Hawaiian entry above — every firstName
+    // word individually looked up against Te Aka (maoridictionary.co.nz,
+    // John C. Moorfield). lastNames are real dictionary entries too, but of
+    // a different kind: minor/secondary personifications (a sea atua, a
+    // tree spirit, a moth/flute-music atua, a mist personification, a
+    // planet, a star) rather than ordinary compound nouns — Te Aka didn't
+    // have a Hawaiian-lani-style "ordinary word doubling as a name" seam to
+    // mine, so this leans on figures one tier below the primal
+    // creator-deities (excludes Rangi-nui, Tāne, Hine-nui-te-pō, and any
+    // real historical named individual) — confirmed with the user this
+    // tier was an acceptable substitute, see
+    // docs/plans/2026-08-08-native-pacific-names-research.md.
+    id: 'maori',
+    name: 'Māori',
+    firstNamesMale: [
+      common('Tāne'),
+      normal('Ariki'), normal('Manu'),
+      rare('Tūī')
+    ],
+    firstNamesFemale: [
+      common('Aroha'), common('Kahurangi'),
+      normal('Hine'), normal('Marama'),
+      rare('Wahine')
+    ],
+    firstNamesNeutral: [
+      common('Rangi'), common('Moana'),
+      normal('Wai'), normal('Ao'),
+      rare('Huia'), rare('Whetū')
+    ],
+    lastNames: [
+      common('Hinemoana'), common('Hineitīweka'),
+      normal('Hinekaikōmako'), normal('Hineraukatauri'),
+      rare('Hinepūkohurangi'), rare('Whakaahurangi')
+    ]
   }
 ]
 
