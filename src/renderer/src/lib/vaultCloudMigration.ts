@@ -30,8 +30,12 @@ export interface MigrationProgress {
   // decision #1. Recorded rather than silently skipped or blindly
   // overwritten; surfaced in the UI (VaultImportPanel/CloudImportPanel)
   // alongside the existing created/updated/error counts, per design
-  // decision #8.
-  warnings: { name: string; message: string }[]
+  // decision #8. `id` is the note's stable identifier in whichever side is
+  // being WALKED (a local path for importVaultIntoCloud, a cloud note id
+  // for importCloudIntoVault) — carried along so a dry run's warnings list
+  // can be fed straight back in as `previousWarnings` on the real run (see
+  // that param below) without either function needing to re-derive it.
+  warnings: { id: string; name: string; message: string }[]
   // Only meaningful when the pass was run with dryRun:true (see the `dryRun`
   // param below) — how many notes WOULD be created/updated, since a dry run
   // performs every read/comparison a real run does but skips every write.
@@ -226,12 +230,26 @@ export async function importVaultIntoCloud(
   // skips every write (createFolder/createNote/saveNote) — lets the UI show
   // an accurate "N will be created, M updated, K skipped — proceed?" summary
   // before a real, overwrite-capable run ever touches anything.
-  dryRun = false
+  dryRun = false,
+  // The prior dry run's own warnings, fed straight back in on the real
+  // "Confirm — start writing" call (see CloudImportPanel.tsx/
+  // VaultImportPanel.tsx). A note whose id shows up here is trusted to
+  // still need nothing — the real run reuses that warning verbatim
+  // instead of paying for another full read+compare (a real network round
+  // trip to Cloud Workspace per note) just to re-derive the same "left
+  // as-is." The tradeoff: if that note changed in the window between
+  // planning and confirming, this run won't notice — the NEXT run plans
+  // fresh and picks it up then, same as any other note edited after a
+  // stale plan was already shown. Ignored entirely during a dry run itself
+  // (there's nothing to compare it against yet).
+  previousWarnings: { id: string; message: string }[] = []
 ): Promise<MigrationProgress> {
   const [localTree, cloudTree] = await Promise.all([vaultApi.getTree(), cloudApi.refreshTree()])
 
   const index = new Map<string, { id: string; isDirectory: boolean }>()
   indexCloudTree(cloudTree, null, index)
+
+  const skipWithCachedWarning = dryRun ? new Map<string, string>() : new Map(previousWarnings.map((w) => [w.id, w.message]))
 
   const progress: MigrationProgress = {
     total: countNotes(localTree),
@@ -281,6 +299,15 @@ export async function importVaultIntoCloud(
     for (const file of notes) {
       const name = file.name.replace(/\.md$/, '')
       progress.currentName = name
+
+      const cachedWarning = skipWithCachedWarning.get(file.path)
+      if (cachedWarning !== undefined) {
+        progress.warnings.push({ id: file.path, name, message: cachedWarning })
+        progress.done += 1
+        report()
+        continue
+      }
+
       const existing = index.get(indexKey(parentCloudId, name))
 
       const processNote = async (): Promise<void> => {
@@ -354,6 +381,7 @@ export async function importVaultIntoCloud(
             }
           } else {
             progress.warnings.push({
+              id: file.path,
               name,
               message: skipReasonMessage('local', 'cloud', frontmatter.updatedAt, dest.frontmatter.updatedAt)
             })
@@ -419,12 +447,18 @@ export async function importCloudIntoVault(
   onProgress: (progress: MigrationProgress) => void,
   transformNote: NoteTransform = identityTransform,
   // See importVaultIntoCloud's own dryRun comment — same contract, mirrored.
-  dryRun = false
+  dryRun = false,
+  // See importVaultIntoCloud's own previousWarnings comment — same
+  // contract, mirrored. Here `id` is a cloud note id (this function walks
+  // the CLOUD tree), not a local path.
+  previousWarnings: { id: string; message: string }[] = []
 ): Promise<MigrationProgress> {
   const [cloudTree, localTree] = await Promise.all([cloudApi.refreshTree(), vaultApi.getTree()])
 
   const index = new Map<string, TreeEntry>()
   indexVaultTree(localTree, index)
+
+  const skipWithCachedWarning = dryRun ? new Map<string, string>() : new Map(previousWarnings.map((w) => [w.id, w.message]))
 
   const progress: MigrationProgress = {
     total: countCloudNotes(cloudTree),
@@ -466,6 +500,14 @@ export async function importCloudIntoVault(
       const name = cloudNote.name
       progress.currentName = name
       const notePath = childPath(parentDir, `${name}.md`)
+
+      const cachedWarning = skipWithCachedWarning.get(cloudNote.id)
+      if (cachedWarning !== undefined) {
+        progress.warnings.push({ id: cloudNote.id, name, message: cachedWarning })
+        progress.done += 1
+        report()
+        continue
+      }
 
       const processNote = async (): Promise<void> => {
         const existingPath = index.has(notePath) ? notePath : null
@@ -542,6 +584,7 @@ export async function importCloudIntoVault(
             }
           } else {
             progress.warnings.push({
+              id: cloudNote.id,
               name,
               message: skipReasonMessage('cloud', 'local', source.frontmatter.updatedAt, destFrontmatter.updatedAt)
             })

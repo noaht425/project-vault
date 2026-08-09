@@ -1124,3 +1124,116 @@ describe('importCloudIntoVault', () => {
     })
   })
 })
+
+// A real run used to always re-derive its own plan from scratch — every
+// note got a full read+compare (a real network round trip to Cloud
+// Workspace, per note) even for ones a prior dry run already confirmed
+// need nothing. previousWarnings lets a caller (VaultImportPanel.tsx/
+// CloudImportPanel.tsx) feed that dry run's warnings straight into the
+// real run, so a matching note is trusted and skipped outright instead of
+// being re-checked.
+describe('previousWarnings — trusting a prior plan\'s "left as-is" notes on the real run', () => {
+  it('importCloudIntoVault: a note whose id matches previousWarnings is skipped without re-reading either side', async () => {
+    const cloudTree: CloudTreeNode[] = [{ id: 'note-a', name: 'A', isDirectory: false, version: 1 }]
+    const getNote = vi.fn(async (id: string) => cloudNoteData(id, 'A', { type: 'npc' }, 'cloud body'))
+    const cloudApi: MigrationCloudSourceApi = { refreshTree: async () => cloudTree, getNote }
+    const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/A.md`, name: 'A.md', isDirectory: false }]
+    const readNote = vi.fn(async (path: string) => ({ path, content: '---\ntype: npc\n---\nlocal body', version: { mtimeMs: 1, contentHash: 'x' } }))
+    const vaultApi: MigrationVaultDestApi = {
+      getTree: async () => existingTree,
+      readNote,
+      createFolder: async () => {},
+      createNote: async () => {
+        throw new Error('should not create — note already exists')
+      },
+      saveNote: async () => {
+        throw new Error('should not save — note should be skipped entirely')
+      }
+    }
+
+    const progress = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {}, undefined, false, [
+      { id: 'note-a', message: 'Left as-is — cached from the plan' }
+    ])
+
+    expect(getNote).not.toHaveBeenCalled()
+    expect(readNote).not.toHaveBeenCalled()
+    expect(progress.warnings).toEqual([{ id: 'note-a', name: 'A', message: 'Left as-is — cached from the plan' }])
+    expect(progress.done).toBe(1)
+    expect(progress.errors).toEqual([])
+  })
+
+  it('importCloudIntoVault: a note NOT in previousWarnings is still checked normally', async () => {
+    const cloudTree: CloudTreeNode[] = [{ id: 'note-a', name: 'A', isDirectory: false, version: 1 }]
+    const cloudApi = fakeCloudSourceApi(cloudTree, {
+      'note-a': cloudNoteData('note-a', 'A', { type: 'npc', updatedAt: '2026-08-05T00:00:00.000Z' }, 'new body')
+    })
+    const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/A.md`, name: 'A.md', isDirectory: false }]
+    const vaultApi = fakeVaultDestApi(existingTree, {
+      [`${VAULT_ROOT}/A.md`]: { content: '---\ntype: npc\n---\nold body', version: { mtimeMs: 1, contentHash: 'old' } }
+    })
+
+    // previousWarnings references a DIFFERENT id — 'A' itself was never
+    // part of the prior plan (e.g. it's new since then), so it must be
+    // processed for real, same as if no plan existed at all.
+    const progress = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {}, undefined, false, [
+      { id: 'some-other-note', message: 'unrelated' }
+    ])
+
+    expect(progress.warnings).toEqual([])
+    expect(vaultApi.notes[`${VAULT_ROOT}/A.md`].content).toContain('new body')
+  })
+
+  it('importCloudIntoVault: ignored entirely during a dry run — a plan always re-derives everything fresh', async () => {
+    const cloudTree: CloudTreeNode[] = [{ id: 'note-a', name: 'A', isDirectory: false, version: 1 }]
+    const getNote = vi.fn(async (id: string) => cloudNoteData(id, 'A', { type: 'npc' }, 'cloud body'))
+    const cloudApi: MigrationCloudSourceApi = { refreshTree: async () => cloudTree, getNote }
+    const existingTree: TreeEntry[] = [{ path: `${VAULT_ROOT}/A.md`, name: 'A.md', isDirectory: false }]
+    const vaultApi = fakeVaultDestApi(existingTree, {
+      [`${VAULT_ROOT}/A.md`]: { content: '---\ntype: npc\n---\nlocal body', version: { mtimeMs: 1, contentHash: 'x' } }
+    })
+
+    const plan = await importCloudIntoVault(cloudApi, vaultApi, VAULT_ROOT, () => {}, undefined, true, [
+      { id: 'note-a', message: 'stale cached message that must not be trusted for a fresh plan' }
+    ])
+
+    expect(getNote).toHaveBeenCalled()
+    expect(plan.warnings.every((w) => w.message !== 'stale cached message that must not be trusted for a fresh plan')).toBe(true)
+  })
+
+  it('importVaultIntoCloud: a note whose id matches previousWarnings is skipped without re-reading either side', async () => {
+    const tree: TreeEntry[] = [{ path: '/vault/A.md', name: 'A.md', isDirectory: false }]
+    const readNote = vi.fn(async (path: string) => ({ path, content: '---\ntype: npc\n---\nlocal body', version: { mtimeMs: 0, contentHash: 'x' } }))
+    const vaultApi: MigrationVaultApi = { getTree: async () => tree, readNote }
+    const getNote = vi.fn(async (id: string) => ({
+      id,
+      name: 'A',
+      folderId: null,
+      frontmatter: { type: 'npc' },
+      body: 'cloud body',
+      noteType: 'npc',
+      version: 1
+    }))
+    const cloudApi: MigrationCloudApi = {
+      refreshTree: async () => [{ id: 'note-existing', name: 'A', isDirectory: false, noteType: 'npc', version: 1 }],
+      createFolder: async () => {
+        throw new Error('should not create a folder')
+      },
+      createNote: async () => {
+        throw new Error('should not create — note already exists')
+      },
+      getNote,
+      saveNote: async () => {
+        throw new Error('should not save — note should be skipped entirely')
+      }
+    }
+
+    const progress = await importVaultIntoCloud(vaultApi, cloudApi, () => {}, undefined, false, [
+      { id: '/vault/A.md', message: 'Left as-is — cached from the plan' }
+    ])
+
+    expect(getNote).not.toHaveBeenCalled()
+    expect(readNote).not.toHaveBeenCalled()
+    expect(progress.warnings).toEqual([{ id: '/vault/A.md', name: 'A', message: 'Left as-is — cached from the plan' }])
+    expect(progress.done).toBe(1)
+  })
+})

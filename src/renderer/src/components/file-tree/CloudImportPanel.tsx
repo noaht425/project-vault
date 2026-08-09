@@ -88,11 +88,17 @@ export function CloudImportPanel({ onClose }: { onClose: () => void }): React.JS
 
   const confirmRun = async (): Promise<void> => {
     if (!vaultPath) return
+    // Captured before clearing `plan` below — its warnings are what let the
+    // real run skip re-checking notes it already knows are a no-op instead
+    // of paying for another full read+compare (a real network round trip)
+    // per already-settled note. See importCloudIntoVault's own
+    // previousWarnings comment for the tradeoff.
+    const previousWarnings = plan?.warnings ?? []
     setPlan(null)
     setError(null)
     setRunning(true)
     try {
-      const r = await importCloudIntoVault(window.cloudApi, window.vaultApi, vaultPath, setResult, transformCloudNote)
+      const r = await importCloudIntoVault(window.cloudApi, window.vaultApi, vaultPath, setResult, transformCloudNote, false, previousWarnings)
       setResult(r)
       await refreshLocalTree()
     } catch (err) {
