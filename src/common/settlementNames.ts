@@ -57,7 +57,7 @@ function pickWeighted<T extends { weight: number }>(items: T[], rng: () => numbe
 
 // Human is deliberately NOT a single Western-European bank — a human
 // population is meant to stand in for real-world human diversity, so this
-// pool draws a few names each from ~13 world naming traditions (grouped by
+// pool draws a few names each from ~14 world naming traditions (grouped by
 // comment below for readability/editability, though at generation time it's
 // just one flat pool per gender). Every Human name is weight 1 (uniform):
 // weighting any region above another would reintroduce exactly the "one
@@ -85,6 +85,8 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Carlos'), normal('Diego'), normal('Mateo'),
       // Arabic
       normal('Omar'), normal('Yusuf'), normal('Tariq'),
+      // West Asian (Turkish / Persian / Armenian / Georgian / Azerbaijani / Kurdish / Hebrew)
+      normal('Mehmet'), normal('Darius'), normal('Ari'),
       // West African
       normal('Kwame'), normal('Chidi'), normal('Kofi'),
       // East African
@@ -115,6 +117,8 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Sofia'), normal('Valentina'), normal('Camila'),
       // Arabic
       normal('Fatima'), normal('Layla'), normal('Amira'),
+      // West Asian (Turkish / Persian / Armenian / Georgian / Azerbaijani / Kurdish / Hebrew)
+      normal('Elif'), normal('Roxana'), normal('Maya'),
       // West African
       normal('Amara'), normal('Ama'), normal('Adaeze'),
       // East African
@@ -137,6 +141,7 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Andrea'), // Italian (traditionally male in Italy, female elsewhere)
       normal('Guadalupe'), // Spanish
       normal('Nour'), // Arabic
+      normal('Tal'), // West Asian (Turkish / Persian / Armenian / Georgian / Azerbaijani / Kurdish / Hebrew)
       normal('Ade'), // West African
       normal('Amani'), // East African (Swahili)
       normal('Kiran'), // South Asian
@@ -166,6 +171,8 @@ export const BASELINE_NAME_BANKS: NameBank[] = [
       normal('Reyes'), normal('Morales'), normal('Castillo'),
       // Arabic
       normal('Haddad'), normal('Farouk'), normal('Khalil'),
+      // West Asian (Turkish / Persian / Armenian / Georgian / Azerbaijani / Kurdish / Hebrew)
+      normal('Yilmaz'), normal('Hosseini'), normal('Cohen'),
       // West African
       normal('Adeyemi'), normal('Mensah'), normal('Okafor'),
       // East African
