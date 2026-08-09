@@ -116,6 +116,17 @@ export function isSourceNewer(sourceUpdatedAt: unknown, destUpdatedAt: unknown):
   return source > dest
 }
 
+// The generic "newer, same age, or no timestamp — left as-is" warning used
+// to give no way to tell those three genuinely different cases apart short
+// of reading raw frontmatter off disk/the API by hand — real friction hit
+// investigating a report of two notes that looked stuck skipping every
+// rerun. Showing the actual two values lets a warning answer its own "why"
+// on sight.
+function skipReasonMessage(sourceLabel: string, destLabel: string, sourceUpdatedAt: unknown, destUpdatedAt: unknown): string {
+  const fmt = (value: unknown): string => (typeof value === 'string' ? value : 'no edit timestamp yet')
+  return `Left as-is — ${destLabel}'s last edit (${fmt(destUpdatedAt)}) isn't older than ${sourceLabel}'s (${fmt(sourceUpdatedAt)}).`
+}
+
 function countNotes(entries: TreeEntry[]): number {
   let total = 0
   for (const entry of entries) {
@@ -323,7 +334,7 @@ export async function importVaultIntoCloud(
           } else {
             progress.warnings.push({
               name,
-              message: 'The cloud copy is newer, the same age, or has no edit timestamp yet — left as-is.'
+              message: skipReasonMessage('local', 'cloud', frontmatter.updatedAt, dest.frontmatter.updatedAt)
             })
           }
         }
@@ -511,7 +522,7 @@ export async function importCloudIntoVault(
           } else {
             progress.warnings.push({
               name,
-              message: 'The local copy is newer, the same age, or has no edit timestamp yet — left as-is.'
+              message: skipReasonMessage('cloud', 'local', source.frontmatter.updatedAt, destFrontmatter.updatedAt)
             })
           }
         }
