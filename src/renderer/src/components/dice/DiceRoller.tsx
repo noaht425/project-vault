@@ -6,7 +6,9 @@ const QUICK_DICE = [4, 6, 8, 10, 12, 20, 100]
 
 function formatBreakdown(result: DiceRollResult): string {
   const groupParts = result.groups.map((g) => {
-    const rollsText = `[${g.rolls.join(', ')}]`
+    const rollsText = `[${g.rolls
+      .map((r, i) => (g.rerolledFrom?.[i] !== undefined ? `${g.rerolledFrom[i]}→${r}` : `${r}`))
+      .join(', ')}]`
     const keepText = g.kept.length !== g.rolls.length ? ` keep ${g.kept.join(', ')}` : ''
     return `${g.sign < 0 ? '-' : ''}${rollsText}${keepText}`
   })
@@ -23,6 +25,8 @@ export function DiceRoller(): React.JSX.Element {
   const history = useDiceStore((s) => s.history)
   const roll = useDiceStore((s) => s.roll)
   const clearHistory = useDiceStore((s) => s.clearHistory)
+  const rerollLowRolls = useDiceStore((s) => s.rerollLowRolls)
+  const toggleRerollLowRolls = useDiceStore((s) => s.toggleRerollLowRolls)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -56,6 +60,15 @@ export function DiceRoller(): React.JSX.Element {
           <div className="dice-quick-row">
             <button onClick={() => doRoll('2d20kh1')}>Advantage</button>
             <button onClick={() => doRoll('2d20kl1')}>Disadvantage</button>
+          </div>
+          <div className="dice-quick-row">
+            <button
+              className={rerollLowRolls ? 'active' : ''}
+              title="While on, every 1 or 2 rolled gets rerolled once and the new result is kept"
+              onClick={toggleRerollLowRolls}
+            >
+              Reroll 1s &amp; 2s
+            </button>
           </div>
           <form
             className="dice-custom-row"

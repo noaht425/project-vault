@@ -99,6 +99,59 @@ describe('rollDice', () => {
   })
 })
 
+describe('rollDice with rerollAtOrBelow (Great Weapon Fighting-style)', () => {
+  it('rerolls a die at or below the threshold and keeps the new result', () => {
+    const rng = sequenceRng([0 / 6, 3 / 6]) // 1st roll -> 1 (rerolls), reroll -> 4
+    const result = rollDice('1d6', rng, { rerollAtOrBelow: 2 })
+    expect(result?.groups[0].rolls).toEqual([4])
+    expect(result?.groups[0].rerolledFrom).toEqual([1])
+    expect(result?.total).toBe(4)
+  })
+
+  it('leaves a die above the threshold untouched (and never calls rng again for it)', () => {
+    const rng = sequenceRng([3 / 6, 5 / 6]) // roll -> 4; if a reroll wrongly fired it'd be 6
+    const result = rollDice('1d6', rng, { rerollAtOrBelow: 2 })
+    expect(result?.groups[0].rolls).toEqual([4])
+    expect(result?.groups[0].rerolledFrom).toBeUndefined()
+    expect(result?.total).toBe(4)
+  })
+
+  it('only rerolls once, even if the reroll also lands at or below the threshold', () => {
+    const rng = sequenceRng([0 / 6, 1 / 6]) // roll -> 1 (rerolls), reroll -> 2 (stays)
+    const result = rollDice('1d6', rng, { rerollAtOrBelow: 2 })
+    expect(result?.groups[0].rolls).toEqual([2])
+    expect(result?.groups[0].rerolledFrom).toEqual([1])
+    expect(result?.total).toBe(2)
+  })
+
+  it('rerolls only the qualifying dice within a multi-die group', () => {
+    // All 3 initial rolls happen first (die1: 1, die2: 6, die3: 2), then a
+    // second pass rerolls just the qualifying dice (die1 -> 4, die3 -> 3).
+    const rng = sequenceRng([0 / 6, 5 / 6, 1 / 6, 3 / 6, 2 / 6])
+    const result = rollDice('3d6', rng, { rerollAtOrBelow: 2 })
+    expect(result?.groups[0].rolls).toEqual([4, 6, 3])
+    expect(result?.groups[0].rerolledFrom).toEqual([1, undefined, 2])
+    expect(result?.total).toBe(13)
+  })
+
+  it('reroll happens before kh/kl keep-filtering', () => {
+    // Initial rolls: die1 -> 1, die2 -> 19. Reroll pass: die1 (<=2) -> 20.
+    // kh1 should then keep the 20, not the 19.
+    const rng = sequenceRng([0 / 20, 18 / 20, 19 / 20])
+    const result = rollDice('2d20kh1', rng, { rerollAtOrBelow: 2 })
+    expect(result?.groups[0].rolls).toEqual([20, 19])
+    expect(result?.groups[0].kept).toEqual([20])
+    expect(result?.total).toBe(20)
+  })
+
+  it('does not reroll when the option is omitted', () => {
+    const rng = sequenceRng([0 / 6]) // -> 1
+    const result = rollDice('1d6', rng)
+    expect(result?.groups[0].rolls).toEqual([1])
+    expect(result?.groups[0].rerolledFrom).toBeUndefined()
+  })
+})
+
 describe('wrapBareDiceInBackticks', () => {
   it('wraps a bare dice expression sitting in prose (the scraped-import case)', () => {
     const text = 'On a failure you take 10d12 poison damage and gain 2 levels of exhaustion.'

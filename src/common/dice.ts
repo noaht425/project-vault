@@ -3,8 +3,17 @@ export interface DiceGroup {
   count: number
   sides: number
   keep?: { mode: 'kh' | 'kl'; n: number }
-  rolls: number[] // every die rolled in this group, before keep-filtering
+  rolls: number[] // every die's final face, before keep-filtering (post-reroll, if any)
   kept: number[] // the dice from this group actually summed
+  // Parallel to `rolls`: the original face for any die that got rerolled
+  // (e.g. Great Weapon Fighting-style "reroll 1s and 2s"), undefined where
+  // no reroll happened. Omitted entirely when no die in the group rerolled.
+  rerolledFrom?: (number | undefined)[]
+}
+
+export interface RollOptions {
+  /** Reroll any die landing at or below this value, once, keeping the new result unconditionally. */
+  rerollAtOrBelow?: number
 }
 
 export interface DiceRollResult {
@@ -89,7 +98,11 @@ function parseDiceExpression(input: string): ParsedTerm[] | null {
 }
 
 /** `rng` is injectable so tests can get deterministic results. */
-export function rollDice(input: string, rng: () => number = Math.random): DiceRollResult | null {
+export function rollDice(
+  input: string,
+  rng: () => number = Math.random,
+  options: RollOptions = {}
+): DiceRollResult | null {
   const terms = parseDiceExpression(input)
   if (!terms) return null
 
@@ -105,13 +118,33 @@ export function rollDice(input: string, rng: () => number = Math.random): DiceRo
     }
 
     const rolls = Array.from({ length: term.count }, () => Math.floor(rng() * term.sides) + 1)
+
+    let rerolledFrom: (number | undefined)[] | undefined
+    if (options.rerollAtOrBelow !== undefined) {
+      const threshold = options.rerollAtOrBelow
+      rolls.forEach((roll, i) => {
+        if (roll > threshold) return
+        rerolledFrom ??= new Array(rolls.length).fill(undefined)
+        rerolledFrom[i] = roll
+        rolls[i] = Math.floor(rng() * term.sides) + 1
+      })
+    }
+
     let kept = rolls
     if (term.keep) {
       const sorted = [...rolls].sort((a, b) => b - a)
       kept = term.keep.mode === 'kh' ? sorted.slice(0, term.keep.n) : sorted.slice(-term.keep.n)
     }
     total += term.sign * kept.reduce((sum, r) => sum + r, 0)
-    groups.push({ sign: term.sign, count: term.count, sides: term.sides, keep: term.keep, rolls, kept })
+    groups.push({
+      sign: term.sign,
+      count: term.count,
+      sides: term.sides,
+      keep: term.keep,
+      rolls,
+      kept,
+      rerolledFrom
+    })
   }
 
   return {
