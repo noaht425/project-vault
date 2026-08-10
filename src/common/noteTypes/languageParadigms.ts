@@ -129,7 +129,10 @@ function knownVowels(rules: VowelCombinationRules): Set<string> {
   const vowels = new Set<string>()
   for (const [left, rightMap] of Object.entries(rules.pairs)) {
     vowels.add(left)
-    for (const right of Object.keys(rightMap)) vowels.add(right)
+    for (const [right, result] of Object.entries(rightMap)) {
+      vowels.add(right)
+      vowels.add(result)
+    }
   }
   for (const vowel of Object.keys(rules.beforeConsonant)) vowels.add(vowel)
   return vowels

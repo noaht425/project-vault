@@ -252,6 +252,27 @@ Testgender:
       irregular: false
     })
   })
+
+  it('does not treat a vowel-combination result as a consonant for a later before-consonant rule', () => {
+    // "ü" only ever appears as a combination *result* ("e + u = ü", "u + a
+    // = ü") — never as a left/right key of a pair — so it's the case
+    // knownVowels() missed before it also collected result characters.
+    // Stem "Kelvy" (ends in "y") + ending "-ünda" (starts with "ü") has no
+    // "y + ü" pair defined, so the join is a plain concatenation, and the
+    // before-consonant scan is what's under test: "y" followed by the real
+    // vowel "ü" must NOT trigger "y before a consonant -> u".
+    const paradigm = parseNounParadigm(`
+Testgender:
+| Case | Singular |
+| --- | --- |
+| Nominative | -a |
+| Accusative | -ünda |
+`)!
+    expect(declineNoun(paradigm, 'Kelvya', 'Testgender', 'Accusative', 'Singular', vowelRules)).toEqual({
+      form: 'Kelvyünda',
+      irregular: false
+    })
+  })
 })
 
 describe('affix direction (prefix vs suffix)', () => {
