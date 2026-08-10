@@ -25,8 +25,8 @@ export function DiceRoller(): React.JSX.Element {
   const history = useDiceStore((s) => s.history)
   const roll = useDiceStore((s) => s.roll)
   const clearHistory = useDiceStore((s) => s.clearHistory)
-  const rerollLowRolls = useDiceStore((s) => s.rerollLowRolls)
-  const toggleRerollLowRolls = useDiceStore((s) => s.toggleRerollLowRolls)
+  const rerollMode = useDiceStore((s) => s.rerollMode)
+  const setRerollMode = useDiceStore((s) => s.setRerollMode)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -63,9 +63,16 @@ export function DiceRoller(): React.JSX.Element {
           </div>
           <div className="dice-quick-row">
             <button
-              className={rerollLowRolls ? 'active' : ''}
+              className={rerollMode === 'ones' ? 'active' : ''}
+              title="While on, every 1 rolled gets rerolled once and the new result is kept"
+              onClick={() => setRerollMode(rerollMode === 'ones' ? 'off' : 'ones')}
+            >
+              Reroll 1s
+            </button>
+            <button
+              className={rerollMode === 'ones-and-twos' ? 'active' : ''}
               title="While on, every 1 or 2 rolled gets rerolled once and the new result is kept"
-              onClick={toggleRerollLowRolls}
+              onClick={() => setRerollMode(rerollMode === 'ones-and-twos' ? 'off' : 'ones-and-twos')}
             >
               Reroll 1s &amp; 2s
             </button>
