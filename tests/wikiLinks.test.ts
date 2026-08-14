@@ -1,0 +1,36 @@
+import { describe, it, expect } from 'vitest'
+import { extractWikiLinkTitles } from '../src/common/wikiLinks'
+
+describe('extractWikiLinkTitles', () => {
+  it('extracts a plain [[Title]] link', () => {
+    expect(extractWikiLinkTitles('See [[Alice]] for details.')).toEqual(['Alice'])
+  })
+
+  it('extracts the title from [[Title|Alias]], ignoring the alias', () => {
+    expect(extractWikiLinkTitles('[[Alice|the queen]] ruled here.')).toEqual(['Alice'])
+  })
+
+  it('extracts the title from [[Title#Heading]], ignoring the heading', () => {
+    expect(extractWikiLinkTitles('[[Alice#Early Life]] was interesting.')).toEqual(['Alice'])
+  })
+
+  it('extracts multiple links in order, allowing duplicates', () => {
+    expect(extractWikiLinkTitles('[[Alice]] met [[Bob]] then [[Alice]] again.')).toEqual(['Alice', 'Bob', 'Alice'])
+  })
+
+  it('trims whitespace inside the brackets', () => {
+    expect(extractWikiLinkTitles('[[  Alice  ]]')).toEqual(['Alice'])
+  })
+
+  it('returns nothing when there are no links', () => {
+    expect(extractWikiLinkTitles('Just plain text.')).toEqual([])
+  })
+
+  it('skips a [[timeline: ...]] mention rather than treating it as a link title', () => {
+    expect(extractWikiLinkTitles('[[timeline: 12 Aucaela, 400 AM: Founding]] and [[Alice]]')).toEqual(['Alice'])
+  })
+
+  it('is case-insensitive when skipping the timeline marker', () => {
+    expect(extractWikiLinkTitles('[[Timeline: 1 AM: event]]')).toEqual([])
+  })
+})

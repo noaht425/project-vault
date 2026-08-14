@@ -101,7 +101,7 @@ export function CloudEventsPillTimelineView({ onOpenEvent }: { onOpenEvent: (id:
     if (!events) return []
     const items: PlacedEventData[] = []
     for (const event of events) {
-      if (event.noteType !== 'event' || !event.structuredDate) continue
+      if (!event.structuredDate) continue
       const calendar = calendarByTitle.get(event.structuredDate.calendarNoteTitle)
       if (!calendar) continue
       const minutes = toCanonicalMinutes(calendar, event.structuredDate)

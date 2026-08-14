@@ -9,9 +9,9 @@ import { stringifyNote, parseNote } from '../../common/frontmatter'
 import { sessionFrontmatterSchema } from '../../common/noteTypes/session'
 import { eventFrontmatterSchema } from '../../common/noteTypes/event'
 import { calendarFrontmatterSchema } from '../../common/noteTypes/calendar'
-import { extractHistoryFacts, extractBornDiedFacts } from '../../common/worldTimeline'
+import { extractHistoryFacts, extractBornDiedFacts, extractInlineTimelineFacts } from '../../common/worldTimeline'
 import { compareWorldDates } from '../../common/worldDate'
-import { computeDateMigration, type CalendarCandidate } from '../../common/dateMigration'
+import { computeDateMigration, migrateFreeTextDate, type CalendarCandidate } from '../../common/dateMigration'
 import { buildGraph, type GraphData } from '../../common/graph'
 import { TEMPLATE_DEFAULTS, TEMPLATE_STARTER_BODY } from '../../common/noteTemplateDefaults'
 import { buildTree } from './tree'
@@ -454,28 +454,46 @@ export class VaultSession {
 
   /**
    * The Events timeline shows the whole world's history, not just notes of
-   * type "event" — every note gets scanned for a "## History" section and
-   * bare "Born:"/"Died:" lines (see common/worldTimeline.ts) so a kingdom's
-   * founding or a king's death shows up alongside dedicated Event notes.
-   * Sorted with compareWorldDates, which understands the in-world AF/AM
-   * calendar (session dates are real-world ISO dates, so listSessions
-   * keeps the plain string sort above).
+   * type "event" — every note gets scanned for a "## History" section, bare
+   * "Born:"/"Died:" lines, and inline "[[timeline: ...]]" mentions (see
+   * common/worldTimeline.ts) so a kingdom's founding or a king's death shows
+   * up alongside dedicated Event notes. Sorted with compareWorldDates,
+   * which understands the in-world AF/AM calendar (session dates are
+   * real-world ISO dates, so listSessions keeps the plain string sort
+   * above).
    */
   async listEvents(): Promise<EventSummary[]> {
     const db = this.requireDb()
     const rows = db.prepare('SELECT path, type FROM notes').all() as { path: string; type: string }[]
 
-    const entries: EventSummary[] = []
+    const notes: { path: string; type: string; frontmatter: Record<string, unknown>; body: string }[] = []
     for (const row of rows) {
       const note = await readNoteFromDisk(row.path).catch(() => null)
       if (!note) continue
       const { frontmatter, body } = parseNote(note.content)
-      const title = titleFromPath(row.path)
+      notes.push({ path: row.path, type: row.type, frontmatter, body })
+    }
 
-      if (row.type === 'event') {
-        const parsed = eventFrontmatterSchema.safeParse(frontmatter)
+    // Calendar notes, used below to resolve inline [[timeline: ...]]
+    // mentions to a structuredDate — same name/abbreviation matching
+    // migrateEventDates uses for whole Event notes — so these mentions can
+    // be placed on the pill timeline and month grid too, not just this
+    // flat list.
+    const calendars: CalendarCandidate[] = []
+    for (const note of notes) {
+      if (note.type !== 'calendar') continue
+      const parsed = calendarFrontmatterSchema.safeParse(note.frontmatter)
+      if (parsed.success) calendars.push({ noteTitle: titleFromPath(note.path), frontmatter: parsed.data })
+    }
+
+    const entries: EventSummary[] = []
+    for (const note of notes) {
+      const title = titleFromPath(note.path)
+
+      if (note.type === 'event') {
+        const parsed = eventFrontmatterSchema.safeParse(note.frontmatter)
         entries.push({
-          path: row.path,
+          path: note.path,
           title,
           date: parsed.success ? parsed.data.date : '',
           summary: parsed.success ? parsed.data.summary : '',
@@ -485,13 +503,24 @@ export class VaultSession {
         })
       }
 
-      for (const fact of [...extractHistoryFacts(body), ...extractBornDiedFacts(body)]) {
+      for (const fact of [...extractHistoryFacts(note.body), ...extractBornDiedFacts(note.body)]) {
         entries.push({
-          path: row.path,
+          path: note.path,
           title,
           date: fact.date,
           summary: fact.description,
-          noteType: row.type
+          noteType: note.type
+        })
+      }
+
+      for (const fact of extractInlineTimelineFacts(note.body)) {
+        entries.push({
+          path: note.path,
+          title,
+          date: fact.date,
+          summary: fact.description,
+          noteType: note.type,
+          structuredDate: calendars.length > 0 ? (migrateFreeTextDate(fact.date, calendars) ?? undefined) : undefined
         })
       }
     }

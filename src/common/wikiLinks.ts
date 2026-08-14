@@ -1,6 +1,8 @@
 // Matches [[Title]], [[Title|Alias]], and [[Title#Heading]] (heading/alias
 // are captured but only the title is used for link resolution in v1).
-const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g
+// Excludes [[timeline: ...]] mentions (see common/worldTimeline.ts) via a
+// negative lookahead — those are a distinct marker, not a note reference.
+const WIKI_LINK_RE = /\[\[(?!\s*timeline\s*:)([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/gi
 
 export function extractWikiLinkTitles(content: string): string[] {
   const titles: string[] = []

@@ -6,7 +6,11 @@ import { parseNote } from '../../../../common/frontmatter'
 import { stripStructuredSections } from '../../../../common/noteTypes/language'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
-const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g
+// Excludes [[timeline: ...]] mentions (see common/worldTimeline.ts) via a
+// negative lookahead — those are a distinct marker, rendered separately
+// below, not a note reference.
+const WIKI_LINK_RE = /\[\[(?!\s*timeline\s*:)([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/gi
+const INLINE_TIMELINE_RE = /\[\[timeline:\s*([^\]]+)\]\]/gi
 
 // Rewrites [[Title]] / [[Title|Alias]] into ordinary markdown links pointing
 // at a "wikilink:" pseudo-URL, which the custom `a` renderer below
@@ -19,6 +23,19 @@ function convertWikiLinksToMarkdown(content: string): string {
   })
 }
 
+// Renders [[timeline: <date>: <description>]] as plain styled text — no
+// note to link to, just a visual marker that this line is on the timeline
+// (see session.ts's listEvents, which extracts the same syntax).
+function convertInlineTimelineToMarkdown(content: string): string {
+  return content.replace(INLINE_TIMELINE_RE, (match, inner: string) => {
+    const idx = inner.indexOf(': ')
+    if (idx === -1) return match
+    const date = inner.slice(0, idx).trim()
+    const description = inner.slice(idx + 2).trim()
+    return `**📅 ${date}:** ${description}`
+  })
+}
+
 export function PreviewPane({ content, noteRefApi }: { content: string; noteRefApi: NoteRefApi }): React.JSX.Element {
   const handleWikiLinkClick = noteRefApi.openByTitle
 
@@ -28,7 +45,7 @@ export function PreviewPane({ content, noteRefApi }: { content: string; noteRefA
   // rendering them again here as raw headings would just be the same
   // content twice.
   const previewBody = frontmatter.type === 'language' ? stripStructuredSections(body) : body
-  const markdown = convertWikiLinksToMarkdown(wrapBareDiceInBackticks(previewBody))
+  const markdown = convertWikiLinksToMarkdown(convertInlineTimelineToMarkdown(wrapBareDiceInBackticks(previewBody)))
 
   return (
     <div className="preview-pane">
