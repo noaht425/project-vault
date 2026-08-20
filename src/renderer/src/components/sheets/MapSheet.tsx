@@ -12,6 +12,7 @@ import {
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 import { MapCanvas, type MapCanvasMode } from './MapCanvas'
+import { MapGenerationPanel } from './MapGenerationPanel'
 import { MapTripCalculator } from './MapTripCalculator'
 import { MapTimeline } from './MapTimeline'
 import { TravelModesEditor } from './TravelModesEditor'
@@ -194,7 +195,7 @@ export function MapSheet({
     if (!pendingZonePoints) return
     const terrainType = resolveType(data.terrainTypes)
     if (!terrainType) return
-    const zone: MapZone = { id: crypto.randomUUID(), terrainTypeId: terrainType.id, points: pendingZonePoints }
+    const zone: MapZone = { id: crypto.randomUUID(), terrainTypeId: terrainType.id, points: pendingZonePoints, generated: false }
     // Terrain type + zone are written in one patch when it's a new terrain
     // type — data.terrainTypes read here is a snapshot from this render, so
     // a second separate updateFrontmatter call for the zone would silently
@@ -238,7 +239,7 @@ export function MapSheet({
 
   const confirmLandmass = (): void => {
     if (!pendingLandmassPoints) return
-    const landmass: MapLandmass = { id: crypto.randomUUID(), name: newLandmassName.trim(), points: pendingLandmassPoints }
+    const landmass: MapLandmass = { id: crypto.randomUUID(), name: newLandmassName.trim(), points: pendingLandmassPoints, generated: false }
     updateFrontmatter({ landmasses: [...data.landmasses, landmass] })
     setPendingLandmassPoints(null)
     setNewLandmassName('')
@@ -789,6 +790,8 @@ export function MapSheet({
               <button onClick={cancelPin}>Cancel</button>
             </div>
           )}
+
+          <MapGenerationPanel data={data} workingDims={workingDims} updateFrontmatter={updateFrontmatter} />
         </>
       )}
 
