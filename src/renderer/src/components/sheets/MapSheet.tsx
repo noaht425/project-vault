@@ -331,6 +331,7 @@ export function MapSheet({
   const [showZones, setShowZones] = useState(true)
   const [showLines, setShowLines] = useState(true)
   const [showPins, setShowPins] = useState(true)
+  const [showClimateZones, setShowClimateZones] = useState(true)
   const [canvasWidthInput, setCanvasWidthInput] = useState('1000')
   const [canvasHeightInput, setCanvasHeightInput] = useState('1000')
 
@@ -563,6 +564,10 @@ export function MapSheet({
               <input type="checkbox" checked={showPins} onChange={(e) => setShowPins(e.target.checked)} />
               Pins
             </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={showClimateZones} onChange={(e) => setShowClimateZones(e.target.checked)} />
+              Climate
+            </label>
           </div>
 
           <div style={{ position: 'relative', height: 864, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -576,6 +581,8 @@ export function MapSheet({
               pins={data.pins}
               terrainTypes={data.terrainTypes}
               lineTypes={data.lineTypes}
+              climateZones={data.climateZones}
+              climateTypes={data.climateTypes}
               mode={mode}
               onCalibrate={setPendingPixelDistance}
               onZoneDrawn={setPendingZonePoints}
@@ -617,6 +624,7 @@ export function MapSheet({
               showZones={showZones}
               showLines={showLines}
               showPins={showPins}
+              showClimateZones={showClimateZones}
             />
           </div>
 

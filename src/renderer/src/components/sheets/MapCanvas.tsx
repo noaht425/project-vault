@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { foldDrawnPathAtWraps, foldPoint, segmentDistance, type Point, type WrapConfig } from '../../../../common/mapGeometry'
-import { pinDisplayLabel, type LineType, type MapLandmass, type MapLine, type MapPin, type MapZone, type TerrainType } from '../../../../common/noteTypes/map'
+import {
+  pinDisplayLabel,
+  type ClimateType,
+  type ClimateZone,
+  type LineType,
+  type MapLandmass,
+  type MapLine,
+  type MapPin,
+  type MapZone,
+  type TerrainType
+} from '../../../../common/noteTypes/map'
 
 export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
 
@@ -52,6 +62,8 @@ export interface MapCanvasProps {
   pins: MapPin[]
   terrainTypes: TerrainType[]
   lineTypes: LineType[]
+  climateZones?: ClimateZone[]
+  climateTypes?: ClimateType[]
   mode: MapCanvasMode
   onCalibrate: (pixelDistance: number) => void
   onZoneDrawn: (points: Point[]) => void
@@ -89,13 +101,14 @@ export interface MapCanvasProps {
   // Per-layer visibility — all default to visible, so every existing caller
   // (nothing passes these yet) renders identically to before. Added for the
   // procedural map generation feature's "toggle a layer on/off" panel; see
-  // the plan's Phase 0. climateZones/territories aren't rendered here yet
-  // (no color scheme designed for them until Phase 2/3), so no toggle props
-  // for those two exist until the layers themselves do.
+  // the plan's Phase 0. showClimateZones added in Phase 2 alongside the
+  // climate layer itself; territories still aren't rendered here (no color
+  // scheme designed until Phase 3).
   showLandmasses?: boolean
   showZones?: boolean
   showLines?: boolean
   showPins?: boolean
+  showClimateZones?: boolean
 }
 
 export function MapCanvas({
@@ -108,6 +121,8 @@ export function MapCanvas({
   pins,
   terrainTypes,
   lineTypes,
+  climateZones = [],
+  climateTypes = [],
   mode,
   onCalibrate,
   onZoneDrawn,
@@ -124,7 +139,8 @@ export function MapCanvas({
   showLandmasses = true,
   showZones = true,
   showLines = true,
-  showPins = true
+  showPins = true,
+  showClimateZones = true
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -166,6 +182,7 @@ export function MapCanvas({
 
   const terrainTypesById = useMemo(() => new Map(terrainTypes.map((t) => [t.id, t])), [terrainTypes])
   const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
+  const climateTypesById = useMemo(() => new Map(climateTypes.map((t) => [t.id, t])), [climateTypes])
   const pinRadius = Math.max(6, Math.min(imageWidth, imageHeight) * 0.01)
   const equatorStrokeWidth = Math.max(2, Math.min(imageWidth, imageHeight) * 0.003)
   const wrapConfig: WrapConfig = { mapWidth: imageWidth, mapHeight: imageHeight, wrapsHorizontally, wrapsVertically }
@@ -210,6 +227,26 @@ export function MapCanvas({
         />
       )),
     [landmasses]
+  )
+
+  // Renders BELOW terrain zones (landmasses -> climate -> terrain -> lines
+  // -> pins) — a climate zone is a broad background biome tint, while a
+  // terrain zone is a more specific painted region that should still read
+  // clearly on top of it. Higher fillOpacity than a terrain zone (0.35)
+  // since climate zones are typically much larger and would otherwise
+  // barely register at the same faintness.
+  const climateZoneElements = useMemo(
+    () =>
+      climateZones.map((zone) => (
+        <polygon
+          key={zone.id}
+          points={zone.points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill={climateTypesById.get(zone.climateTypeId)?.color ?? '#888'}
+          fillOpacity={0.45}
+          stroke="none"
+        />
+      )),
+    [climateZones, climateTypesById]
   )
 
   const zoneElements = useMemo(
@@ -498,6 +535,8 @@ export function MapCanvas({
           {landmassElements}
         </g>
       )}
+
+      {showClimateZones && <g>{climateZoneElements}</g>}
 
       {showZones && <g>{zoneElements}</g>}
 
