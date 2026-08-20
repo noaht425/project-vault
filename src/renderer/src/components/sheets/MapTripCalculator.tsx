@@ -10,7 +10,6 @@ import {
 import {
   pinDisplayLabel,
   type LineType,
-  type MapImage,
   type MapLandmass,
   type MapLine,
   type MapPin,
@@ -48,7 +47,10 @@ export function MapTripCalculator({
   landmasses: MapLandmass[]
   waterTerrainTypeId: string | null
   scale: MapScale | null
-  image: MapImage | null
+  // Only width/height are ever read here (wrap-around geometry) — accepting
+  // just that shape instead of a full MapImage lets this work equally for a
+  // purely-generated map (canvasSize) with no uploaded raster at all.
+  image: { width: number; height: number } | null
   wrapsHorizontally: boolean
   wrapsVertically: boolean
   equatorY: number | null

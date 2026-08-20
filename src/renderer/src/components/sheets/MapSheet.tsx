@@ -221,7 +221,7 @@ export function MapSheet({
     if (!Number.isFinite(widthPixels) || widthPixels <= 0) return
     const lineType = resolveType(data.lineTypes)
     if (!lineType) return
-    const line: MapLine = { id: crypto.randomUUID(), lineTypeId: lineType.id, points: pendingLinePoints, widthPixels }
+    const line: MapLine = { id: crypto.randomUUID(), lineTypeId: lineType.id, points: pendingLinePoints, widthPixels, generated: false }
     const isNewLineType = terrainChoice === '__new__'
     updateFrontmatter(
       isNewLineType ? { lineTypes: [...data.lineTypes, lineType], lines: [...data.lines, line] } : { lines: [...data.lines, line] }
@@ -302,19 +302,36 @@ export function MapSheet({
   // compare never overwrites either mode's own settings (a manual
   // calibration survives a detour through 'latitude' mode, and vice versa).
   // Both null/None until all three latitude-mode inputs are filled in.
+  // Working canvas dimensions, independent of whether there's an uploaded
+  // raster: an uploaded image is still the source of truth for size when
+  // present (unchanged behavior), but a purely-generated map with no image
+  // falls back to canvasSize instead — see map.ts's canvasSize field.
+  const workingDims = data.image ? { width: data.image.width, height: data.image.height } : data.canvasSize
+  // True once there's something to actually draw a canvas over: an image
+  // that's finished loading its signed/local URL, or a generated-only
+  // canvas size (which needs no async load at all).
+  const canvasReady = workingDims !== null && (!data.image || imageUrl !== null)
+
   const derivedScale =
-    data.scaleMode === 'latitude' && data.topLatitude !== null && data.bottomLatitude !== null && data.planetCircumference && data.image
-      ? deriveScaleFromLatitudeSpan(data.topLatitude, data.bottomLatitude, data.planetCircumference, data.image.height, data.latitudeUnit)
+    data.scaleMode === 'latitude' && data.topLatitude !== null && data.bottomLatitude !== null && data.planetCircumference && workingDims
+      ? deriveScaleFromLatitudeSpan(data.topLatitude, data.bottomLatitude, data.planetCircumference, workingDims.height, data.latitudeUnit)
       : null
   const derivedEquatorY =
     data.scaleMode === 'latitude' && data.topLatitude !== null && data.bottomLatitude !== null
-      ? deriveEquatorY(data.topLatitude, data.bottomLatitude, data.image?.height ?? 0)
+      ? deriveEquatorY(data.topLatitude, data.bottomLatitude, workingDims?.height ?? 0)
       : null
   // The scale actually used everywhere else (Trip Calculator, the
   // line-drawing crossing-time preview, etc.) — threaded through explicitly
   // rather than having every consumer read data.scale directly, since in
   // 'latitude' mode the real scale is derived, not stored.
   const effectiveScale = data.scaleMode === 'latitude' ? derivedScale : data.scale
+
+  const [showLandmasses, setShowLandmasses] = useState(true)
+  const [showZones, setShowZones] = useState(true)
+  const [showLines, setShowLines] = useState(true)
+  const [showPins, setShowPins] = useState(true)
+  const [canvasWidthInput, setCanvasWidthInput] = useState('1000')
+  const [canvasHeightInput, setCanvasHeightInput] = useState('1000')
 
   return (
     <div className="sheet-view">
@@ -332,7 +349,39 @@ export function MapSheet({
         {uploadError && <span className="right-panel-note">{uploadError}</span>}
       </div>
 
-      {data.image && imageUrl && (
+      {/* A map doesn't need an uploaded raster at all — this is the entry
+          point for a purely-generated map (see the procedural map generation
+          plan). Only offered while there's neither an image nor a canvas
+          size yet; once canvasSize is set, the rest of the editor treats it
+          exactly like an image-backed map (see workingDims/canvasReady). */}
+      {!data.image && !data.canvasSize && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 8, flexWrap: 'wrap' }}>
+          <label className="sheet-field">
+            Width (px)
+            <input type="number" value={canvasWidthInput} onChange={(e) => setCanvasWidthInput(e.target.value)} style={{ width: 90 }} />
+          </label>
+          <label className="sheet-field">
+            Height (px)
+            <input type="number" value={canvasHeightInput} onChange={(e) => setCanvasHeightInput(e.target.value)} style={{ width: 90 }} />
+          </label>
+          <button
+            onClick={() => {
+              const width = Number(canvasWidthInput)
+              const height = Number(canvasHeightInput)
+              if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+                updateFrontmatter({ canvasSize: { width, height } })
+              }
+            }}
+          >
+            Start blank map (no image)
+          </button>
+          <p className="right-panel-note" style={{ flexBasis: '100%' }}>
+            For a map you&apos;ll fill in with the generator instead of an uploaded image.
+          </p>
+        </div>
+      )}
+
+      {canvasReady && workingDims && (
         <>
           <div className="editor-toolbar">
             <button className={mode === 'view' ? 'active' : ''} onClick={() => setMode('view')}>
@@ -496,11 +545,30 @@ export function MapSheet({
           )}
           {mode === 'place-pin' && !pendingPinPoint && <p className="right-panel-note">Click a spot on the map to place a pin.</p>}
 
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={showLandmasses} onChange={(e) => setShowLandmasses(e.target.checked)} />
+              Landmasses
+            </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
+              Terrain
+            </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={showLines} onChange={(e) => setShowLines(e.target.checked)} />
+              Lines
+            </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={showPins} onChange={(e) => setShowPins(e.target.checked)} />
+              Pins
+            </label>
+          </div>
+
           <div style={{ position: 'relative', height: 864, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
             <MapCanvas
-              imageUrl={imageUrl}
-              imageWidth={data.image.width}
-              imageHeight={data.image.height}
+              imageUrl={imageUrl ?? undefined}
+              imageWidth={workingDims.width}
+              imageHeight={workingDims.height}
               zones={data.zones}
               lines={data.lines}
               landmasses={data.landmasses}
@@ -522,10 +590,10 @@ export function MapSheet({
                 // into blank space until the Trip Calculator happened to
                 // recompute it.
                 const legs =
-                  data.image && (data.wrapsHorizontally || data.wrapsVertically)
+                  data.wrapsHorizontally || data.wrapsVertically
                     ? foldDrawnPathAtWraps(points, {
-                        mapWidth: data.image.width,
-                        mapHeight: data.image.height,
+                        mapWidth: workingDims.width,
+                        mapHeight: workingDims.height,
                         wrapsHorizontally: data.wrapsHorizontally,
                         wrapsVertically: data.wrapsVertically
                       })
@@ -544,6 +612,10 @@ export function MapSheet({
               equatorY={derivedEquatorY}
               wrapsHorizontally={data.wrapsHorizontally}
               wrapsVertically={data.wrapsVertically}
+              showLandmasses={showLandmasses}
+              showZones={showZones}
+              showLines={showLines}
+              showPins={showPins}
             />
           </div>
 
@@ -890,7 +962,7 @@ export function MapSheet({
           landmasses={data.landmasses}
           waterTerrainTypeId={data.waterTerrainTypeId}
           scale={effectiveScale}
-          image={data.image}
+          image={workingDims}
           wrapsHorizontally={data.wrapsHorizontally}
           wrapsVertically={data.wrapsVertically}
           equatorY={derivedEquatorY}

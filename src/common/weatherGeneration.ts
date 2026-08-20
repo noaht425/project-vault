@@ -9,21 +9,11 @@
 import type { CalendarFrontmatter } from './noteTypes/calendar'
 import type { ClimateFrontmatter, WeatherCondition } from './noteTypes/climate'
 import { fromCanonicalMinutes } from './calendarMath'
+import { deterministicFraction } from './rng'
 
-/**
- * Maps any integer (including negative, for a day before canonical epoch)
- * to a stable fraction in [0, 1) — the same integer always produces the
- * same fraction. A small dependency-free integer hash (splitmix32-style:
- * xor-shift + Math.imul multiplies), not a general-purpose PRNG — this only
- * ever needs one fraction per seed, never a stream of them.
- */
-export function deterministicFraction(seed: number): number {
-  let x = seed | 0
-  x = Math.imul(x ^ (x >>> 16), 0x45d9f3b)
-  x = Math.imul(x ^ (x >>> 16), 0x45d9f3b)
-  x = (x ^ (x >>> 16)) >>> 0
-  return x / 4294967296
-}
+// Re-exported for backward compatibility — this used to be defined here;
+// it now lives in rng.ts since the map generation system needs it too.
+export { deterministicFraction }
 
 /** Weighted pick from a precomputed `fraction` (same weighted-selection math as
  * settlementNames.ts's pickWeighted, just fed a fraction instead of calling rng() itself —

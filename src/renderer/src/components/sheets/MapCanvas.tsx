@@ -38,7 +38,12 @@ function getViewportTransform(rect: DOMRect, viewBox: ViewBox): { scale: number;
 }
 
 export interface MapCanvasProps {
-  imageUrl: string
+  // Empty/absent for a purely-generated map with no uploaded raster — the
+  // <image> element is skipped entirely in that case, but the SVG's
+  // coordinate space (driven by imageWidth/imageHeight) still applies, so
+  // zones/lines/landmasses/pins render exactly as they would over a raster.
+  // See MapSheet's dimension resolution (data.canvasSize ?? data.image).
+  imageUrl?: string
   imageWidth: number
   imageHeight: number
   zones: MapZone[]
@@ -81,6 +86,16 @@ export interface MapCanvasProps {
   // a route across a wrapping edge isn't a guessing game.
   wrapsHorizontally?: boolean
   wrapsVertically?: boolean
+  // Per-layer visibility — all default to visible, so every existing caller
+  // (nothing passes these yet) renders identically to before. Added for the
+  // procedural map generation feature's "toggle a layer on/off" panel; see
+  // the plan's Phase 0. climateZones/territories aren't rendered here yet
+  // (no color scheme designed for them until Phase 2/3), so no toggle props
+  // for those two exist until the layers themselves do.
+  showLandmasses?: boolean
+  showZones?: boolean
+  showLines?: boolean
+  showPins?: boolean
 }
 
 export function MapCanvas({
@@ -105,7 +120,11 @@ export function MapCanvas({
   tripPath,
   equatorY,
   wrapsHorizontally = false,
-  wrapsVertically = false
+  wrapsVertically = false,
+  showLandmasses = true,
+  showZones = true,
+  showLines = true,
+  showPins = true
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -468,19 +487,21 @@ export function MapCanvas({
       onMouseLeave={() => setDrawHoverPoint(null)}
       onMouseDown={handleMouseDown}
     >
-      <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />
+      {imageUrl && <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />}
 
-      <g>
-        {/* Landmass boundaries render underneath terrain zones/lines — they're
-            a land/water backdrop, not a paintable region themselves, so a
-            dashed outline with near-zero fill keeps whatever's drawn inside
-            (or the base map image) fully legible. */}
-        {landmassElements}
-      </g>
+      {showLandmasses && (
+        <g>
+          {/* Landmass boundaries render underneath terrain zones/lines — they're
+              a land/water backdrop, not a paintable region themselves, so a
+              dashed outline with near-zero fill keeps whatever's drawn inside
+              (or the base map image) fully legible. */}
+          {landmassElements}
+        </g>
+      )}
 
-      <g>{zoneElements}</g>
+      {showZones && <g>{zoneElements}</g>}
 
-      <g>{lineElements}</g>
+      {showLines && <g>{lineElements}</g>}
 
       {mode === 'paint-zone' && zoneDraft.length > 0 && (
         <g>
@@ -603,7 +624,7 @@ export function MapCanvas({
         </g>
       )}
 
-      <g>{pinElements}</g>
+      {showPins && <g>{pinElements}</g>}
     </svg>
   )
 }
