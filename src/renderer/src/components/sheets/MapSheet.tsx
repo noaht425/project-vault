@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { mapFrontmatterSchema } from '../../../../common/noteTypes/map'
-import type { LineType, MapLandmass, MapLine, MapZone, TerrainType } from '../../../../common/noteTypes/map'
+import type { LineType, MapLandmass, MapLine, MapPin, MapZone, TerrainType } from '../../../../common/noteTypes/map'
 import {
   crossingTime,
   deriveEquatorY,
   deriveScaleFromLatitudeSpan,
   foldDrawnPathAtWraps,
+  pointInPolygon,
   type Point
 } from '../../../../common/mapGeometry'
+import { defaultSettlementFrontmatter } from '../../../../common/noteTypes/settlement'
+import { presetFieldsFromPreset, settlementPresetFrontmatterSchema } from '../../../../common/noteTypes/settlementPreset'
+import { generateSettlement } from '../../../../common/settlementGenerator'
+import { NAME_INSPIRATION_SOURCES } from '../../../../common/settlementNames'
+import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 import { MapCanvas, type MapCanvasMode } from './MapCanvas'
@@ -76,6 +82,9 @@ export function MapSheet({
   const [pendingPinPoint, setPendingPinPoint] = useState<Point | null>(null)
   const [pinQuery, setPinQuery] = useState('')
   const [pinResults, setPinResults] = useState<{ title: string }[]>([])
+
+  const [generatingSettlementPinId, setGeneratingSettlementPinId] = useState<string | null>(null)
+  const [settlementGenError, setSettlementGenError] = useState<string | null>(null)
 
   // Lifted up from the Timeline section (below) so MapCanvas, which renders
   // above it, can ring the pins for whatever events are currently revealed.
@@ -273,6 +282,60 @@ export function MapSheet({
   const cancelPin = (): void => {
     setPendingPinPoint(null)
     setMode('view')
+  }
+
+  // "Generate settlement from pin" (map generation plan, Phase 4): a
+  // generated-but-unlinked pin (a placeholder city name dropped by the
+  // Civilizations generator) becomes a real Settlement note. Which
+  // settlement-preset note to generate FROM is resolved from whichever
+  // territory polygon this pin falls inside — see the Civilizations
+  // section's per-territory preset picker in MapGenerationPanel.tsx, which
+  // is exactly what feeds presetNoteTitle here. Ported from MapForm.tsx's
+  // fetch-based version, using noteRefApi's title-resolution/createNote
+  // instead of direct API calls.
+  const generateSettlementFromPin = async (pin: MapPin): Promise<void> => {
+    setSettlementGenError(null)
+    const territory = data.territories.find((t) => pointInPolygon({ x: pin.x, y: pin.y }, t.points))
+    if (!territory?.presetNoteTitle) {
+      setSettlementGenError(
+        `"${pin.label}" isn't inside a territory with a settlement preset assigned yet — assign one in the Generate panel's Civilizations section.`
+      )
+      return
+    }
+    setGeneratingSettlementPinId(pin.id)
+    try {
+      const frontmatter = await noteRefApi.readFrontmatterByTitle(territory.presetNoteTitle, 'settlement-preset')
+      if (!frontmatter) throw new Error(`Settlement preset "${territory.presetNoteTitle}" no longer exists.`)
+      const parsed = settlementPresetFrontmatterSchema.safeParse(frontmatter)
+      if (!parsed.success) throw new Error(`"${territory.presetNoteTitle}" doesn't look like a valid settlement preset.`)
+
+      // presetFieldsFromPreset carries targetPopulation (the preset's own
+      // field name) but generateSettlement's GenerationOptions calls the
+      // same concept population — split it out rather than leaning on
+      // spread's excess-property leniency.
+      const presetFields = presetFieldsFromPreset(parsed.data)
+      const { targetPopulation, ...forGeneration } = presetFields
+      const result = generateSettlement({
+        ...forGeneration,
+        population: targetPopulation,
+        inspirationSources: NAME_INSPIRATION_SOURCES,
+        phoneticProfiles: PHONETIC_PROFILES
+      })
+
+      const created = await noteRefApi.createNote(pin.label.trim() || 'Generated Settlement', {
+        ...defaultSettlementFrontmatter(),
+        ...presetFields,
+        buildings: result.buildings,
+        residents: result.residents,
+        factions: result.factions
+      })
+
+      updateFrontmatter({ pins: data.pins.map((p) => (p.id === pin.id ? { ...p, locationTitle: created.title } : p)) })
+    } catch (err) {
+      setSettlementGenError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGeneratingSettlementPinId(null)
+    }
   }
 
   const updateTerrainType = (id: string, patch: Partial<TerrainType>): void =>
@@ -962,10 +1025,16 @@ export function MapSheet({
             ) : (
               <div key={pin.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <span style={{ opacity: 0.7 }}>{pin.label} (no note)</span>
+                {pin.generated && (
+                  <button disabled={generatingSettlementPinId === pin.id} onClick={() => void generateSettlementFromPin(pin)}>
+                    {generatingSettlementPinId === pin.id ? 'Generating…' : 'Generate settlement'}
+                  </button>
+                )}
                 <button onClick={() => removePin(pin.id)}>✕</button>
               </div>
             )
           )}
+          {settlementGenError && <p className="right-panel-note">{settlementGenError}</p>}
         </details>
       )}
 
