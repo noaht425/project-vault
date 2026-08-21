@@ -208,7 +208,7 @@ export function MapSheet({
   const resolveType = (pool: TerrainType[]): TerrainType | null => {
     if (terrainChoice === '__new__') {
       if (!newTerrainName.trim()) return null
-      return { id: crypto.randomUUID(), name: newTerrainName.trim(), color: newTerrainColor, speedMultiplier: newTerrainMultiplier }
+      return { id: crypto.randomUUID(), name: newTerrainName.trim(), color: newTerrainColor, speedMultiplier: newTerrainMultiplier, climateElevationOverride: null }
     }
     return pool.find((t) => t.id === terrainChoice) ?? null
   }
@@ -941,7 +941,7 @@ export function MapSheet({
             For painted regions (Paint Terrain) — edit anytime, including the seeded Mountains/Forest defaults.
           </p>
           {data.terrainTypes.map((t) => (
-            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
               <input type="color" value={t.color} onChange={(e) => updateTerrainType(t.id, { color: e.target.value })} />
               <input style={{ flex: 2 }} value={t.name} onChange={(e) => updateTerrainType(t.id, { name: e.target.value })} />
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
@@ -954,6 +954,29 @@ export function MapSheet({
                   onChange={(e) => updateTerrainType(t.id, { speedMultiplier: Number(e.target.value) })}
                 />
               </label>
+              <label
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}
+                title="Treats any zone painted with this terrain type as real, known-elevated ground when generating climate — informs the alpine gate and rain-shadow moisture instead of inventing unrelated elevation from noise."
+              >
+                <input
+                  type="checkbox"
+                  checked={t.climateElevationOverride !== null}
+                  onChange={(e) => updateTerrainType(t.id, { climateElevationOverride: e.target.checked ? 0.85 : null })}
+                />
+                Elevated
+              </label>
+              {t.climateElevationOverride !== null && (
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  style={{ width: 60 }}
+                  value={t.climateElevationOverride}
+                  onChange={(e) => updateTerrainType(t.id, { climateElevationOverride: Number(e.target.value) })}
+                  title="Elevation (0-1) — 0.72+ reads as alpine; lower values still inform rain-shadow moisture without crossing that gate."
+                />
+              )}
               <button onClick={() => removeTerrainType(t.id)} title="Delete terrain type">
                 ✕
               </button>
