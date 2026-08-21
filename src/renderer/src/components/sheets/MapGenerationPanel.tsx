@@ -384,6 +384,15 @@ export function MapGenerationPanel({
     setGeneratingRivers(true)
     try {
       const { id: riverLineTypeId, newType } = resolveRiverLineType(data.lineTypes)
+      // Your own hand-drawn (non-generated) landmasses — read fresh every
+      // run for the same reason climate's elevatedZones/anchors are — so
+      // rivers respect the actual drawn coastline instead of an invented one.
+      // Only on a whole-map run (no active boundary mask): a scoped augment/
+      // drilldown run is explicitly inventing land in a region no existing
+      // landmass covers yet, and this would otherwise make that whole region
+      // read as water (every existing landmass elsewhere on the map failing
+      // to cover it). See landmassPolygons's own doc comment in hydrology.ts.
+      const landmassPolygons = activeBoundaryMask === null ? data.landmasses.filter((l) => !l.generated).map((l) => l.points) : []
       const rivers = generateRivers({
         seed,
         widthPixels: workingDims.width,
@@ -396,7 +405,8 @@ export function MapGenerationPanel({
         riverLineTypeId,
         boundaryMask: activeBoundaryMask,
         edgesAreOcean,
-        continentCount
+        continentCount,
+        landmassPolygons
       })
       // Scoped to riverLineTypeId, not just "!generated" — roads are also
       // generated lines sharing this same array, and regenerating rivers
@@ -438,6 +448,14 @@ export function MapGenerationPanel({
         const elevation = terrainTypeById.get(zone.terrainTypeId)?.climateElevationOverride
         return elevation !== null && elevation !== undefined ? [{ points: zone.points, elevation }] : []
       })
+      // Your own hand-drawn (non-generated) landmasses — same idea as
+      // elevatedZones above, but for the coastline itself rather than
+      // painted terrain: land/water for this run comes straight from your
+      // drawn shapes, not this call's own freshly-invented elevation field.
+      // Only on a whole-map run — see the identical comment in
+      // generateRiversNow above and landmassPolygons's own doc comment in
+      // climate.ts.
+      const landmassPolygons = activeBoundaryMask === null ? data.landmasses.filter((l) => !l.generated).map((l) => l.points) : []
       const result = generateClimate({
         seed,
         widthPixels: workingDims.width,
@@ -454,6 +472,7 @@ export function MapGenerationPanel({
         anchors,
         anchorRadiusPixels,
         elevatedZones,
+        landmassPolygons,
         edgesAreOcean,
         continentCount
       })
