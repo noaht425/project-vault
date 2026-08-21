@@ -15,6 +15,7 @@ import { presetFieldsFromPreset, settlementPresetFrontmatterSchema } from '../..
 import { generateSettlement } from '../../../../common/settlementGenerator'
 import { NAME_INSPIRATION_SOURCES } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
+import { generatePlaceName, resolvePlaceNameStyle, PLACE_NAME_STYLES } from '../../../../common/placeNames'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 import { useTravelModesStore, EMPTY_TRAVEL_MODES } from '../../state/travelModesStore'
 import { MapCanvas, type MapCanvasMode } from './MapCanvas'
@@ -283,6 +284,19 @@ export function MapSheet({
     setPendingPinPoint(null)
     setMode('view')
   }
+
+  const renamePin = (id: string, label: string): void => updateFrontmatter({ pins: data.pins.map((p) => (p.id === id ? { ...p, label } : p)) })
+  const assignPinNamingStyle = (id: string, namingStyleId: string | null): void =>
+    updateFrontmatter({ pins: data.pins.map((p) => (p.id === id ? { ...p, namingStyleId } : p)) })
+  // A pin's own namingStyleId wins if set; otherwise it inherits whichever
+  // territory polygon it falls inside (also settable in the Generate
+  // panel's Civilizations section); otherwise a random style each roll.
+  const resolveEffectivePlaceNameStyle = (pin: MapPin) => {
+    if (pin.namingStyleId) return resolvePlaceNameStyle(pin.namingStyleId)
+    const territory = data.territories.find((t) => pointInPolygon({ x: pin.x, y: pin.y }, t.points))
+    return resolvePlaceNameStyle(territory?.namingStyleId ?? null)
+  }
+  const regeneratePinName = (pin: MapPin): void => renamePin(pin.id, generatePlaceName(resolveEffectivePlaceNameStyle(pin)))
 
   // "Generate settlement from pin" (map generation plan, Phase 4): a
   // generated-but-unlinked pin (a placeholder city name dropped by the
@@ -1023,12 +1037,29 @@ export function MapSheet({
                 <button onClick={() => removePin(pin.id)}>✕</button>
               </div>
             ) : (
-              <div key={pin.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <span style={{ opacity: 0.7 }}>{pin.label} (no note)</span>
+              <div key={pin.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input style={{ width: 144 }} value={pin.label} onChange={(e) => renamePin(pin.id, e.target.value)} placeholder="(no note)" />
                 {pin.generated && (
-                  <button disabled={generatingSettlementPinId === pin.id} onClick={() => void generateSettlementFromPin(pin)}>
-                    {generatingSettlementPinId === pin.id ? 'Generating…' : 'Generate settlement'}
-                  </button>
+                  <>
+                    <select
+                      value={pin.namingStyleId ?? ''}
+                      onChange={(e) => assignPinNamingStyle(pin.id, e.target.value || null)}
+                      title="Naming style for this pin — overrides its territory's style"
+                    >
+                      <option value="">Inherit territory&apos;s style</option>
+                      {PLACE_NAME_STYLES.map((style) => (
+                        <option key={style.id} value={style.id}>
+                          {style.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={() => regeneratePinName(pin)} title="Regenerate this pin's name">
+                      🎲
+                    </button>
+                    <button disabled={generatingSettlementPinId === pin.id} onClick={() => void generateSettlementFromPin(pin)}>
+                      {generatingSettlementPinId === pin.id ? 'Generating…' : 'Generate settlement'}
+                    </button>
+                  </>
                 )}
                 <button onClick={() => removePin(pin.id)}>✕</button>
               </div>

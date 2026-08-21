@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { generateTerrain, generateRivers, generateClimate, generateCivilizations, generateRoads } from '../../../../common/mapGeneration/generateMap'
 import type { WindDirection } from '../../../../common/mapGeneration/climate'
 import { defaultLineTypes, defaultTerrainTypes, type LineType, type MapFrontmatter, type TerrainType } from '../../../../common/noteTypes/map'
+import { generatePlaceName, resolvePlaceNameStyle, PLACE_NAME_STYLES } from '../../../../common/placeNames'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
 function randomSeed(): number {
@@ -262,6 +263,19 @@ export function MapGenerationPanel({
     }
   }
 
+  const renameTerritory = (territoryId: string, name: string): void => {
+    updateFrontmatter({ territories: data.territories.map((t) => (t.id === territoryId ? { ...t, name } : t)) })
+  }
+
+  const assignNamingStyle = (territoryId: string, namingStyleId: string | null): void => {
+    updateFrontmatter({ territories: data.territories.map((t) => (t.id === territoryId ? { ...t, namingStyleId } : t)) })
+  }
+
+  const regenerateTerritoryName = (territory: MapFrontmatter['territories'][number]): void => {
+    const style = resolvePlaceNameStyle(territory.namingStyleId)
+    renameTerritory(territory.id, `Kingdom of ${generatePlaceName(style)}`)
+  }
+
   const assignPreset = (territoryId: string, presetNoteTitle: string | null): void => {
     updateFrontmatter({
       territories: data.territories.map((t) => (t.id === territoryId ? { ...t, presetNoteTitle } : t))
@@ -371,11 +385,22 @@ export function MapGenerationPanel({
 
           {data.territories.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-              <span className="right-panel-note">Assign each nation a settlement preset (for Phase 4&apos;s &quot;generate a real settlement&quot; action):</span>
+              <span className="right-panel-note">Name each nation, pick a naming style for it and its cities, and assign a settlement preset (for the &quot;generate a real settlement&quot; pin action):</span>
               {data.territories.map((t) => (
-                <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div key={t.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0, backgroundColor: t.color }} />
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                  <input style={{ flex: 1, minWidth: '10rem' }} value={t.name} onChange={(e) => renameTerritory(t.id, e.target.value)} />
+                  <select value={t.namingStyleId ?? ''} onChange={(e) => assignNamingStyle(t.id, e.target.value || null)} title="Naming style for this nation and (by default) its cities">
+                    <option value="">Random / Mixed style</option>
+                    {PLACE_NAME_STYLES.map((style) => (
+                      <option key={style.id} value={style.id}>
+                        {style.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => regenerateTerritoryName(t)} title="Regenerate this nation's name">
+                    🎲
+                  </button>
                   <select value={t.presetNoteTitle ?? ''} onChange={(e) => assignPreset(t.id, e.target.value || null)}>
                     <option value="">No preset</option>
                     {presetTitles.map((title) => (
@@ -384,7 +409,7 @@ export function MapGenerationPanel({
                       </option>
                     ))}
                   </select>
-                </label>
+                </div>
               ))}
               {presetTitles.length === 0 && <p className="right-panel-note">No settlement-preset notes found yet — create one to assign it here.</p>}
             </div>
