@@ -9,7 +9,8 @@ import {
   type MapLine,
   type MapPin,
   type MapZone,
-  type TerrainType
+  type TerrainType,
+  type Territory
 } from '../../../../common/noteTypes/map'
 
 export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
@@ -64,6 +65,7 @@ export interface MapCanvasProps {
   lineTypes: LineType[]
   climateZones?: ClimateZone[]
   climateTypes?: ClimateType[]
+  territories?: Territory[]
   mode: MapCanvasMode
   onCalibrate: (pixelDistance: number) => void
   onZoneDrawn: (points: Point[]) => void
@@ -101,14 +103,14 @@ export interface MapCanvasProps {
   // Per-layer visibility — all default to visible, so every existing caller
   // (nothing passes these yet) renders identically to before. Added for the
   // procedural map generation feature's "toggle a layer on/off" panel; see
-  // the plan's Phase 0. showClimateZones added in Phase 2 alongside the
-  // climate layer itself; territories still aren't rendered here (no color
-  // scheme designed until Phase 3).
+  // the plan's Phase 0. showClimateZones added in Phase 2, showTerritories
+  // in Phase 3, each alongside its own layer.
   showLandmasses?: boolean
   showZones?: boolean
   showLines?: boolean
   showPins?: boolean
   showClimateZones?: boolean
+  showTerritories?: boolean
 }
 
 export function MapCanvas({
@@ -123,6 +125,7 @@ export function MapCanvas({
   lineTypes,
   climateZones = [],
   climateTypes = [],
+  territories = [],
   mode,
   onCalibrate,
   onZoneDrawn,
@@ -140,7 +143,8 @@ export function MapCanvas({
   showZones = true,
   showLines = true,
   showPins = true,
-  showClimateZones = true
+  showClimateZones = true,
+  showTerritories = true
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -229,12 +233,12 @@ export function MapCanvas({
     [landmasses]
   )
 
-  // Renders BELOW terrain zones (landmasses -> climate -> terrain -> lines
-  // -> pins) — a climate zone is a broad background biome tint, while a
-  // terrain zone is a more specific painted region that should still read
-  // clearly on top of it. Higher fillOpacity than a terrain zone (0.35)
-  // since climate zones are typically much larger and would otherwise
-  // barely register at the same faintness.
+  // Renders BELOW terrain zones (landmasses -> climate -> territories ->
+  // terrain -> lines -> pins) — a climate zone is a broad background biome
+  // tint, while a terrain zone is a more specific painted region that
+  // should still read clearly on top of it. Higher fillOpacity than a
+  // terrain zone (0.35) since climate zones are typically much larger and
+  // would otherwise barely register at the same faintness.
   const climateZoneElements = useMemo(
     () =>
       climateZones.map((zone) => (
@@ -247,6 +251,26 @@ export function MapCanvas({
         />
       )),
     [climateZones, climateTypesById]
+  )
+
+  // Renders on top of climate (so borders stay visible regardless of the
+  // biome tint underneath) but below terrain zones — a national border is
+  // a political fact, not a physical feature, so it shouldn't visually
+  // compete with an actually-painted terrain region.
+  const territoryElements = useMemo(
+    () =>
+      territories.map((territory) => (
+        <polygon
+          key={territory.id}
+          points={territory.points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill={territory.color}
+          fillOpacity={0.18}
+          stroke={territory.color}
+          strokeOpacity={0.9}
+          strokeWidth={2.5}
+        />
+      )),
+    [territories]
   )
 
   const zoneElements = useMemo(
@@ -537,6 +561,8 @@ export function MapCanvas({
       )}
 
       {showClimateZones && <g>{climateZoneElements}</g>}
+
+      {showTerritories && <g>{territoryElements}</g>}
 
       {showZones && <g>{zoneElements}</g>}
 

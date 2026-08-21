@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { generateTerrain, generateRivers, generateClimate } from '../../../../common/mapGeneration/generateMap'
+import { useEffect, useState } from 'react'
+import { generateTerrain, generateRivers, generateClimate, generateCivilizations, generateRoads } from '../../../../common/mapGeneration/generateMap'
 import type { WindDirection } from '../../../../common/mapGeneration/climate'
 import { defaultLineTypes, defaultTerrainTypes, type LineType, type MapFrontmatter, type TerrainType } from '../../../../common/noteTypes/map'
+import type { NoteRefApi } from '../../lib/noteRefApi'
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 1_000_000_000)
@@ -32,16 +33,28 @@ function resolveRiverLineType(lineTypes: LineType[]): { id: string; newType: Lin
   return { id: seeded.id, newType: seeded }
 }
 
+// Same resolution strategy again, for the "Road" line type.
+function resolveRoadLineType(lineTypes: LineType[]): { id: string; newType: LineType | null } {
+  const byId = lineTypes.find((t) => t.id === 'road')
+  if (byId) return { id: byId.id, newType: null }
+  const byName = lineTypes.find((t) => t.name.trim().toLowerCase() === 'road')
+  if (byName) return { id: byName.id, newType: null }
+  const seeded = defaultLineTypes().find((t) => t.id === 'road')!
+  return { id: seeded.id, newType: seeded }
+}
+
 const WIND_DIRECTIONS: WindDirection[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
 export function MapGenerationPanel({
   data,
   workingDims,
-  updateFrontmatter
+  updateFrontmatter,
+  noteRefApi
 }: {
   data: MapFrontmatter
   workingDims: { width: number; height: number } | null
   updateFrontmatter: (patch: Record<string, unknown>) => void
+  noteRefApi: NoteRefApi
 }): React.JSX.Element {
   const savedParams = (data.generation?.params ?? {}) as Record<string, number | string>
   const [seed, setSeed] = useState(data.generation?.seed ?? randomSeed())
@@ -58,6 +71,31 @@ export function MapGenerationPanel({
   const [moistureScale, setMoistureScale] = useState(Number(savedParams.moistureScale ?? 0.4))
   const [prevailingWindDirection, setPrevailingWindDirection] = useState<WindDirection>((savedParams.prevailingWindDirection as WindDirection) ?? 'W')
   const [generatingClimate, setGeneratingClimate] = useState(false)
+
+  const [civilizationCount, setCivilizationCount] = useState(Number(savedParams.civilizationCount ?? 3))
+  const [settlementCount, setSettlementCount] = useState(Number(savedParams.settlementCount ?? 9))
+  const [generatingCivilizations, setGeneratingCivilizations] = useState(false)
+
+  const [roadDensity, setRoadDensity] = useState(Number(savedParams.roadDensity ?? 0.3))
+  const [generatingRoads, setGeneratingRoads] = useState(false)
+
+  // Settlement-preset notes, for assigning a civilization "flavor" to a
+  // generated territory — see settlementPreset.ts: a civilization here is
+  // just a name, a shape, and which preset note its cities should draw
+  // from, not a second parallel schema. Fetched once territories actually
+  // exist to assign one to.
+  const [presetTitles, setPresetTitles] = useState<string[]>([])
+  useEffect(() => {
+    if (data.territories.length === 0) return
+    let cancelled = false
+    noteRefApi
+      .searchTitles('', 'settlement-preset')
+      .then((matches) => !cancelled && setPresetTitles(matches.map((m) => m.title)))
+      .catch(() => !cancelled && setPresetTitles([]))
+    return () => {
+      cancelled = true
+    }
+  }, [data.territories.length, noteRefApi])
 
   // Every section merges its own params into the shared generation.params
   // record rather than replacing it wholesale — running just the Climate
@@ -117,7 +155,11 @@ export function MapGenerationPanel({
         riverDensity,
         riverLineTypeId
       })
-      const keptLines = data.lines.filter((l) => !l.generated)
+      // Scoped to riverLineTypeId, not just "!generated" — roads are also
+      // generated lines sharing this same array, and regenerating rivers
+      // must never wipe out a previously-generated road (or vice versa in
+      // generateRoadsNow below).
+      const keptLines = data.lines.filter((l) => !l.generated || l.lineTypeId !== riverLineTypeId)
       updateFrontmatter({
         lines: [...keptLines, ...rivers],
         lineTypes: newType ? [...data.lineTypes, newType] : data.lineTypes,
@@ -156,6 +198,74 @@ export function MapGenerationPanel({
     } finally {
       setGeneratingClimate(false)
     }
+  }
+
+  const generateCivilizationsNow = (): void => {
+    if (!workingDims) return
+    setGeneratingCivilizations(true)
+    try {
+      const result = generateCivilizations({
+        seed,
+        widthPixels: workingDims.width,
+        heightPixels: workingDims.height,
+        landmassScale,
+        seaLevel,
+        mountainDensity,
+        mountainRuggedness,
+        civilizationCount,
+        settlementCount
+      })
+      // Territories are entirely generated content today (there's no
+      // manual "paint a territory" tool), so unlike lines/zones there's no
+      // hand-drawn territory to preserve — but pins DO mix freely with
+      // hand-placed ones, so those still filter by generated:true only.
+      const keptPins = data.pins.filter((p) => !p.generated)
+      updateFrontmatter({
+        pins: [...keptPins, ...result.pins],
+        territories: result.territories,
+        generation: mergeGeneration({ civilizationCount, settlementCount })
+      })
+    } finally {
+      setGeneratingCivilizations(false)
+    }
+  }
+
+  const generatedSettlementPoints = data.pins.filter((p) => p.generated).map((p) => ({ x: p.x, y: p.y }))
+
+  const generateRoadsNow = (): void => {
+    if (!workingDims || generatedSettlementPoints.length < 2) return
+    setGeneratingRoads(true)
+    try {
+      const { id: roadLineTypeId, newType } = resolveRoadLineType(data.lineTypes)
+      const roads = generateRoads(
+        {
+          seed,
+          widthPixels: workingDims.width,
+          heightPixels: workingDims.height,
+          landmassScale,
+          seaLevel,
+          mountainDensity,
+          mountainRuggedness,
+          roadDensity,
+          roadLineTypeId
+        },
+        generatedSettlementPoints
+      )
+      const keptLines = data.lines.filter((l) => !l.generated || l.lineTypeId !== roadLineTypeId)
+      updateFrontmatter({
+        lines: [...keptLines, ...roads],
+        lineTypes: newType ? [...data.lineTypes, newType] : data.lineTypes,
+        generation: mergeGeneration({ roadDensity })
+      })
+    } finally {
+      setGeneratingRoads(false)
+    }
+  }
+
+  const assignPreset = (territoryId: string, presetNoteTitle: string | null): void => {
+    updateFrontmatter({
+      territories: data.territories.map((t) => (t.id === territoryId ? { ...t, presetNoteTitle } : t))
+    })
   }
 
   return (
@@ -239,6 +349,61 @@ export function MapGenerationPanel({
           <button disabled={!workingDims || generatingClimate} onClick={generateClimateNow}>
             {generatingClimate ? 'Generating…' : 'Generate climate'}
           </button>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <strong>Civilizations</strong>
+          <p className="right-panel-note">
+            Places settlements (favoring coasts, rivers, and flat land) and grows national territories outward from each civilization&apos;s
+            capital — a mountain range naturally tends to become a slow, contested border rather than being crossed for free.
+          </p>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span>Civilizations ({civilizationCount})</span>
+            <input type="range" min={1} max={8} step={1} value={civilizationCount} onChange={(e) => setCivilizationCount(Number(e.target.value))} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span>Total settlements ({settlementCount}, including each capital)</span>
+            <input type="range" min={civilizationCount} max={30} step={1} value={settlementCount} onChange={(e) => setSettlementCount(Number(e.target.value))} />
+          </label>
+          <button disabled={!workingDims || generatingCivilizations} onClick={generateCivilizationsNow}>
+            {generatingCivilizations ? 'Generating…' : 'Generate civilizations'}
+          </button>
+
+          {data.territories.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              <span className="right-panel-note">Assign each nation a settlement preset (for Phase 4&apos;s &quot;generate a real settlement&quot; action):</span>
+              {data.territories.map((t) => (
+                <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0, backgroundColor: t.color }} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                  <select value={t.presetNoteTitle ?? ''} onChange={(e) => assignPreset(t.id, e.target.value || null)}>
+                    <option value="">No preset</option>
+                    {presetTitles.map((title) => (
+                      <option key={title} value={title}>
+                        {title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+              {presetTitles.length === 0 && <p className="right-panel-note">No settlement-preset notes found yet — create one to assign it here.</p>}
+            </div>
+          )}
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <strong>Roads</strong>
+          <p className="right-panel-note">
+            Connects the Civilizations section&apos;s generated settlements with real terrain-following roads — run Civilizations first.
+          </p>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span>Road density ({roadDensity.toFixed(2)}) — 0 is a bare minimum network, 1 adds a denser mesh of extra connections.</span>
+            <input type="range" min={0} max={1} step={0.01} value={roadDensity} onChange={(e) => setRoadDensity(Number(e.target.value))} />
+          </label>
+          <button disabled={!workingDims || generatingRoads || generatedSettlementPoints.length < 2} onClick={generateRoadsNow}>
+            {generatingRoads ? 'Generating…' : 'Generate roads'}
+          </button>
+          {generatedSettlementPoints.length < 2 && <p className="right-panel-note">Needs at least 2 generated settlements — run Civilizations first.</p>}
         </div>
       </div>
     </details>
