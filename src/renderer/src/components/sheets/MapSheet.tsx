@@ -80,6 +80,19 @@ export function MapSheet({
   const [pendingLandmassPoints, setPendingLandmassPoints] = useState<Point[] | null>(null)
   const [newLandmassName, setNewLandmassName] = useState('')
 
+  // Generation boundary (Phase 5 — augment/drilldown): constrains every
+  // "Generate ___" action to inside a boundary instead of the whole canvas,
+  // either an existing landmass (hand-drawn or previously generated) or a
+  // freshly-drawn custom region — see the map generation plan's core design
+  // decision #6 ("augment my hand-drawn map" and "drill into a region" are
+  // the same masked-generation mechanism). Lives here (not inside
+  // MapGenerationPanel) because selecting a custom region needs to drive
+  // this component's own `mode`/MapCanvas, same reason every other
+  // draw-a-shape flow's state lives here.
+  const [boundarySource, setBoundarySource] = useState<'whole-map' | 'landmass' | 'custom'>('whole-map')
+  const [selectedLandmassId, setSelectedLandmassId] = useState<string | null>(null)
+  const [customBoundaryMask, setCustomBoundaryMask] = useState<Point[] | null>(null)
+
   const [pendingPinPoint, setPendingPinPoint] = useState<Point | null>(null)
   const [pinQuery, setPinQuery] = useState('')
   const [pinResults, setPinResults] = useState<{ title: string }[]>([])
@@ -404,6 +417,9 @@ export function MapSheet({
   // 'latitude' mode the real scale is derived, not stored.
   const effectiveScale = data.scaleMode === 'latitude' ? derivedScale : data.scale
 
+  const activeBoundaryMask: Point[] | null =
+    boundarySource === 'landmass' ? (data.landmasses.find((l) => l.id === selectedLandmassId)?.points ?? null) : boundarySource === 'custom' ? customBoundaryMask : null
+
   const [showLandmasses, setShowLandmasses] = useState(true)
   const [showZones, setShowZones] = useState(true)
   const [showLines, setShowLines] = useState(true)
@@ -624,6 +640,9 @@ export function MapSheet({
             </p>
           )}
           {mode === 'place-pin' && !pendingPinPoint && <p className="right-panel-note">Click a spot on the map to place a pin.</p>}
+          {mode === 'select-region' && (
+            <p className="right-panel-note">Click to trace the region to constrain generation to, press Enter to finish (3+ points), Escape to cancel.</p>
+          )}
 
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -698,6 +717,12 @@ export function MapSheet({
                 setPinResults([])
               }}
               onPinClick={(pin) => pin.locationTitle && void noteRefApi.openByTitle(pin.locationTitle, 'location')}
+              onRegionDrawn={(points) => {
+                setCustomBoundaryMask(points)
+                setBoundarySource('custom')
+                setMode('view')
+              }}
+              boundaryMask={activeBoundaryMask}
               highlightedPinIds={highlightedPinIds}
               tripPath={tripOverlayPath}
               equatorY={derivedEquatorY}
@@ -883,7 +908,22 @@ export function MapSheet({
             </div>
           )}
 
-          <MapGenerationPanel data={data} workingDims={workingDims} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />
+          <MapGenerationPanel
+            data={data}
+            workingDims={workingDims}
+            updateFrontmatter={updateFrontmatter}
+            noteRefApi={noteRefApi}
+            boundarySource={boundarySource}
+            setBoundarySource={setBoundarySource}
+            selectedLandmassId={selectedLandmassId}
+            setSelectedLandmassId={setSelectedLandmassId}
+            activeBoundaryMask={activeBoundaryMask}
+            onStartDrawingRegion={() => setMode('select-region')}
+            onClearCustomRegion={() => {
+              setCustomBoundaryMask(null)
+              if (boundarySource === 'custom') setBoundarySource('whole-map')
+            }}
+          />
         </>
       )}
 

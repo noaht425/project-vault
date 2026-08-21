@@ -13,7 +13,7 @@ import {
   type Territory
 } from '../../../../common/noteTypes/map'
 
-export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin'
+export type MapCanvasMode = 'view' | 'calibrate' | 'paint-zone' | 'draw-line' | 'paint-landmass' | 'draw-trip' | 'place-pin' | 'select-region'
 
 interface ViewBox {
   x: number
@@ -74,6 +74,19 @@ export interface MapCanvasProps {
   onTripDrawn: (points: Point[]) => void
   onPinPlaced: (point: Point) => void
   onPinClick: (pin: MapPin) => void
+  // "select-region" mode's own drawn boundary (Phase 5 — augment/drilldown
+  // boundary selection) — same multi-point click/Finish/Clear flow as
+  // paint-landmass, just producing a boundaryMask instead of a real
+  // landmass. Optional since most callers (nothing pre-Phase-5) never use
+  // this mode.
+  onRegionDrawn?: (points: Point[]) => void
+  // The CURRENTLY ACTIVE boundary constraint (from an existing landmass or
+  // a confirmed select-region draft) — rendered as a persistent highlighted
+  // overlay whenever set, regardless of mode, so it's clear what area
+  // "Generate" is about to be scoped to even after leaving select-region
+  // mode. Distinct from the in-progress regionDraft (which only renders
+  // while mode === 'select-region').
+  boundaryMask?: Point[] | null
   // Pin ids to ring in an accent color — used by the Timeline section to
   // show which locations have a revealed event as the slider moves.
   // Optional since only that one caller needs it.
@@ -134,6 +147,8 @@ export function MapCanvas({
   onTripDrawn,
   onPinPlaced,
   onPinClick,
+  onRegionDrawn,
+  boundaryMask,
   highlightedPinIds,
   tripPath,
   equatorY,
@@ -152,6 +167,7 @@ export function MapCanvas({
   const [lineDraft, setLineDraft] = useState<Point[]>([])
   const [landmassDraft, setLandmassDraft] = useState<Point[]>([])
   const [tripDraft, setTripDraft] = useState<Point[]>([])
+  const [regionDraft, setRegionDraft] = useState<Point[]>([])
   // Live cursor position while in 'draw-trip' mode — only used to preview
   // where an off-canvas point would land once folded (see the ghost marker
   // below); cleared on every mode change and whenever the cursor leaves the
@@ -393,6 +409,7 @@ export function MapCanvas({
     setLineDraft([])
     setLandmassDraft([])
     setTripDraft([])
+    setRegionDraft([])
     setDrawHoverPoint(null)
   }, [mode])
 
@@ -426,11 +443,18 @@ export function MapCanvas({
         } else if (e.key === 'Escape') {
           setTripDraft([])
         }
+      } else if (mode === 'select-region') {
+        if (e.key === 'Enter' && regionDraft.length >= 3) {
+          onRegionDrawn?.(regionDraft)
+          setRegionDraft([])
+        } else if (e.key === 'Escape') {
+          setRegionDraft([])
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn, landmassDraft, onLandmassDrawn, tripDraft, onTripDrawn])
+  }, [mode, zoneDraft, onZoneDrawn, lineDraft, onLineDrawn, landmassDraft, onLandmassDrawn, tripDraft, onTripDrawn, regionDraft, onRegionDrawn])
 
   const clientToSvgPoint = (clientX: number, clientY: number): Point | null => {
     const rect = svgRef.current?.getBoundingClientRect()
@@ -461,6 +485,8 @@ export function MapCanvas({
       setTripDraft((pts) => [...pts, point])
     } else if (mode === 'place-pin') {
       onPinPlaced(point)
+    } else if (mode === 'select-region') {
+      setRegionDraft((pts) => [...pts, point])
     }
   }
   handleClickAtRef.current = handleClickAt
@@ -535,7 +561,7 @@ export function MapCanvas({
     // values from the dep list — only re-binding on the values above (same
     // as CloudGraphView's identical pattern) avoids tearing down and
     // rebuilding these window listeners on every pan tick.
-  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft, landmassDraft, tripDraft])
+  }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft, landmassDraft, tripDraft, regionDraft])
 
   return (
     <svg
@@ -638,8 +664,34 @@ export function MapCanvas({
         </g>
       )}
 
+      {mode === 'select-region' && regionDraft.length > 0 && (
+        <g>
+          <polyline points={regionDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+          <polyline points={regionDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#e0a83c" strokeDasharray="4,2" strokeWidth={2} />
+          {regionDraft.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#e0a83c" stroke="#000" strokeWidth={1.5} />
+          ))}
+        </g>
+      )}
+
       {mode === 'calibrate' && calibrationStart && (
         <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
+      )}
+
+      {/* The CONFIRMED active boundary mask (Phase 5) — a persistent
+          highlighted overlay independent of mode, so "what's about to be
+          generated inside" stays visible while adjusting Generate panel
+          sliders, not just while actively drawing it. */}
+      {boundaryMask && boundaryMask.length >= 3 && (
+        <polygon
+          points={boundaryMask.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill="#e0a83c"
+          fillOpacity={0.08}
+          stroke="#e0a83c"
+          strokeOpacity={0.9}
+          strokeWidth={3}
+          strokeDasharray="10,5"
+        />
       )}
 
       {/* The equator, in 'latitude' scale mode — a thin reference line
