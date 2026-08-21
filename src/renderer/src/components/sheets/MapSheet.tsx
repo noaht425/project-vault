@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { mapFrontmatterSchema } from '../../../../common/noteTypes/map'
-import type { LineType, MapLandmass, MapLine, MapPin, MapZone, TerrainType } from '../../../../common/noteTypes/map'
+import type { LineType, MapLandmass, MapLine, MapPin, MapZone, TerrainType, Territory } from '../../../../common/noteTypes/map'
 import {
   crossingTime,
   deriveEquatorY,
@@ -85,6 +85,9 @@ export function MapSheet({
 
   const [pendingLandmassPoints, setPendingLandmassPoints] = useState<Point[] | null>(null)
   const [newLandmassName, setNewLandmassName] = useState('')
+  const [pendingTerritoryPoints, setPendingTerritoryPoints] = useState<Point[] | null>(null)
+  const [newTerritoryName, setNewTerritoryName] = useState('')
+  const [newTerritoryColor, setNewTerritoryColor] = useState('#8899aa')
 
   // Generation boundary (Phase 5 — augment/drilldown): constrains every
   // "Generate ___" action to inside a boundary instead of the whole canvas,
@@ -280,6 +283,37 @@ export function MapSheet({
     setMode('view')
   }
 
+  // Hand-drawn territory (national/civilization border) — same "trace,
+  // name, confirm" flow as a landmass, but with a color (territories render
+  // as a tinted/outlined region, unlike a landmass which has no color of
+  // its own) and generated:false so a later "Generate civilizations" run
+  // never replaces it (see MapGenerationPanel.tsx's keptTerritories filter).
+  // Naming style/settlement-preset assignment happens afterward in the
+  // Generate panel's Civilizations section, same as for a generated
+  // territory — no need to duplicate those pickers here.
+  const confirmTerritory = (): void => {
+    if (!pendingTerritoryPoints) return
+    const territory: Territory = {
+      id: crypto.randomUUID(),
+      name: newTerritoryName.trim(),
+      points: pendingTerritoryPoints,
+      color: newTerritoryColor,
+      presetNoteTitle: null,
+      capitalPinId: null,
+      namingStyleId: null,
+      generated: false
+    }
+    updateFrontmatter({ territories: [...data.territories, territory] })
+    setPendingTerritoryPoints(null)
+    setNewTerritoryName('')
+    setMode('view')
+  }
+  const cancelTerritory = (): void => {
+    setPendingTerritoryPoints(null)
+    setNewTerritoryName('')
+    setMode('view')
+  }
+
   const confirmPin = (title: string): void => {
     if (!pendingPinPoint) return
     updateFrontmatter({
@@ -378,6 +412,7 @@ export function MapSheet({
   const removeZone = (id: string): void => updateFrontmatter({ zones: data.zones.filter((z) => z.id !== id) })
   const removeLine = (id: string): void => updateFrontmatter({ lines: data.lines.filter((l) => l.id !== id) })
   const removeLandmass = (id: string): void => updateFrontmatter({ landmasses: data.landmasses.filter((l) => l.id !== id) })
+  const removeTerritory = (id: string): void => updateFrontmatter({ territories: data.territories.filter((t) => t.id !== id) })
   const removeTerrainType = (id: string): void =>
     updateFrontmatter({
       terrainTypes: data.terrainTypes.filter((t) => t.id !== id),
@@ -502,6 +537,9 @@ export function MapSheet({
             </button>
             <button className={mode === 'paint-landmass' ? 'active' : ''} onClick={() => setMode('paint-landmass')}>
               Draw Landmass
+            </button>
+            <button className={mode === 'paint-territory' ? 'active' : ''} onClick={() => setMode('paint-territory')}>
+              Draw Territory
             </button>
             <button className={mode === 'place-pin' ? 'active' : ''} onClick={() => setMode('place-pin')}>
               Place Pin
@@ -639,6 +677,9 @@ export function MapSheet({
               every landmass is treated as water.
             </p>
           )}
+          {mode === 'paint-territory' && !pendingTerritoryPoints && (
+            <p className="right-panel-note">Click to trace a nation's border, press Enter to finish (3+ points), Escape to cancel.</p>
+          )}
           {mode === 'draw-trip' && (
             <p className="right-panel-note">
               Click to trace the actual route you'd travel — it doesn't need to be straight, and doesn't need to start/end on a pin
@@ -696,6 +737,7 @@ export function MapSheet({
               onZoneDrawn={setPendingZonePoints}
               onLineDrawn={setPendingLinePoints}
               onLandmassDrawn={setPendingLandmassPoints}
+              onTerritoryDrawn={setPendingTerritoryPoints}
               onTripDrawn={(points) => {
                 setDrawnTripPath(points)
                 // Drawing a route implies showing it — no reason to hide what
@@ -888,6 +930,25 @@ export function MapSheet({
                 Add landmass
               </button>
               <button className="sheet-open-ref-button" onClick={cancelLandmass}>
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {pendingTerritoryPoints && (
+            <div className="sheet-row" style={{ marginTop: 8 }}>
+              <label className="sheet-field">
+                Name (optional)
+                <input value={newTerritoryName} onChange={(e) => setNewTerritoryName(e.target.value)} placeholder="Kingdom of Arenis" autoFocus />
+              </label>
+              <label className="sheet-field">
+                Color
+                <input type="color" value={newTerritoryColor} onChange={(e) => setNewTerritoryColor(e.target.value)} />
+              </label>
+              <button className="sheet-open-ref-button" onClick={confirmTerritory}>
+                Add territory
+              </button>
+              <button className="sheet-open-ref-button" onClick={cancelTerritory}>
                 Cancel
               </button>
             </div>
@@ -1092,6 +1153,24 @@ export function MapSheet({
               after you remove that zone.
             </p>
           )}
+        </details>
+      )}
+
+      {data.territories.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary>Territories (nations) ({data.territories.length})</summary>
+          <p className="right-panel-note">
+            Name each nation, pick a naming style, and assign a settlement preset in the Generate panel's Civilizations section
+            below — this list is just for an overview and for deleting one.
+          </p>
+          {data.territories.map((territory) => (
+            <div key={territory.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: territory.color }} />
+              <span>{territory.name || 'Unnamed territory'}</span>
+              {!territory.generated && <span className="right-panel-note">(hand-drawn)</span>}
+              <button onClick={() => removeTerritory(territory.id)}>✕</button>
+            </div>
+          ))}
         </details>
       )}
 
