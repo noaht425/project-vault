@@ -3,6 +3,7 @@ import { parseNote, stringifyNote } from '../../../../common/frontmatter'
 import { climateFrontmatterSchema, type ClimateSeason } from '../../../../common/noteTypes/climate'
 import { CLIMATE_PRESETS, applyClimatePreset } from '../../../../common/climatePresets'
 import { calendarFrontmatterSchema, type CalendarFrontmatter } from '../../../../common/noteTypes/calendar'
+import { BIOME_DEFINITIONS } from '../../../../common/mapGeneration/climate'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
 // Mirrors SettlementSetupTab.tsx's shape throughout: districts' building-type
@@ -79,6 +80,25 @@ export function ClimateSheet({
         {data.calendarNoteTitle && !calendarDef && (
           <p className="right-panel-note">No calendar note titled "{data.calendarNoteTitle}" found yet.</p>
         )}
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <label className="sheet-field" style={{ maxWidth: 280 }}>
+          Map biome (optional)
+          <select value={data.biomeId ?? ''} onChange={(e) => updateFrontmatter({ biomeId: e.target.value || null })}>
+            <option value="">Not set (no effect on map generation)</option>
+            {BIOME_DEFINITIONS.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="right-panel-note">
+          If any settlement/kingdom linked to this climate note sits on a generated map, its pin becomes a ground-truth
+          anchor: nearby procedural climate generation is pulled toward this biome instead of picking one at random,
+          fading smoothly into the noise-driven climate further away.
+        </p>
       </div>
 
       {calendarDef && (
