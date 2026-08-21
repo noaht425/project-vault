@@ -34,10 +34,16 @@ function loadImageDimensions(url: string): Promise<{ width: number; height: numb
 }
 
 export function MapSheet({
+  noteName,
   content,
   onContentChange,
   noteRefApi
 }: {
+  // This map note's own title — needed for Phase 6 (multi-scale
+  // drilldown): a child map created from a selected region stamps
+  // generation.parentMapTitle with noteName, and "Parent map" navigation
+  // resolves data.generation.parentMapTitle back to a note by title.
+  noteName: string
   content: string
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
@@ -910,6 +916,7 @@ export function MapSheet({
 
           <MapGenerationPanel
             data={data}
+            noteName={noteName}
             workingDims={workingDims}
             updateFrontmatter={updateFrontmatter}
             noteRefApi={noteRefApi}

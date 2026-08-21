@@ -131,7 +131,7 @@ export function Editor(): React.JSX.Element {
   return (
     <div className="editor-pane">
       <div className="editor-title">{title}</div>
-      <SheetView content={content} onContentChange={setContentExternal} noteRefApi={noteRefApi} />
+      <SheetView noteName={title} content={content} onContentChange={setContentExternal} noteRefApi={noteRefApi} />
       <div className="editor-toolbar">
         <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>
           Edit

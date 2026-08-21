@@ -113,7 +113,7 @@ export function CloudEditor(): React.JSX.Element {
   return (
     <div className="editor-pane">
       <div className="editor-title">{activeNote.name}</div>
-      <SheetView content={sheetContent} onContentChange={handleSheetContentChange} noteRefApi={noteRefApi} />
+      <SheetView noteName={activeNote.name} content={sheetContent} onContentChange={handleSheetContentChange} noteRefApi={noteRefApi} />
       {conflict && (
         <div className="right-panel-note" style={{ padding: 8 }}>
           Someone/something else changed this note in the meantime (it's now at version {conflict.version}). Your

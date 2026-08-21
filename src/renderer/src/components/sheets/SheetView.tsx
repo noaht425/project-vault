@@ -24,10 +24,15 @@ function loadSheetCollapsed(): boolean {
 }
 
 export function SheetView({
+  noteName,
   content,
   onContentChange,
   noteRefApi
 }: {
+  // Only MapSheet needs this today (Phase 6 parent/child map drilldown
+  // needs a map note's own title to stamp onto a child note it creates,
+  // and to resolve its own parent by title) — every other sheet ignores it.
+  noteName: string
   content: string
   onContentChange: (content: string) => void
   /** Only PcSheet (class-reference lookup), EventSheet (location field), MapSheet
@@ -95,7 +100,7 @@ export function SheetView({
       sheet = <FamilyTreeSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
       break
     case 'map':
-      sheet = <MapSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <MapSheet noteName={noteName} content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
       break
     case 'settlement':
       sheet = <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />

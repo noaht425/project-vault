@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { generateTerrain, generateRivers, generateClimate, generateCivilizations, generateRoads } from '../../../../common/mapGeneration/generateMap'
 import type { WindDirection } from '../../../../common/mapGeneration/climate'
-import { defaultLineTypes, defaultTerrainTypes, type LineType, type MapFrontmatter, type TerrainType } from '../../../../common/noteTypes/map'
+import { defaultLineTypes, defaultMapFrontmatter, defaultTerrainTypes, type LineType, type MapFrontmatter, type MapLandmass, type MapPin, type TerrainType } from '../../../../common/noteTypes/map'
 import { generatePlaceName, resolvePlaceNameStyle, PLACE_NAME_STYLES } from '../../../../common/placeNames'
-import { pointInPolygon, polygonCentroid, type Point } from '../../../../common/mapGeometry'
+import { boundingBoxOf, deriveEquatorY, deriveScaleFromLatitudeSpan, latitudeRadiansAt, pointInPolygon, polygonCentroid, type Point } from '../../../../common/mapGeometry'
+import { hashSeed } from '../../../../common/rng'
 import type { NoteRefApi } from '../../lib/noteRefApi'
 
 function randomSeed(): number {
@@ -64,6 +65,7 @@ function isInScope(points: Point[], boundaryMask: Point[] | null): boolean {
 
 export function MapGenerationPanel({
   data,
+  noteName,
   workingDims,
   updateFrontmatter,
   noteRefApi,
@@ -76,6 +78,11 @@ export function MapGenerationPanel({
   onClearCustomRegion
 }: {
   data: MapFrontmatter
+  // This map's own title — see MapSheet.tsx's comment on the same prop.
+  // Used here for Phase 6 (multi-scale drilldown): stamping a created
+  // child map's generation.parentMapTitle, and looking up this map's own
+  // parent/children by title.
+  noteName: string
   workingDims: { width: number; height: number } | null
   updateFrontmatter: (patch: Record<string, unknown>) => void
   noteRefApi: NoteRefApi
@@ -131,6 +138,154 @@ export function MapGenerationPanel({
       cancelled = true
     }
   }, [data.territories.length, noteRefApi])
+
+  // Phase 6 (multi-scale drilldown) — this map's own children, found by
+  // their generation.parentMapTitle pointing back at noteName. There's no
+  // frontmatter query support in the local vault's SQLite index (only
+  // path/title/type/mtime — see db.ts), unlike the cloud app's Postgres
+  // jsonb filter, so this lists every map note and reads each one's own
+  // frontmatter to check — an O(n) scan acceptable for a personal vault's
+  // map-note count. Refetches whenever a new child is created below.
+  const [childMaps, setChildMaps] = useState<string[]>([])
+  const [childMapsRefreshKey, setChildMapsRefreshKey] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    void (async (): Promise<void> => {
+      const all = await noteRefApi.searchTitles('', 'map').catch(() => [])
+      const matches: string[] = []
+      for (const { title } of all) {
+        if (title.toLowerCase() === noteName.toLowerCase()) continue
+        const fm = await noteRefApi.readFrontmatterByTitle(title, 'map').catch(() => null)
+        const parentTitle = (fm?.generation as { parentMapTitle?: string | null } | null | undefined)?.parentMapTitle
+        if (parentTitle && parentTitle.toLowerCase() === noteName.toLowerCase()) matches.push(title)
+      }
+      if (!cancelled) setChildMaps(matches)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [noteName, noteRefApi, childMapsRefreshKey])
+
+  // This map's own parent, resolved by title (data.generation.parentMapTitle)
+  // — just an existence check (searchTitles + exact match), since
+  // noteRefApi.openByTitle re-resolves the title itself when the link is
+  // clicked. No reset branch for the no-parent case, same reasoning as
+  // presetTitles above — parentMapExists is only ever rendered alongside a
+  // truthy parentMapTitle.
+  const [parentMapExists, setParentMapExists] = useState(false)
+  const parentMapTitle = data.generation?.parentMapTitle ?? null
+  useEffect(() => {
+    if (!parentMapTitle) return
+    let cancelled = false
+    noteRefApi
+      .searchTitles(parentMapTitle, 'map')
+      .then((matches) => !cancelled && setParentMapExists(matches.some((m) => m.title.toLowerCase() === parentMapTitle.toLowerCase())))
+      .catch(() => !cancelled && setParentMapExists(false))
+    return () => {
+      cancelled = true
+    }
+  }, [parentMapTitle, noteRefApi])
+
+  const [detailMultiplier, setDetailMultiplier] = useState(2)
+  const [creatingChildMap, setCreatingChildMap] = useState(false)
+  const [childMapError, setChildMapError] = useState<string | null>(null)
+
+  // "Create child map" (map generation plan, Phase 6): spins the currently
+  // selected boundary (a landmass or a custom drawn region — same mask
+  // every "Generate ___" action above already respects, see design decision
+  // #6) off into a brand-new Map note, pre-seeded with that boundary
+  // reprojected into the child's own local coordinate space as a fixed
+  // (non-generated) landmass — the coastline every generator on the child
+  // map must then respect, exactly like an augmented region's boundary mask
+  // does on this map. detailMultiplier upscales the child's canvas beyond a
+  // literal 1:1 crop, so drilling in actually buys more pixels (and thus
+  // room for finer detail) for the same real-world area, not just the same
+  // pixels re-framed.
+  const createChildMap = async (): Promise<void> => {
+    if (!activeBoundaryMask || !workingDims) return
+    const bbox = boundingBoxOf(activeBoundaryMask)
+    if (bbox.width <= 0 || bbox.height <= 0) {
+      setChildMapError('Selected boundary has no area.')
+      return
+    }
+    setCreatingChildMap(true)
+    setChildMapError(null)
+    try {
+      const reproject = (p: Point): Point => ({ x: (p.x - bbox.x) * detailMultiplier, y: (p.y - bbox.y) * detailMultiplier })
+
+      const boundaryLandmass: MapLandmass = {
+        id: crypto.randomUUID(),
+        name: `${noteName} (region)`,
+        points: activeBoundaryMask.map(reproject),
+        generated: false
+      }
+      // Carries over pins that fall inside the selected region (both
+      // linked and freehand) so existing settlements/locations already
+      // placed at the parent's scale stay visible at the child's scale too
+      // — the same city legitimately appears on both a world map and a
+      // zoomed-in regional map of a real atlas. Everything else generated
+      // (zones/lines/climateZones/territories) is deliberately NOT carried
+      // over: those are the "new detail" this drilldown exists to generate
+      // fresh, at the child's own resolution, inside the cropped boundary.
+      const childPins: MapPin[] = data.pins
+        .filter((p) => pointInPolygon({ x: p.x, y: p.y }, activeBoundaryMask))
+        .map((p) => ({ ...p, id: crypto.randomUUID(), ...reproject({ x: p.x, y: p.y }) }))
+
+      const childSeed = hashSeed(data.generation?.seed ?? 0, Math.round(bbox.x), Math.round(bbox.y), Math.round(bbox.width), Math.round(bbox.height))
+
+      // Derives the child's own scale from this map's, over just the
+      // cropped region — 'latitude' mode re-expresses the crop's own
+      // top/bottom edges as latitudes (via this map's already-derived scale
+      // + equator row), so the child inherits accurate real-world sizing
+      // instead of an unset/default scale; 'manual' mode scales
+      // pixelDistance by detailMultiplier to keep the same real-distance-
+      // per-pixel ratio once the crop is upscaled.
+      let childScaleFields: Record<string, unknown> = {}
+      if (data.scaleMode === 'latitude' && data.topLatitude !== null && data.bottomLatitude !== null && data.planetCircumference) {
+        const parentScale = deriveScaleFromLatitudeSpan(data.topLatitude, data.bottomLatitude, data.planetCircumference, workingDims.height, data.latitudeUnit)
+        const equatorY = deriveEquatorY(data.topLatitude, data.bottomLatitude, workingDims.height)
+        if (equatorY !== null) {
+          const latConfig = { equatorY, planetCircumference: data.planetCircumference }
+          childScaleFields = {
+            scaleMode: 'latitude',
+            topLatitude: (latitudeRadiansAt(bbox.y, parentScale, latConfig) * 180) / Math.PI,
+            bottomLatitude: (latitudeRadiansAt(bbox.y + bbox.height, parentScale, latConfig) * 180) / Math.PI,
+            planetCircumference: data.planetCircumference,
+            latitudeUnit: data.latitudeUnit,
+            accountForLatitudeDistortion: data.accountForLatitudeDistortion
+          }
+        }
+      } else if (data.scale) {
+        childScaleFields = { scale: { pixelDistance: data.scale.pixelDistance * detailMultiplier, realDistance: data.scale.realDistance, unit: data.scale.unit } }
+      }
+
+      const childFrontmatter = {
+        ...defaultMapFrontmatter(),
+        ...childScaleFields,
+        canvasSize: { width: Math.round(bbox.width * detailMultiplier), height: Math.round(bbox.height * detailMultiplier) },
+        landmasses: [boundaryLandmass],
+        pins: childPins,
+        generation: {
+          seed: childSeed,
+          params: {},
+          parentMapTitle: noteName,
+          parentBounds: { x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height }
+        }
+      }
+
+      const created = await noteRefApi.createNote(`${noteName} (detail)`, childFrontmatter)
+      setChildMapsRefreshKey((k) => k + 1)
+      await noteRefApi.openByTitle(created.title, 'map')
+    } catch (err) {
+      setChildMapError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreatingChildMap(false)
+    }
+  }
+
+  const openMapNote = (title: string): void => {
+    void noteRefApi.openByTitle(title, 'map')
+  }
 
   // Every section merges its own params into the shared generation.params
   // record rather than replacing it wholesale — running just the Climate
@@ -387,6 +542,54 @@ export function MapGenerationPanel({
           ) : boundarySource !== 'whole-map' ? (
             <p className="right-panel-note">No boundary selected yet — generation below still runs across the whole map until one is set.</p>
           ) : null}
+
+          {activeBoundaryMask && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
+              <span style={{ fontWeight: 600 }}>Drill into this boundary</span>
+              <p className="right-panel-note">
+                Spins the boundary above off into a brand-new, more detailed Map note — this map&apos;s coastline there becomes a fixed region on
+                the new map, ready for its own Terrain/Hydrology/Climate/Civilizations/Roads generation at a finer scale. This map itself is left
+                untouched.
+              </p>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span>Detail multiplier ({detailMultiplier}x pixels for the same real-world area)</span>
+                <input type="range" min={1} max={8} step={1} value={detailMultiplier} onChange={(e) => setDetailMultiplier(Number(e.target.value))} />
+              </label>
+              <button disabled={creatingChildMap} onClick={() => void createChildMap()}>
+                {creatingChildMap ? 'Creating…' : 'Create child map from this boundary'}
+              </button>
+              {childMapError && <p className="right-panel-note" style={{ color: 'var(--danger, #c0392b)' }}>{childMapError}</p>}
+            </div>
+          )}
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <strong>Linked maps</strong>
+          {parentMapTitle && (
+            <p className="right-panel-note">
+              Drilled down from:{' '}
+              {parentMapExists ? (
+                <button type="button" onClick={() => openMapNote(parentMapTitle)} style={{ background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>
+                  {parentMapTitle}
+                </button>
+              ) : (
+                `${parentMapTitle} (not found)`
+              )}
+            </p>
+          )}
+          {childMaps.length > 0 ? (
+            <ul style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 18, margin: 0 }}>
+              {childMaps.map((title) => (
+                <li key={title}>
+                  <button type="button" onClick={() => openMapNote(title)} style={{ background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>
+                    {title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="right-panel-note">No child maps yet — select a boundary above and use &quot;Create child map&quot; to drill into it.</p>
+          )}
         </div>
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
