@@ -20,6 +20,7 @@ function makeNoteRefApi(overrides: Partial<NoteRefApi> = {}): NoteRefApi {
     createNote: vi.fn(),
     listNotesInFolder: vi.fn().mockResolvedValue([]),
     listFolderPaths: vi.fn().mockResolvedValue([]),
+    updateFrontmatterByTitle: vi.fn().mockResolvedValue('saved'),
     ...overrides
   }
   return base

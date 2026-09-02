@@ -12,6 +12,7 @@ import {
   type SettlementFrontmatter
 } from '../../../../common/noteTypes/settlement'
 import { SETTLEMENT_SIZE_PRESETS, generateSettlement, resolveGatingSizeId } from '../../../../common/settlementGenerator'
+import { defaultMapFrontmatter } from '../../../../common/noteTypes/map'
 import { BASELINE_RACES, FACTION_NAME_POOL, NAME_INSPIRATION_SOURCES, raceLabel } from '../../../../common/settlementNames'
 import { PHONETIC_PROFILES } from '../../../../common/phoneticNames'
 import { feetAndInchesToInches, inchesToFeetAndInches } from '../../../../common/settlementAppearance'
@@ -43,10 +44,12 @@ const RELIGIOUS_WORKER_PRESETS = [
 // rows are cheap to fix up after adding, unlike a terrain type that gets
 // used immediately by a zone.
 export function SettlementSetupTab({
+  noteName,
   data,
   updateFrontmatter,
   noteRefApi
 }: {
+  noteName: string
   data: SettlementFrontmatter
   updateFrontmatter: (patch: Record<string, unknown>) => Promise<void>
   noteRefApi: NoteRefApi
@@ -434,6 +437,11 @@ export function SettlementSetupTab({
             Reset to defaults for this size
           </button>
         </div>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Street map</strong>
+        <StreetMapSection noteName={noteName} sizeId={data.sizeId} noteRefApi={noteRefApi} />
       </div>
 
       <div style={{ marginTop: 12 }}>
@@ -1315,6 +1323,101 @@ function RaceCard({
             </div>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+// Square canvas (px) for a generated street map, by the settlement's own
+// gating size tier (decision 8 — the size system drives the budget, no
+// separate city-map size dial).
+const CITY_CANVAS_BY_SIZE: Record<string, number> = { hamlet: 700, village: 1000, town: 1500, city: 2200, metropolis: 3000 }
+
+// Phase 7.6 — the "Generate street map" / "View street map" entry point on
+// a Settlement note. Creates a Map note cityLinked to this settlement (the
+// actual boundary/district/street/building generation happens in that map
+// note's own Generate panel, phases 7.1-7.4), and links to it once one
+// exists.
+function StreetMapSection({
+  noteName,
+  sizeId,
+  noteRefApi
+}: {
+  noteName: string
+  sizeId: string
+  noteRefApi: NoteRefApi
+}): React.JSX.Element {
+  const [linkedMaps, setLinkedMaps] = useState<string[] | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const maps = await noteRefApi.searchTitles('', 'map')
+        const linked: string[] = []
+        for (const m of maps) {
+          const fm = await noteRefApi.readFrontmatterByTitle(m.title, 'map').catch(() => null)
+          const link = fm?.cityLink as { settlementNoteTitle?: string } | null | undefined
+          if (link?.settlementNoteTitle === noteName) linked.push(m.title)
+        }
+        if (!cancelled) setLinkedMaps(linked)
+      } catch {
+        if (!cancelled) setLinkedMaps([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [noteName, noteRefApi])
+
+  const generate = async (): Promise<void> => {
+    setCreating(true)
+    setError(null)
+    try {
+      const size = CITY_CANVAS_BY_SIZE[resolveGatingSizeId(sizeId)] ?? 1500
+      const created = await noteRefApi.createNote(`${noteName} — Street map`, {
+        ...defaultMapFrontmatter(),
+        canvasSize: { width: size, height: size },
+        cityLink: { settlementNoteTitle: noteName },
+        generation: { seed: Math.floor(Math.random() * 1_000_000_000), params: {}, parentMapTitle: null, parentBounds: null }
+      })
+      await noteRefApi.openByTitle(created.title, 'map')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+      <p className="right-panel-note">
+        A walkable, street-level map for this settlement — an organic boundary, districts, streets and clickable building footprints, generated over
+        this note&apos;s own population data.
+      </p>
+      {linkedMaps && linkedMaps.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {linkedMaps.map((title) => (
+            <button
+              key={title}
+              className="sheet-open-ref-button"
+              style={{ width: 'fit-content' }}
+              onClick={() => void noteRefApi.openByTitle(title, 'map')}
+            >
+              View street map: {title}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <button style={{ width: 'fit-content' }} disabled={creating || linkedMaps === null} onClick={() => void generate()}>
+          {creating ? 'Creating…' : 'Generate street map'}
+        </button>
+      )}
+      {error && (
+        <p className="right-panel-note" style={{ color: 'var(--danger, #c0392b)' }}>
+          {error}
+        </p>
       )}
     </div>
   )

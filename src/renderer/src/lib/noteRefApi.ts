@@ -48,6 +48,17 @@ export interface NoteRefApi {
   // Every directory path in the tree, for that same control's folder-path
   // datalist.
   listFolderPaths(): Promise<string[]>
+  // Read-modify-write another note's frontmatter by title (procedural map
+  // generation plan, Phase 7.2 — a city map writes district polygons, and
+  // Phase 7.4 building footprints, back onto its linked Settlement note).
+  // `update` is handed the note's current frontmatter and returns the next
+  // one; the note's body is left untouched. Resolves to 'not-found' when no
+  // note matches, 'conflict' when the note changed underneath the read.
+  updateFrontmatterByTitle(
+    title: string,
+    update: (frontmatter: Record<string, unknown>) => Record<string, unknown>,
+    type?: string
+  ): Promise<'saved' | 'not-found' | 'conflict'>
 }
 
 // Exported for direct testing (tests/noteRefApi.test.ts) — the two hooks
@@ -71,7 +82,16 @@ export function createNoteRefApi(
   },
   // Defaults to false so existing callers/tests that don't pass this (and
   // don't care about the local/cloud distinction) still work.
-  isCloud = false
+  isCloud = false,
+  // Read-modify-write a note's frontmatter by ref — the two hooks below
+  // supply a real per-backend implementation; the default throws so a test
+  // that never wires it up fails loudly rather than silently no-op'ing.
+  updateFrontmatterByRef: (
+    ref: string,
+    update: (frontmatter: Record<string, unknown>) => Record<string, unknown>
+  ) => Promise<'saved' | 'conflict'> = async () => {
+    throw new Error('updateFrontmatterByTitle is not supported in this context')
+  }
 ): NoteRefApi {
   async function findExact(title: string, type?: string): Promise<{ title: string; ref: string } | undefined> {
     const matches = await searchTitles(title, type)
@@ -114,6 +134,11 @@ export function createNoteRefApi(
     },
     async listFolderPaths() {
       return listFolderPathsImpl()
+    },
+    async updateFrontmatterByTitle(title, update, type) {
+      const exact = await findExact(title, type)
+      if (!exact) return 'not-found'
+      return updateFrontmatterByRef(exact.ref, update)
     }
   }
 }
@@ -147,7 +172,18 @@ export function useLocalNoteRefApi(): NoteRefApi {
         async () => listFolderPaths(tree),
         // One readNote + one parse instead of two of each.
         async (path) => parseNote((await window.vaultApi.readNote(path)).content),
-        false
+        false,
+        async (path, update) => {
+          const note = await window.vaultApi.readNote(path)
+          const parsed = parseNote(note.content)
+          const nextFrontmatter = update(parsed.frontmatter)
+          const res = await window.vaultApi.saveNote({
+            path,
+            content: stringifyNote({ frontmatter: nextFrontmatter, body: parsed.body }),
+            baseVersion: note.version
+          })
+          return res.status === 'conflict' ? 'conflict' : 'saved'
+        }
       ),
     [openNote, vaultPath, tree]
   )
@@ -176,7 +212,12 @@ export function useCloudNoteRefApi(): NoteRefApi {
           const note = await window.cloudApi.getNote(id)
           return { frontmatter: note.frontmatter, body: note.body }
         },
-        true
+        true,
+        async (id, update) => {
+          const note = await window.cloudApi.getNote(id)
+          const res = await window.cloudApi.saveNote({ id, version: note.version, frontmatter: update(note.frontmatter) })
+          return res.status === 'conflict' ? 'conflict' : 'saved'
+        }
       ),
     [openNote, tree]
   )

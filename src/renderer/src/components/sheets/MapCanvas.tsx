@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { foldDrawnPathAtWraps, foldPoint, segmentDistance, type Point, type WrapConfig } from '../../../../common/mapGeometry'
+import {
+  clampViewBoxWidth,
+  foldDrawnPathAtWraps,
+  foldPoint,
+  lodForZoom,
+  polygonCentroid,
+  segmentDistance,
+  viewZoom,
+  type MapLod,
+  type Point,
+  type WrapConfig
+} from '../../../../common/mapGeometry'
 import {
   pinDisplayLabel,
+  type CityBoundary,
   type ClimateType,
   type ClimateZone,
   type LineType,
@@ -29,6 +41,34 @@ interface ViewBox {
   y: number
   w: number
   h: number
+}
+
+// The live pan/zoom state, handed to onViewChange and the cityLayer render
+// prop (Phase 7.0). `zoom` is image-width / viewBox-width (1 = whole image
+// fits, larger = closer in); `lod` is the derived far/mid/near bucket a
+// city-scale layer uses to decide how much to draw (silhouettes when far,
+// building footprints and street labels only when near). See mapGeometry's
+// viewZoom / lodForZoom.
+export interface MapCanvasView {
+  zoom: number
+  lod: MapLod
+  viewBox: ViewBox
+}
+
+// Button/keyboard zoom step — one notch multiplies the viewBox size by this
+// (zoom out) or its inverse (zoom in). The wheel uses its own gentler 0.9/
+// 1.1, so it isn't quantised to this.
+const ZOOM_STEP = 1.25
+
+// Footprint tint by the building type's category (Phase 7.4) — the same
+// "each type gets a colour" idea terrain types use, keyed off the five
+// settlement building categories.
+const BUILDING_CATEGORY_COLORS: Record<string, string> = {
+  residence: '#a98d6b',
+  shop: '#c99b52',
+  civic: '#6f8fb0',
+  religious: '#9a7bb0',
+  tavern: '#c9793c'
 }
 
 // Below this many screen pixels of movement, a mousedown+mouseup is treated
@@ -137,6 +177,35 @@ export interface MapCanvasProps {
   showPins?: boolean
   showClimateZones?: boolean
   showTerritories?: boolean
+  // The city-scale street map's outer footprint (Phase 7.1) — rendered as a
+  // wall line when `walled`, a soft edge otherwise. Null / absent on every
+  // non-city map. Later sub-phases render streets/buildings via cityLayer;
+  // this is just the boundary itself.
+  cityBoundary?: CityBoundary | null
+  // District polygons for the linked settlement's own districts[] (Phase
+  // 7.2) — rendered the same way territories are (tinted fill + name
+  // label). The parent resolves these from the linked Settlement note;
+  // empty/absent on every non-city map.
+  cityDistricts?: { id: string; name: string; points: Point[]; color?: string }[]
+  // Building footprints for the linked settlement's own buildings[] (Phase
+  // 7.4) — small rotated rectangles tinted by the building type's category.
+  // Only mounted at the closest LOD (a city has hundreds of them). The
+  // parent resolves category from the settlement's buildingTypes[].
+  cityBuildings?: { id: string; footprint: { x: number; y: number; width: number; height: number; rotationDegrees: number }; category: string }[]
+  // Fired when a building footprint is clicked in view mode (Phase 7.5) —
+  // the parent opens a detail panel for that building id.
+  onBuildingClick?: (buildingId: string) => void
+  // Fired whenever the view pans or zooms, with the derived zoom factor and
+  // level-of-detail bucket (Phase 7.0). Optional — only the city-scale
+  // street-map UI reacts to zoom; every existing caller ignores it.
+  onViewChange?: (view: MapCanvasView) => void
+  // Extra SVG content rendered above the base layers and below the pins /
+  // draft overlays, given the live view so it can do its own level-of-
+  // detail gating (district silhouettes when `view.lod` is "far", building
+  // footprints and street labels only at "near"). The Phase 7.1+ city
+  // layers plug in here, keeping MapCanvas ignorant of settlement/street
+  // schemas.
+  cityLayer?: (view: MapCanvasView) => React.ReactNode
 }
 
 export function MapCanvas({
@@ -173,7 +242,13 @@ export function MapCanvas({
   showLines = true,
   showPins = true,
   showClimateZones = true,
-  showTerritories = true
+  showTerritories = true,
+  cityBoundary,
+  cityDistricts = [],
+  cityBuildings = [],
+  onBuildingClick,
+  onViewChange,
+  cityLayer
 }: MapCanvasProps): React.JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: imageWidth, h: imageHeight })
   const [calibrationStart, setCalibrationStart] = useState<Point | null>(null)
@@ -214,6 +289,70 @@ export function MapCanvas({
   const handleClickAtRef = useRef<(point: Point) => void>(() => {})
   const onPinClickRef = useRef(onPinClick)
   onPinClickRef.current = onPinClick
+  const onBuildingClickRef = useRef(onBuildingClick)
+  onBuildingClickRef.current = onBuildingClick
+
+  // Derived pan/zoom state (Phase 7.0). `zoom`/`lod` update on every pan or
+  // zoom tick; `view` is memoised so its identity only changes when a field
+  // actually does, keeping the onViewChange effect and cityLayer from
+  // re-firing on unrelated renders.
+  const zoom = viewZoom(imageWidth, viewBox.w)
+  const lod = lodForZoom(zoom)
+  const view = useMemo<MapCanvasView>(() => ({ zoom, lod, viewBox }), [zoom, lod, viewBox])
+
+  const onViewChangeRef = useRef(onViewChange)
+  onViewChangeRef.current = onViewChange
+  useEffect(() => {
+    onViewChangeRef.current?.(view)
+  }, [view])
+
+  // Zoom the view by `factor` (>1 zooms out, <1 zooms in), keeping the
+  // point under (screenX, screenY) — the viewport centre when omitted —
+  // stationary, the same "anchor a point under the gesture" math the wheel
+  // path uses. Shared by the wheel handler, the on-canvas +/−/Fit buttons,
+  // and the keyboard shortcuts so they can't diverge.
+  const zoomBy = (factor: number, screenX?: number, screenY?: number): void => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const sx = screenX ?? rect.left + rect.width / 2
+    const sy = screenY ?? rect.top + rect.height / 2
+    setViewBox((vb) => {
+      const before = getViewportTransform(rect, vb)
+      const px = vb.x + (sx - rect.left - before.offsetX) / before.scale
+      const py = vb.y + (sy - rect.top - before.offsetY) / before.scale
+      const newW = clampViewBoxWidth(vb.w * factor, imageWidth)
+      const newH = vb.h * (newW / vb.w)
+      const after = getViewportTransform(rect, { x: vb.x, y: vb.y, w: newW, h: newH })
+      const newMx = sx - rect.left - after.offsetX
+      const newMy = sy - rect.top - after.offsetY
+      return { x: px - newMx / after.scale, y: py - newMy / after.scale, w: newW, h: newH }
+    })
+  }
+  const resetView = (): void => setViewBox({ x: 0, y: 0, w: imageWidth, h: imageHeight })
+
+  const zoomByRef = useRef(zoomBy)
+  zoomByRef.current = zoomBy
+  const resetViewRef = useRef(resetView)
+  resetViewRef.current = resetView
+
+  // Keyboard zoom (Phase 7.0) — +/= in, -/_ out, 0 to fit. Ignored while a
+  // form field is focused so typing "-" or "0" into the calibration/latitude
+  // inputs doesn't jump the map.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const el = e.target
+      if (
+        el instanceof HTMLElement &&
+        (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')
+      )
+        return
+      if (e.key === '+' || e.key === '=') zoomByRef.current(1 / ZOOM_STEP)
+      else if (e.key === '-' || e.key === '_') zoomByRef.current(ZOOM_STEP)
+      else if (e.key === '0') resetViewRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const terrainTypesById = useMemo(() => new Map(terrainTypes.map((t) => [t.id, t])), [terrainTypes])
   const lineTypesById = useMemo(() => new Map(lineTypes.map((t) => [t.id, t])), [lineTypes])
@@ -304,6 +443,36 @@ export function MapCanvas({
     [territories]
   )
 
+  // City districts (Phase 7.2) — same visual language as territories (tinted
+  // fill + centred name label), hue cycled by index so adjacent districts
+  // read apart. A district carries its own `color` only if the caller
+  // assigned one; otherwise it's derived here.
+  const cityDistrictElements = useMemo(
+    () =>
+      cityDistricts
+        .filter((d) => d.points.length >= 3)
+        .map((district, i) => {
+          const color = district.color ?? `hsl(${Math.round((360 / Math.max(1, cityDistricts.length)) * i)}, 45%, 45%)`
+          const centre = polygonCentroid(district.points)
+          return (
+            <g key={district.id}>
+              <polygon
+                points={district.points.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill={color}
+                fillOpacity={0.16}
+                stroke={color}
+                strokeOpacity={0.75}
+                strokeWidth={2}
+              />
+              <text x={centre.x} y={centre.y} textAnchor="middle" fill={color} style={{ fontWeight: 600 }}>
+                {district.name}
+              </text>
+            </g>
+          )
+        }),
+    [cityDistricts]
+  )
+
   const zoneElements = useMemo(
     () =>
       zones.map((zone) => (
@@ -335,6 +504,65 @@ export function MapCanvas({
       )),
     [lines, lineTypesById]
   )
+
+  // Building footprints (Phase 7.4) — a small rectangle per placed
+  // building, rotated about its own centre, tinted by category, and only at
+  // the closest LOD (a city has hundreds). This is the LOD's primary job:
+  // bounding the *rendered* element count, not just the generated one.
+  // Clickable in view mode (Phase 7.5), same opt-out-of-pan-tracking
+  // pattern as a pin; in a drawing mode a click places a point there.
+  const cityBuildingElements = useMemo(() => {
+    if (lod !== 'near') return []
+    return cityBuildings.map(({ id, footprint: f, category }) => (
+      <rect
+        key={`bld-${id}`}
+        x={f.x - f.width / 2}
+        y={f.y - f.height / 2}
+        width={f.width}
+        height={f.height}
+        transform={`rotate(${f.rotationDegrees}, ${f.x}, ${f.y})`}
+        fill={BUILDING_CATEGORY_COLORS[category] ?? BUILDING_CATEGORY_COLORS.shop}
+        fillOpacity={0.9}
+        stroke="#3a3128"
+        strokeOpacity={0.55}
+        strokeWidth={0.5}
+        style={{ cursor: mode === 'view' ? 'pointer' : 'crosshair' }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={() => (mode === 'view' ? onBuildingClickRef.current?.(id) : handleClickAtRef.current({ x: f.x, y: f.y }))}
+      />
+    ))
+  }, [cityBuildings, lod, mode])
+
+  // Street name labels (Phase 7.3) — only lines with a `name` (city
+  // streets; rivers/roads leave it null), and only at the closest LOD, so
+  // a zoomed-out city isn't a wall of text. Rotated along the street, with
+  // a white halo so they read over any block fill.
+  const streetLabelElements = useMemo(() => {
+    if (lod !== 'near') return []
+    return lines
+      .filter((line) => line.name && line.points.length >= 2)
+      .map((line) => {
+        const midIndex = Math.floor(line.points.length / 2)
+        const mid = line.points[midIndex]
+        const prev = line.points[Math.max(0, midIndex - 1)]
+        let angle = (Math.atan2(mid.y - prev.y, mid.x - prev.x) * 180) / Math.PI
+        if (angle > 90) angle -= 180
+        if (angle < -90) angle += 180
+        return (
+          <text
+            key={`street-label-${line.id}`}
+            x={mid.x}
+            y={mid.y}
+            textAnchor="middle"
+            transform={`rotate(${angle}, ${mid.x}, ${mid.y})`}
+            fill={lineTypesById.get(line.lineTypeId)?.color ?? '#6a5a44'}
+            style={{ fontSize: 10, fontWeight: 600, paintOrder: 'stroke', stroke: '#fff', strokeWidth: 3, strokeLinejoin: 'round' }}
+          >
+            {line.name}
+          </text>
+        )
+      })
+  }, [lines, lineTypesById, lod])
 
   // Same reasoning as landmassElements/zoneElements/lineElements above, but
   // for pins — without this, entering draw-trip mode and just moving the
@@ -543,26 +771,9 @@ export function MapCanvas({
 
   const handleWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
     e.preventDefault()
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
-
-    setViewBox((vb) => {
-      const before = getViewportTransform(rect, vb)
-      const px = vb.x + (e.clientX - rect.left - before.offsetX) / before.scale
-      const py = vb.y + (e.clientY - rect.top - before.offsetY) / before.scale
-
-      const scaleFactor = e.deltaY < 0 ? 0.9 : 1.1
-      const newW = Math.min(imageWidth * 3, Math.max(50, vb.w * scaleFactor))
-      const newH = vb.h * (newW / vb.w)
-
-      // Keep the point under the cursor stationary — recomputed against the
-      // *new* viewBox's own scale/offset, not the old one, since zooming
-      // changes how much screen space the same viewBox unit covers.
-      const after = getViewportTransform(rect, { x: vb.x, y: vb.y, w: newW, h: newH })
-      const newMx = e.clientX - rect.left - after.offsetX
-      const newMy = e.clientY - rect.top - after.offsetY
-      return { x: px - newMx / after.scale, y: py - newMy / after.scale, w: newW, h: newH }
-    })
+    // Anchor the point under the cursor while zooming — see zoomBy, which
+    // the +/−/Fit buttons and keyboard shortcuts share.
+    zoomBy(e.deltaY < 0 ? 0.9 : 1.1, e.clientX, e.clientY)
   }
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>): void => {
@@ -603,194 +814,284 @@ export function MapCanvas({
   }, [viewBox.w, viewBox.h, mode, calibrationStart, zoneDraft, lineDraft, landmassDraft, territoryDraft, tripDraft, regionDraft])
 
   return (
-    <svg
-      ref={svgRef}
-      className="graph-svg"
-      viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-      style={{ cursor: mode === 'view' ? 'grab' : 'crosshair' }}
-      onWheel={handleWheel}
-      onMouseMove={handleMouseMoveForDrawTrip}
-      onMouseLeave={() => setDrawHoverPoint(null)}
-      onMouseDown={handleMouseDown}
-    >
-      {imageUrl && <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />}
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <svg
+        ref={svgRef}
+        className="graph-svg"
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+        style={{ cursor: mode === 'view' ? 'grab' : 'crosshair' }}
+        onWheel={handleWheel}
+        onMouseMove={handleMouseMoveForDrawTrip}
+        onMouseLeave={() => setDrawHoverPoint(null)}
+        onMouseDown={handleMouseDown}
+      >
+        {imageUrl && <image href={imageUrl} x={0} y={0} width={imageWidth} height={imageHeight} />}
 
-      {showLandmasses && (
-        <g>
-          {/* Landmass boundaries render underneath terrain zones/lines — they're
-              a land/water backdrop, not a paintable region themselves, so a
-              dashed outline with near-zero fill keeps whatever's drawn inside
-              (or the base map image) fully legible. */}
-          {landmassElements}
-        </g>
-      )}
+        {showLandmasses && (
+          <g>
+            {/* Landmass boundaries render underneath terrain zones/lines — they're
+                a land/water backdrop, not a paintable region themselves, so a
+                dashed outline with near-zero fill keeps whatever's drawn inside
+                (or the base map image) fully legible. */}
+            {landmassElements}
+          </g>
+        )}
 
-      {showClimateZones && <g>{climateZoneElements}</g>}
+        {showClimateZones && <g>{climateZoneElements}</g>}
 
-      {showTerritories && <g>{territoryElements}</g>}
+        {showTerritories && <g>{territoryElements}</g>}
 
-      {showZones && <g>{zoneElements}</g>}
+        {showZones && <g>{zoneElements}</g>}
 
-      {showLines && <g>{lineElements}</g>}
+        {showLines && <g>{lineElements}</g>}
 
-      {mode === 'paint-zone' && zoneDraft.length > 0 && (
-        <g>
-          {/* Black-outline-then-white-dash layering keeps this visible
-              regardless of the underlying map's colors — a flat white line
-              disappears entirely on a light background. */}
-          <polyline points={zoneDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-          <polyline points={zoneDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
-          {zoneDraft.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
-          ))}
-        </g>
-      )}
-
-      {mode === 'draw-line' && lineDraft.length > 0 && (
-        <g>
-          <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-          <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
-          {lineDraft.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
-          ))}
-        </g>
-      )}
-
-      {mode === 'paint-landmass' && landmassDraft.length > 0 && (
-        <g>
-          <polyline points={landmassDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-          <polyline points={landmassDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
-          {landmassDraft.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
-          ))}
-        </g>
-      )}
-
-      {mode === 'paint-territory' && territoryDraft.length > 0 && (
-        <g>
-          <polyline points={territoryDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-          <polyline points={territoryDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#7c8cff" strokeDasharray="4,2" strokeWidth={2} />
-          {territoryDraft.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#7c8cff" stroke="#000" strokeWidth={1.5} />
-          ))}
-        </g>
-      )}
-
-      {mode === 'draw-trip' && tripDraft.length > 0 && (
-        <g>
-          {/* The connecting line(s) use the FOLDED interpretation (see
-              foldedTripDraft above), not the raw clicked points — so the
-              moment a point past a wrapping edge is placed, the draft
-              already shows the split/folded route instead of one line
-              running straight through blank space. The small circles below
-              still mark the literal click positions (which can legitimately
-              be off-canvas), so you can see exactly what you clicked as
-              well as how it's being interpreted. */}
-          {foldedTripDraft.map((leg, legIndex) => (
-            <g key={legIndex}>
-              <polyline points={leg.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-              <polyline points={leg.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+        {/* The city footprint (Phase 7.1). A walled town draws a heavy wall
+            line (dark base + light coping stroke); an unwalled one a soft
+            dashed edge with a faint fill. Renders under cityLayer so later
+            districts/streets/buildings sit on top of it. */}
+        {cityBoundary &&
+          cityBoundary.points.length >= 3 &&
+          (cityBoundary.walled ? (
+            <g>
+              <polygon
+                points={cityBoundary.points.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="#000"
+                fillOpacity={0.03}
+                stroke="#3d2b1f"
+                strokeWidth={6}
+                strokeLinejoin="round"
+              />
+              <polygon
+                points={cityBoundary.points.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke="#d8c3a5"
+                strokeWidth={2.5}
+                strokeLinejoin="round"
+              />
             </g>
+          ) : (
+            <polygon
+              points={cityBoundary.points.map((p) => `${p.x},${p.y}`).join(' ')}
+              fill="#c9a24d"
+              fillOpacity={0.05}
+              stroke="#c9a24d"
+              strokeOpacity={0.85}
+              strokeWidth={3}
+              strokeDasharray="10,7"
+              strokeLinejoin="round"
+            />
           ))}
-          {tripDraft.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
-          ))}
-        </g>
-      )}
 
-      {/* Ghost preview while drawing — shows where the cursor's CURRENT
-          position would land once folded, before the user commits with a
-          click, so drawing a route across a wrapping edge isn't a guessing
-          game. Only shown once the cursor has actually strayed past a
-          wrapping edge; an in-bounds cursor needs no ghost since it already
-          is its own landing spot. */}
-      {drawTripGhost && (
-        <g>
-          <circle cx={drawTripGhost.x} cy={drawTripGhost.y} r={pinRadius} fill="none" stroke="#ff8800" strokeWidth={2} strokeDasharray="4,3" />
-          <text x={drawTripGhost.x} y={drawTripGhost.y - pinRadius - 6} textAnchor="middle" fill="#ff8800">
-            lands here
-          </text>
-        </g>
-      )}
+        {/* City districts (Phase 7.2), inside the boundary. */}
+        {cityDistrictElements.length > 0 && <g>{cityDistrictElements}</g>}
 
-      {mode === 'select-region' && regionDraft.length > 0 && (
-        <g>
-          <polyline points={regionDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
-          <polyline points={regionDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#e0a83c" strokeDasharray="4,2" strokeWidth={2} />
-          {regionDraft.map((p, i) => (
-            <circle key={i} cx={p.x} cy={p.y} r={4} fill="#e0a83c" stroke="#000" strokeWidth={1.5} />
-          ))}
-        </g>
-      )}
+        {/* Building footprints (Phase 7.4) — above districts/streets, below
+            the pins and street labels; near-LOD only. */}
+        {cityBuildingElements.length > 0 && <g>{cityBuildingElements}</g>}
 
-      {mode === 'calibrate' && calibrationStart && (
-        <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
-      )}
+        {/* Phase 7.3+ city-scale layers (streets / building footprints) —
+            mounted above the base map, below the pins and draft overlays,
+            with their own level-of-detail gating driven by `view.lod`. */}
+        {cityLayer && <g>{cityLayer(view)}</g>}
 
-      {/* The CONFIRMED active boundary mask (Phase 5) — a persistent
-          highlighted overlay independent of mode, so "what's about to be
-          generated inside" stays visible while adjusting Generate panel
-          sliders, not just while actively drawing it. */}
-      {boundaryMask && boundaryMask.length >= 3 && (
-        <polygon
-          points={boundaryMask.map((p) => `${p.x},${p.y}`).join(' ')}
-          fill="#e0a83c"
-          fillOpacity={0.08}
-          stroke="#e0a83c"
-          strokeOpacity={0.9}
-          strokeWidth={3}
-          strokeDasharray="10,5"
-        />
-      )}
+        {mode === 'paint-zone' && zoneDraft.length > 0 && (
+          <g>
+            {/* Black-outline-then-white-dash layering keeps this visible
+                regardless of the underlying map's colors — a flat white line
+                disappears entirely on a light background. */}
+            <polyline points={zoneDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+            <polyline points={zoneDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+            {zoneDraft.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+            ))}
+          </g>
+        )}
 
-      {/* The equator, in 'latitude' scale mode — a thin reference line
-          spanning the current view's full width (not just the image), since
-          it's derived from topLatitude/bottomLatitude (see MapSheet) and can
-          legitimately fall outside the image bounds for a map that doesn't
-          depict the equator (a kingdom far to the north, say). Purely
-          informational now — position comes from the two latitude fields,
-          not from clicking on the canvas. */}
-      {equatorY != null && (
-        <g>
-          <line
-            x1={viewBox.x}
-            x2={viewBox.x + viewBox.w}
-            y1={equatorY}
-            y2={equatorY}
-            stroke="#000"
-            strokeOpacity={0.4}
-            strokeWidth={equatorStrokeWidth + 1.5}
+        {mode === 'draw-line' && lineDraft.length > 0 && (
+          <g>
+            <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+            <polyline points={lineDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+            {lineDraft.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+            ))}
+          </g>
+        )}
+
+        {mode === 'paint-landmass' && landmassDraft.length > 0 && (
+          <g>
+            <polyline points={landmassDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+            <polyline points={landmassDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+            {landmassDraft.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+            ))}
+          </g>
+        )}
+
+        {mode === 'paint-territory' && territoryDraft.length > 0 && (
+          <g>
+            <polyline points={territoryDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+            <polyline points={territoryDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#7c8cff" strokeDasharray="4,2" strokeWidth={2} />
+            {territoryDraft.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#7c8cff" stroke="#000" strokeWidth={1.5} />
+            ))}
+          </g>
+        )}
+
+        {mode === 'draw-trip' && tripDraft.length > 0 && (
+          <g>
+            {/* The connecting line(s) use the FOLDED interpretation (see
+                foldedTripDraft above), not the raw clicked points — so the
+                moment a point past a wrapping edge is placed, the draft
+                already shows the split/folded route instead of one line
+                running straight through blank space. The small circles below
+                still mark the literal click positions (which can legitimately
+                be off-canvas), so you can see exactly what you clicked as
+                well as how it's being interpreted. */}
+            {foldedTripDraft.map((leg, legIndex) => (
+              <g key={legIndex}>
+                <polyline points={leg.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+                <polyline points={leg.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeDasharray="4,2" strokeWidth={2} />
+              </g>
+            ))}
+            {tripDraft.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#000" strokeWidth={1.5} />
+            ))}
+          </g>
+        )}
+
+        {/* Ghost preview while drawing — shows where the cursor's CURRENT
+            position would land once folded, before the user commits with a
+            click, so drawing a route across a wrapping edge isn't a guessing
+            game. Only shown once the cursor has actually strayed past a
+            wrapping edge; an in-bounds cursor needs no ghost since it already
+            is its own landing spot. */}
+        {drawTripGhost && (
+          <g>
+            <circle cx={drawTripGhost.x} cy={drawTripGhost.y} r={pinRadius} fill="none" stroke="#ff8800" strokeWidth={2} strokeDasharray="4,3" />
+            <text x={drawTripGhost.x} y={drawTripGhost.y - pinRadius - 6} textAnchor="middle" fill="#ff8800">
+              lands here
+            </text>
+          </g>
+        )}
+
+        {mode === 'select-region' && regionDraft.length > 0 && (
+          <g>
+            <polyline points={regionDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000" strokeWidth={4} />
+            <polyline points={regionDraft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#e0a83c" strokeDasharray="4,2" strokeWidth={2} />
+            {regionDraft.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#e0a83c" stroke="#000" strokeWidth={1.5} />
+            ))}
+          </g>
+        )}
+
+        {mode === 'calibrate' && calibrationStart && (
+          <circle cx={calibrationStart.x} cy={calibrationStart.y} r={6} fill="#fff" stroke="#000" strokeWidth={2} />
+        )}
+
+        {/* The CONFIRMED active boundary mask (Phase 5) — a persistent
+            highlighted overlay independent of mode, so "what's about to be
+            generated inside" stays visible while adjusting Generate panel
+            sliders, not just while actively drawing it. */}
+        {boundaryMask && boundaryMask.length >= 3 && (
+          <polygon
+            points={boundaryMask.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="#e0a83c"
+            fillOpacity={0.08}
+            stroke="#e0a83c"
+            strokeOpacity={0.9}
+            strokeWidth={3}
+            strokeDasharray="10,5"
           />
-          <line
-            x1={viewBox.x}
-            x2={viewBox.x + viewBox.w}
-            y1={equatorY}
-            y2={equatorY}
-            stroke="#2ec4b6"
-            strokeWidth={equatorStrokeWidth}
-            strokeDasharray={`${equatorStrokeWidth * 5},${equatorStrokeWidth * 3}`}
-          />
-          <text x={viewBox.x + 8} y={equatorY - 8} fill="#2ec4b6">
-            Equator
-          </text>
-        </g>
-      )}
+        )}
 
-      {tripPath && tripPath.length > 0 && (
-        <g>
-          {/* The active trip route — a straight pin-to-pin preview, a
-              hand-drawn path, or a wrapped route's legs, either way rendered
-              the same way so there's one visual language for "this is the
-              route being timed" regardless of how it was produced. Each leg
-              is drawn separately (never connected to the next) so a wrapped
-              route reads as "jumps to the opposite edge" rather than a line
-              straight across the map. High-contrast gold against the black
-              outline reads over any terrain color underneath. */}
-          {tripPathElements}
-        </g>
-      )}
+        {/* The equator, in 'latitude' scale mode — a thin reference line
+            spanning the current view's full width (not just the image), since
+            it's derived from topLatitude/bottomLatitude (see MapSheet) and can
+            legitimately fall outside the image bounds for a map that doesn't
+            depict the equator (a kingdom far to the north, say). Purely
+            informational now — position comes from the two latitude fields,
+            not from clicking on the canvas. */}
+        {equatorY != null && (
+          <g>
+            <line
+              x1={viewBox.x}
+              x2={viewBox.x + viewBox.w}
+              y1={equatorY}
+              y2={equatorY}
+              stroke="#000"
+              strokeOpacity={0.4}
+              strokeWidth={equatorStrokeWidth + 1.5}
+            />
+            <line
+              x1={viewBox.x}
+              x2={viewBox.x + viewBox.w}
+              y1={equatorY}
+              y2={equatorY}
+              stroke="#2ec4b6"
+              strokeWidth={equatorStrokeWidth}
+              strokeDasharray={`${equatorStrokeWidth * 5},${equatorStrokeWidth * 3}`}
+            />
+            <text x={viewBox.x + 8} y={equatorY - 8} fill="#2ec4b6">
+              Equator
+            </text>
+          </g>
+        )}
 
-      {showPins && <g>{pinElements}</g>}
-    </svg>
+        {tripPath && tripPath.length > 0 && (
+          <g>
+            {/* The active trip route — a straight pin-to-pin preview, a
+                hand-drawn path, or a wrapped route's legs, either way rendered
+                the same way so there's one visual language for "this is the
+                route being timed" regardless of how it was produced. Each leg
+                is drawn separately (never connected to the next) so a wrapped
+                route reads as "jumps to the opposite edge" rather than a line
+                straight across the map. High-contrast gold against the black
+                outline reads over any terrain color underneath. */}
+            {tripPathElements}
+          </g>
+        )}
+
+        {showLines && streetLabelElements.length > 0 && <g>{streetLabelElements}</g>}
+
+        {showPins && <g>{pinElements}</g>}
+      </svg>
+
+      {/* On-canvas zoom controls (Phase 7.0) — pan is drag, but a discrete
+          zoom-in/out/fit is handy on a trackpad and needed for the
+          city-scale map's deeper zoom range. Keyboard equivalents: +/-, and
+          0 to fit. */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 4
+        }}
+      >
+        <button aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoomBy(1 / ZOOM_STEP)}>
+          +
+        </button>
+        <button aria-label="Zoom out" title="Zoom out (−)" onClick={() => zoomBy(ZOOM_STEP)}>
+          −
+        </button>
+        <button aria-label="Fit map to view" title="Fit map to view (0)" onClick={resetView}>
+          Fit
+        </button>
+        <span
+          style={{
+            fontSize: 10,
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            fontVariantNumeric: 'tabular-nums',
+            userSelect: 'none'
+          }}
+        >
+          {zoom.toFixed(1)}×
+        </span>
+      </div>
+    </div>
   )
 }

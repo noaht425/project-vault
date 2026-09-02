@@ -10,7 +10,7 @@ import {
   pointInPolygon,
   type Point
 } from '../../../../common/mapGeometry'
-import { defaultSettlementFrontmatter } from '../../../../common/noteTypes/settlement'
+import { defaultSettlementFrontmatter, settlementFrontmatterSchema } from '../../../../common/noteTypes/settlement'
 import { presetFieldsFromPreset, settlementPresetFrontmatterSchema } from '../../../../common/noteTypes/settlementPreset'
 import { generateSettlement } from '../../../../common/settlementGenerator'
 import { NAME_INSPIRATION_SOURCES } from '../../../../common/settlementNames'
@@ -23,6 +23,19 @@ import { MapGenerationPanel } from './MapGenerationPanel'
 import { MapTripCalculator } from './MapTripCalculator'
 import { MapTimeline } from './MapTimeline'
 import { TravelModesEditor } from './TravelModesEditor'
+
+// A placed building plus the display data its click panel needs (Phase
+// 7.5) — resolved from the linked Settlement note. MapCanvas only reads
+// id/footprint/category; the rest is for the detail card.
+interface CityBuildingInfo {
+  id: string
+  footprint: { x: number; y: number; width: number; height: number; rotationDegrees: number }
+  category: string
+  name: string
+  typeName: string
+  linkedNoteTitle: string | null
+  residents: { id: string; name: string; race: string; age: number; gender: string; jobTitle: string; notable: boolean; linkedNoteTitle: string | null }[]
+}
 
 function loadImageDimensions(url: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -165,6 +178,75 @@ export function MapSheet({
       cancelled = true
     }
   }, [pinQuery, pendingPinPoint, noteRefApi])
+
+  // Phase 7.2 — a city map's districts live on the LINKED SETTLEMENT note
+  // (design decision 1), so resolve them here for MapCanvas to render.
+  // Re-runs when the link or the refresh key changes; only passed to
+  // MapCanvas while data.cityLink is set (see the prop below), so no reset
+  // branch is needed for the unlinked case.
+  const [cityDistricts, setCityDistricts] = useState<{ id: string; name: string; points: Point[] }[]>([])
+  const [cityBuildings, setCityBuildings] = useState<CityBuildingInfo[]>([])
+  // The footprint whose detail panel is open (Phase 7.5). Cleared whenever
+  // the linked settlement is (re)fetched, since ids may have changed.
+  const [selectedCityBuildingId, setSelectedCityBuildingId] = useState<string | null>(null)
+  const [cityRefreshKey, setCityRefreshKey] = useState(0)
+  const cityLinkTitle = data.cityLink?.settlementNoteTitle ?? null
+  useEffect(() => {
+    if (!cityLinkTitle) return
+    let cancelled = false
+    noteRefApi
+      .readNoteByTitle(cityLinkTitle, 'settlement')
+      .then((note) => {
+        if (cancelled || !note) return
+        const parsed = settlementFrontmatterSchema.parse(note.frontmatter)
+        setCityDistricts(
+          parsed.districts
+            .filter((d): d is typeof d & { points: Point[] } => Array.isArray(d.points) && d.points.length >= 3)
+            .map((d) => ({ id: d.id, name: d.name, points: d.points }))
+        )
+        const typeById = new Map(parsed.buildingTypes.map((t) => [t.id, t]))
+        const residentsByBuilding = new Map<string, typeof parsed.residents>()
+        for (const r of parsed.residents) {
+          if (!r.professionBuildingId) continue
+          const list = residentsByBuilding.get(r.professionBuildingId) ?? []
+          list.push(r)
+          residentsByBuilding.set(r.professionBuildingId, list)
+        }
+        setCityBuildings(
+          parsed.buildings
+            .filter((b): b is typeof b & { footprint: NonNullable<typeof b.footprint> } => b.footprint != null)
+            .map((b) => ({
+              id: b.id,
+              footprint: b.footprint,
+              category: typeById.get(b.buildingTypeId)?.category ?? 'shop',
+              name: b.name,
+              typeName: typeById.get(b.buildingTypeId)?.name ?? b.buildingTypeId,
+              linkedNoteTitle: b.linkedNoteTitle,
+              residents: (residentsByBuilding.get(b.id) ?? []).map((r) => ({
+                id: r.id,
+                name: r.name,
+                race: r.race,
+                age: r.age,
+                gender: r.gender,
+                jobTitle: r.jobTitle,
+                notable: r.notable,
+                linkedNoteTitle: r.linkedNoteTitle
+              }))
+            }))
+        )
+        setSelectedCityBuildingId(null)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setCityDistricts([])
+        setCityBuildings([])
+        setSelectedCityBuildingId(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [cityLinkTitle, cityRefreshKey, noteRefApi])
+  const selectedCityBuilding = selectedCityBuildingId ? cityBuildings.find((b) => b.id === selectedCityBuildingId) ?? null : null
 
   const handleUploadImage = async (): Promise<void> => {
     setUploading(true)
@@ -771,6 +853,10 @@ export function MapSheet({
                 setMode('view')
               }}
               boundaryMask={activeBoundaryMask}
+              cityBoundary={data.cityBoundary}
+              cityDistricts={data.cityLink ? cityDistricts : []}
+              cityBuildings={data.cityLink ? cityBuildings : []}
+              onBuildingClick={setSelectedCityBuildingId}
               highlightedPinIds={highlightedPinIds}
               tripPath={tripOverlayPath}
               equatorY={derivedEquatorY}
@@ -784,6 +870,71 @@ export function MapSheet({
               showTerritories={showTerritories}
             />
           </div>
+
+          {selectedCityBuilding && (
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: 12,
+                marginTop: 8,
+                maxWidth: 420,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{selectedCityBuilding.name}</div>
+                  <div className="right-panel-note">{selectedCityBuilding.typeName}</div>
+                </div>
+                <button onClick={() => setSelectedCityBuildingId(null)} aria-label="Close">
+                  ✕
+                </button>
+              </div>
+              {selectedCityBuilding.linkedNoteTitle && (
+                <button
+                  className="sheet-open-ref-button"
+                  style={{ width: 'fit-content' }}
+                  onClick={() => void noteRefApi.openByTitle(selectedCityBuilding.linkedNoteTitle as string, 'location')}
+                >
+                  Open {selectedCityBuilding.linkedNoteTitle}
+                </button>
+              )}
+              {selectedCityBuilding.residents.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div className="right-panel-note">
+                    {selectedCityBuilding.residents.length} resident{selectedCityBuilding.residents.length === 1 ? '' : 's'} work here
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+                    {selectedCityBuilding.residents.map((r) => (
+                      <li key={r.id}>
+                        {r.linkedNoteTitle ? (
+                          <button
+                            className="sheet-open-ref-button"
+                            style={{ padding: 0 }}
+                            onClick={() => void noteRefApi.openByTitle(r.linkedNoteTitle as string, 'npc')}
+                          >
+                            {r.name}
+                          </button>
+                        ) : (
+                          <span>{r.name}</span>
+                        )}{' '}
+                        <span className="right-panel-note" style={{ display: 'inline' }}>
+                          {r.jobTitle ? `${r.jobTitle}, ` : ''}
+                          {r.race}
+                          {r.age ? `, ${r.age}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="right-panel-note">No residents work here.</div>
+              )}
+            </div>
+          )}
 
           {pendingPixelDistance !== null && (
             <div className="sheet-row" style={{ marginTop: 8 }}>
@@ -991,6 +1142,7 @@ export function MapSheet({
               setCustomBoundaryMask(null)
               if (boundarySource === 'custom') setBoundarySource('whole-map')
             }}
+            onCityDataChanged={() => setCityRefreshKey((k) => k + 1)}
           />
         </>
       )}

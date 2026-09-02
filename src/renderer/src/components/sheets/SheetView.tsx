@@ -103,7 +103,7 @@ export function SheetView({
       sheet = <MapSheet noteName={noteName} content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
       break
     case 'settlement':
-      sheet = <SettlementSheet content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
+      sheet = <SettlementSheet noteName={noteName} content={content} onContentChange={onContentChange} noteRefApi={noteRefApi} />
       break
     case 'settlement-preset':
       sheet = <SettlementPresetSheet content={content} />

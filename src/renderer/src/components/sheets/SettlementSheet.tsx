@@ -24,10 +24,14 @@ type SettlementTab = 'setup' | 'people' | 'buildings' | 'factions'
 // this button-row + `active` class is the same local pattern MapSheet uses
 // for its own mode switcher.
 export function SettlementSheet({
+  noteName,
   content,
   onContentChange,
   noteRefApi
 }: {
+  // This settlement note's own title — Phase 7.6 needs it to cityLink a
+  // generated street map back to this settlement.
+  noteName: string
   content: string
   onContentChange: (content: string) => void
   noteRefApi: NoteRefApi
@@ -223,7 +227,7 @@ export function SettlementSheet({
       {bulkSaving && <p className="right-panel-note">Saving residents/buildings…</p>}
       {bulkError && <p className="right-panel-note">{bulkError}</p>}
 
-      {tab === 'setup' && <SettlementSetupTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
+      {tab === 'setup' && <SettlementSetupTab noteName={noteName} data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'people' && <SettlementPeopleTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'buildings' && <SettlementBuildingsTab data={data} updateFrontmatter={updateFrontmatter} noteRefApi={noteRefApi} />}
       {tab === 'factions' && <SettlementFactionsTab data={data} />}
