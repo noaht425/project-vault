@@ -11,6 +11,7 @@ import { TimelineView } from './components/timeline/TimelineView'
 import { EventsSection } from './components/timeline/EventsSection'
 import { GraphView } from './components/graph/GraphView'
 import { InitiativeView } from './components/initiative/InitiativeView'
+import { SimulatorView } from './components/simulator/SimulatorView'
 import { ContradictionsView } from './components/contradictions/ContradictionsView'
 import { SearchView } from './components/search/SearchView'
 import { DiceRoller } from './components/dice/DiceRoller'
@@ -54,7 +55,7 @@ export default function App(): React.JSX.Element {
   const cloudSaving = useCloudEditorStore((s) => s.saving)
   const cloudSaveError = useCloudEditorStore((s) => s.saveError)
   const [workspaceSource, setWorkspaceSource] = useState<'local' | 'cloud'>('local')
-  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative' | 'contradictions'>('editor')
+  const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative' | 'simulator' | 'contradictions'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
@@ -247,6 +248,13 @@ export default function App(): React.JSX.Element {
             Initiative
           </button>
           <button
+            className={mainView === 'simulator' ? 'active' : ''}
+            onClick={() => setMainView((v) => (v === 'simulator' ? 'editor' : 'simulator'))}
+            title="Monte-Carlo a party against a homebrew stat block"
+          >
+            Sim
+          </button>
+          <button
             className={mainView === 'contradictions' ? 'active' : ''}
             onClick={() => setMainView((v) => (v === 'contradictions' ? 'editor' : 'contradictions'))}
             disabled={workspaceSource === 'cloud' || !vaultPath}
@@ -280,7 +288,9 @@ export default function App(): React.JSX.Element {
             resizing.current = true
           }}
         />
-        {workspaceSource === 'cloud' ? (
+        {effectiveView === 'simulator' ? (
+          <SimulatorView />
+        ) : workspaceSource === 'cloud' ? (
           effectiveView === 'search' ? (
             <CloudSearchView
               query={searchQuery}

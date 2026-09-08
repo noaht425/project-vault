@@ -1833,3 +1833,520 @@ button.active {
 .initiative-remove-button:hover {
   color: var(--danger);
 }
+
+/* ===================== Fight Simulator ===================== */
+
+.sim-view {
+  grid-column: 3 / span 2;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 24px 32px;
+}
+
+.sim-wrap {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sim-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sim-header h1 {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.sim-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.sim-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sim-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.sim-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sim-row-end {
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.sim-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sim-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.sim-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.sim-card-head .grow {
+  flex: 1;
+}
+
+.sim-muted {
+  color: var(--text-muted);
+}
+
+.sim-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.sim-linkbtn:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+.sim-linkbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sim-x {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sim-x:hover {
+  background: none;
+  color: var(--danger);
+}
+
+.sim-x:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sim-gearbtn {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sim-gearbtn:hover {
+  background: none;
+  color: var(--text-normal);
+}
+
+.sim-gearbtn.open {
+  color: var(--accent);
+}
+
+.sim-gearbtn .chip {
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+.sim-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sim-stepper button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  line-height: 1;
+  font-size: 13px;
+}
+
+.sim-stepper .val {
+  min-width: 30px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-seg {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.sim-seg button {
+  border: none;
+  border-radius: 0;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  padding: 6px 12px;
+}
+
+.sim-seg button:hover {
+  background: var(--bg-hover);
+}
+
+.sim-seg button.active {
+  background: var(--bg-active);
+  color: var(--text-normal);
+}
+
+.sim-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.sim-field > span {
+  color: var(--text-muted);
+}
+
+.sim-field input,
+.sim-field select {
+  background: var(--bg-hover);
+  color: var(--text-normal);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.sim-card-head input,
+.sim-card-head select {
+  background: var(--bg-hover);
+  color: var(--text-normal);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.sim-name-input {
+  width: 96px;
+}
+
+.sim-template-select {
+  flex: 1;
+  min-width: 150px;
+}
+
+.sim-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #10121a;
+  font-weight: 600;
+}
+
+.sim-primary:hover {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+.sim-primary:disabled {
+  opacity: 0.5;
+}
+
+.sim-error {
+  font-size: 13px;
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.sim-results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sim-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sim-verdict-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sim-verdict {
+  font-family: var(--font-serif);
+  font-size: 16px;
+}
+
+.sim-tone-positive {
+  color: var(--positive);
+}
+
+.sim-tone-warning {
+  color: var(--warning);
+}
+
+.sim-tone-danger {
+  color: var(--danger);
+}
+
+.sim-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  font-size: 13px;
+}
+
+@media (min-width: 560px) {
+  .sim-stats {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.sim-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.sim-stat .label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sim-stat .value {
+  font-family: var(--font-serif);
+  font-size: 14px;
+}
+
+.sim-stat .value.big {
+  font-size: 18px;
+}
+
+.sim-stat .sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sim-budget {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.sim-budget b {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.sim-two-col {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 560px) {
+  .sim-two-col {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.sim-damage {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sim-damage-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sim-damage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.sim-damage-row .line {
+  display: flex;
+  justify-content: space-between;
+}
+
+.sim-bar {
+  height: 6px;
+  background: var(--bg-app);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sim-bar > i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.sim-collapse {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.sim-collapse > button {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sim-collapse > button:hover {
+  background: var(--bg-hover);
+}
+
+.sim-log {
+  margin: 0;
+  padding: 4px 16px 16px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  max-height: 28rem;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.sim-loadout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 4px 12px 12px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sim-loadout label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sim-loadout .ls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sim-loadout .ls > span {
+  color: var(--text-muted);
+}
+
+.sim-sweep-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.sim-sweep-table th {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-align: left;
+  padding-bottom: 6px;
+}
+
+.sim-sweep-table td {
+  padding: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-sweep-table td.num,
+.sim-sweep-table th.num {
+  text-align: right;
+  color: var(--text-muted);
+}
+
+.sim-sweep-table tr.now td {
+  color: var(--accent);
+}
+
+.sim-sweep-winbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+.sim-sweep-winbar .sim-bar {
+  flex: 1;
+  height: 8px;
+}
+
+.sim-sweep-winbar .pctval {
+  width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

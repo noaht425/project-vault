@@ -4,3 +4,7 @@ dist/
 .ts-out/
 *.tsbuildinfo
 .DS_Store
+
+# fight simulator — private homebrew stat blocks
+src/common/sim/fixtures/local/
+src/common/sim/CALIBRATION.local.md
