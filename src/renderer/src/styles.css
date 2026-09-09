@@ -2643,3 +2643,74 @@ button.active {
   gap: 2px;
 }
 .sim-replay-log .r { opacity: 0.5; }
+
+/* ------------------------------------------------ battle-map editor */
+.sim-mapsetup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(32, 32, 32, 0.5);
+  padding: 8px;
+}
+.sim-linkbtn.danger:hover { color: var(--danger); }
+.sim-mapeditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.sim-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.sim-mapeditor .sim-seg button.mono {
+  font-family: ui-monospace, Menlo, monospace;
+  padding: 4px 8px;
+}
+.sim-mapeditor-body {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.sim-mapeditor-grid > span {
+  cursor: crosshair;
+}
+.sim-mapeditor-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 180px;
+}
+.sim-mapeditor-tray {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 48px;
+}
+.sim-tray-tok {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-normal);
+  cursor: grab;
+}
+.sim-tray-tok .mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-weight: 600;
+}
+.sim-tray-tok.party .mono { color: var(--accent); }
+.sim-tray-tok.monster .mono { color: var(--danger); }
+.sim-mapeditor-io {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+}

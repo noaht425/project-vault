@@ -33,7 +33,8 @@ import {
   type SweepOut
 } from '@common/sim/ui'
 import { runSimAsync, runSweepAsync, runBattleAsync } from './runner'
-import type { BattleRun, UnitSnap } from '@common/sim/ui'
+import { autoPlace, rosterForSetup, starterBattleMap } from '@common/sim/ui'
+import type { BattleMapDef, BattleRun, RosterEntry, UnitSnap } from '@common/sim/ui'
 
 const SETUP_KEY = 'fightSimSetup'
 const TRIAL_CHOICES = [100, 250, 500, 1000]
@@ -65,6 +66,7 @@ export function SimulatorView(): React.JSX.Element {
   const [sweep, setSweep] = useState<SweepOut | null>(null)
   const [battle, setBattle] = useState<BattleRun | null>(null)
   const [battleNonce, setBattleNonce] = useState(0)
+  const [editingMap, setEditingMap] = useState(false)
   const [sweepDim, setSweepDim] = useState<SweepDim>('level')
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -195,6 +197,18 @@ export function SimulatorView(): React.JSX.Element {
             <p className="sim-sub" style={{ fontSize: 12 }}>
               {dimInfo.values.map((v) => dimInfo.fmt(v)).join(' · ')}
             </p>
+          )}
+          {mode === 'battle' && (
+            <MapSetup
+              setup={setup}
+              open={editingMap}
+              onToggle={() => setEditingMap((v) => !v)}
+              onChange={(battleMap) => persist({ ...setup, battleMap })}
+              onReset={() => {
+                persist({ ...setup, battleMap: undefined })
+                setEditingMap(false)
+              }}
+            />
           )}
         </section>
 
@@ -1450,6 +1464,501 @@ function Stat({
       <span className="label">{label}</span>
       <span className={`value${big ? ' big' : ''} ${tone ?? ''}`}>{value}</span>
       {sub && <span className="sub">{sub}</span>}
+    </div>
+  )
+}
+
+// -------------------------------------------------------------- map editor
+
+const FP: Record<string, number> = { tiny: 1, small: 1, medium: 1, large: 2, huge: 3, gargantuan: 4 }
+const MAP_TOOLS = [
+  { kind: 'floor', glyph: '·', label: 'Floor / erase' },
+  { kind: 'wall', glyph: '#', label: 'Wall' },
+  { kind: 'difficult', glyph: '~', label: 'Difficult' },
+  { kind: 'cover', glyph: 'o', label: 'Cover' },
+  { kind: 'hazard', glyph: '!', label: 'Hazard' }
+]
+const GLYPH: Record<string, string> = { floor: '.', wall: '#', difficult: '~', cover: 'o', hazard: '!' }
+
+function mulberry(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const MAP_PRESETS: Record<string, (w: number, h: number) => string> = {
+  'Open field': (w, h) => '.'.repeat(w * h),
+  Pillars: (w, h) => {
+    const t = Array<string>(w * h).fill('.')
+    const rng = mulberry(w * 131 + h * 17 + 7)
+    const n = Math.round(4 + rng() * 4)
+    for (let k = 0; k < n; k++) {
+      const px = 2 + Math.floor(rng() * (w - 5))
+      const py = 3 + Math.floor(rng() * (h - 7))
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) if (px + dx < w && py + dy < h) t[(py + dy) * w + px + dx] = '#'
+    }
+    return t.join('')
+  },
+  Chokepoint: (w, h) => {
+    const t = Array<string>(w * h).fill('.')
+    const mid = h >> 1
+    for (let x = 0; x < w; x++) t[mid * w + x] = '#'
+    const gap = (w >> 1) - 1
+    for (let g = 0; g < 3; g++) t[mid * w + gap + g] = '.'
+    return t.join('')
+  },
+  Corridor: (w, h) => {
+    const t = Array<string>(w * h).fill('.')
+    for (let x = 0; x < w; x++) for (const y of [0, 1, h - 2, h - 1]) t[y * w + x] = '#'
+    return t.join('')
+  },
+  'Scattered cover': (w, h) => {
+    const t = Array<string>(w * h).fill('.')
+    const rng = mulberry(w * 51 + h * 91 + 3)
+    for (let k = 0; k < Math.round(w * 0.9); k++) {
+      const x = Math.floor(rng() * w)
+      const y = 2 + Math.floor(rng() * (h - 4))
+      t[y * w + x] = rng() < 0.7 ? 'o' : '~'
+    }
+    return t.join('')
+  },
+  'Lava vein': (w, h) => {
+    const t = Array<string>(w * h).fill('.')
+    const rng = mulberry(w * 7 + h * 43 + 11)
+    let y = h >> 1
+    for (let x = 0; x < w; x++) {
+      t[y * w + x] = '!'
+      if (rng() < 0.45) y += rng() < 0.5 ? 1 : -1
+      y = Math.max(1, Math.min(h - 2, y))
+    }
+    return t.join('')
+  }
+}
+
+function tileAt(def: BattleMapDef, x: number, y: number): string {
+  return def.tiles[y * def.width + x] ?? '.'
+}
+
+function tokenFits(def: BattleMapDef, roster: RosterEntry[], id: string, x: number, y: number): boolean {
+  const fp = FP[roster.find((r) => r.id === id)?.size ?? 'medium'] ?? 1
+  const otherCells = new Set<string>()
+  for (const [oid, p] of Object.entries(def.placements)) {
+    if (oid === id) continue
+    const ofp = FP[roster.find((r) => r.id === oid)?.size ?? 'medium'] ?? 1
+    for (let dy = 0; dy < ofp; dy++) for (let dx = 0; dx < ofp; dx++) otherCells.add(`${p.x + dx},${p.y + dy}`)
+  }
+  for (let dy = 0; dy < fp; dy++) {
+    for (let dx = 0; dx < fp; dx++) {
+      const cx = x + dx
+      const cy = y + dy
+      if (cx < 0 || cy < 0 || cx >= def.width || cy >= def.height) return false
+      const t = tileAt(def, cx, cy)
+      if (t === '#' || t === 'o') return false
+      if (otherCells.has(`${cx},${cy}`)) return false
+    }
+  }
+  return true
+}
+
+const MAPS_KEY = 'fightSimMaps'
+function readMaps(): Record<string, BattleMapDef> {
+  try {
+    return JSON.parse(localStorage.getItem(MAPS_KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
+function MapSetup({
+  setup,
+  open,
+  onToggle,
+  onChange,
+  onReset
+}: {
+  setup: SimSetup
+  open: boolean
+  onToggle: () => void
+  onChange: (def: BattleMapDef | undefined) => void
+  onReset: () => void
+}): React.JSX.Element {
+  const roster = useMemo(() => {
+    try {
+      return rosterForSetup(setup)
+    } catch {
+      return [] as RosterEntry[]
+    }
+  }, [setup])
+  const def = setup.battleMap ?? null
+  const placed = def ? Object.keys(def.placements).filter((id) => roster.some((r) => r.id === id)).length : 0
+  const custom = def ? [...def.tiles].some((c) => c !== '.' && c !== ' ') : false
+
+  return (
+    <div className="sim-mapsetup">
+      <div className="sim-row" style={{ fontSize: 12, gap: 12 }}>
+        <button
+          className="sim-linkbtn"
+          onClick={() => {
+            if (!open && !setup.battleMap) onChange(starterBattleMap(setup))
+            onToggle()
+          }}
+        >
+          {open ? '▾ hide map setup' : '▸ set up the map'}
+        </button>
+        <span className="sim-muted">
+          {def
+            ? `${def.width}×${def.height}${custom ? ' · custom terrain' : ' · open field'} · ${placed}/${roster.length} placed`
+            : 'auto: open room, sides apart'}
+        </span>
+        {def && (
+          <button className="sim-linkbtn danger" onClick={onReset}>
+            reset to auto
+          </button>
+        )}
+      </div>
+      {open && <MapEditor setup={setup} roster={roster} onChange={(d) => onChange(d)} />}
+    </div>
+  )
+}
+
+function MapEditor({
+  setup,
+  roster,
+  onChange
+}: {
+  setup: SimSetup
+  roster: RosterEntry[]
+  onChange: (def: BattleMapDef) => void
+}): React.JSX.Element {
+  const [def, setDef] = useState<BattleMapDef>(() => setup.battleMap ?? starterBattleMap(setup))
+  const defRef = useRef(def)
+  const [tool, setToolState] = useState('wall')
+  const toolRef = useRef('wall')
+  const [brush, setBrushState] = useState(1)
+  const brushRef = useRef(1)
+  const painting = useRef(false)
+  const [drag, setDrag] = useState<string | null>(null)
+  const [saveName, setSaveName] = useState('')
+  const [savedMaps, setSavedMaps] = useState<Record<string, BattleMapDef>>(() => readMaps())
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const setTool = (t: string): void => {
+    toolRef.current = t
+    setToolState(t)
+  }
+  const setBrush = (n: number): void => {
+    brushRef.current = n
+    setBrushState(n)
+  }
+  const commit = useCallback((next: BattleMapDef) => {
+    defRef.current = next
+    setDef(next)
+  }, [])
+  const emit = useCallback(
+    (next: BattleMapDef) => {
+      commit(next)
+      onChange(next)
+    },
+    [commit, onChange]
+  )
+
+  const paint = (x: number, y: number): void => {
+    const cur = defRef.current
+    const r = brushRef.current - 1
+    const tiles = cur.tiles.split('')
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const cx = x + dx
+        const cy = y + dy
+        if (cx < 0 || cy < 0 || cx >= cur.width || cy >= cur.height) continue
+        tiles[cy * cur.width + cx] = GLYPH[toolRef.current]
+      }
+    }
+    const placements = { ...cur.placements }
+    const next = { ...cur, tiles: tiles.join(''), placements }
+    for (const [id, p] of Object.entries(placements)) if (!tokenFits(next, roster, id, p.x, p.y)) delete placements[id]
+    commit(next)
+  }
+
+  const resize = (w: number, h: number): void => {
+    const width = Math.max(8, Math.min(40, w))
+    const height = Math.max(8, Math.min(30, h))
+    const tiles = Array<string>(width * height).fill('.')
+    for (let y = 0; y < Math.min(height, def.height); y++)
+      for (let x = 0; x < Math.min(width, def.width); x++) tiles[y * width + x] = tileAt(def, x, y)
+    const placements: BattleMapDef['placements'] = {}
+    for (const [id, p] of Object.entries(def.placements)) if (p.x < width && p.y < height) placements[id] = p
+    emit({ width, height, tiles: tiles.join(''), placements })
+  }
+  const applyPreset = (name: string): void => {
+    const tiles = MAP_PRESETS[name](def.width, def.height)
+    const next = { ...def, tiles }
+    for (const [id, p] of Object.entries(next.placements)) if (!tokenFits(next, roster, id, p.x, p.y)) delete next.placements[id]
+    emit(next)
+  }
+  const placeToken = (id: string, x: number, y: number): void => {
+    if (!roster.some((r) => r.id === id) || !tokenFits(def, roster, id, x, y)) return
+    emit({ ...def, placements: { ...def.placements, [id]: { x, y } } })
+  }
+  const unplace = (id: string): void => {
+    const placements = { ...def.placements }
+    delete placements[id]
+    emit({ ...def, placements })
+  }
+
+  const cellToken = useMemo(() => {
+    const m = new Map<string, RosterEntry>()
+    for (const [id, p] of Object.entries(def.placements)) {
+      const e = roster.find((r) => r.id === id)
+      if (!e) continue
+      const fp = FP[e.size] ?? 1
+      for (let dy = 0; dy < fp; dy++) for (let dx = 0; dx < fp; dx++) m.set(`${p.x + dx},${p.y + dy}`, e)
+    }
+    return m
+  }, [def.placements, roster])
+  const unplaced = roster.filter((r) => !def.placements[r.id])
+
+  const saveMap = (): void => {
+    const name = saveName.trim()
+    if (!name) return
+    const store = { ...readMaps(), [name]: def }
+    localStorage.setItem(MAPS_KEY, JSON.stringify(store))
+    setSavedMaps(store)
+    setSaveName('')
+  }
+  const loadMap = (name: string): void => {
+    const m = readMaps()[name]
+    if (m) emit(m)
+  }
+  const deleteMap = (name: string): void => {
+    const store = readMaps()
+    delete store[name]
+    localStorage.setItem(MAPS_KEY, JSON.stringify(store))
+    setSavedMaps(store)
+  }
+  const exportMap = (): void => {
+    const blob = new Blob([JSON.stringify(def, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'battle-map.json'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+  const importMap = (file: File): void => {
+    void file.text().then((txt) => {
+      try {
+        const m = JSON.parse(txt) as BattleMapDef
+        if (typeof m.width === 'number' && typeof m.height === 'number' && typeof m.tiles === 'string' && m.placements)
+          emit({ width: m.width, height: m.height, tiles: m.tiles, placements: m.placements })
+      } catch {
+        /* ignore */
+      }
+    })
+  }
+
+  return (
+    <div
+      className="sim-mapeditor"
+      onPointerUp={() => {
+        if (painting.current) {
+          painting.current = false
+          onChange(defRef.current)
+        }
+      }}
+      onPointerLeave={() => {
+        if (painting.current) {
+          painting.current = false
+          onChange(defRef.current)
+        }
+      }}
+    >
+      <div className="sim-row" style={{ gap: 12, flexWrap: 'wrap' }}>
+        <span className="sim-field-inline">
+          size
+          <Stepper value={def.width} min={8} max={40} onChange={(w) => resize(w, def.height)} />×
+          <Stepper value={def.height} min={8} max={30} onChange={(h) => resize(def.width, h)} />
+        </span>
+        <select
+          value=""
+          onChange={(e) => {
+            if (e.target.value) applyPreset(e.target.value)
+          }}
+        >
+          <option value="">preset…</option>
+          {Object.keys(MAP_PRESETS).map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <span className="sim-seg">
+          {MAP_TOOLS.map((t) => (
+            <button
+              key={t.kind}
+              title={t.label}
+              className={tool === t.kind ? 'active mono' : 'mono'}
+              onClick={() => setTool(t.kind)}
+            >
+              {t.glyph}
+            </button>
+          ))}
+        </span>
+        <span className="sim-field-inline">
+          brush
+          <Stepper value={brush} min={1} max={4} onChange={setBrush} />
+        </span>
+        <button className="sim-linkbtn" onClick={() => emit({ ...def, placements: autoPlace(def, roster) })}>
+          auto-place tokens
+        </button>
+        <button className="sim-linkbtn" onClick={() => emit({ ...def, tiles: '.'.repeat(def.width * def.height) })}>
+          clear terrain
+        </button>
+      </div>
+
+      <div className="sim-mapeditor-body">
+        <div className="sim-replay-board-wrap">
+          <div
+            className="sim-replay-board sim-mapeditor-grid"
+            style={{ gridTemplateColumns: `repeat(${def.width}, 1ch)` }}
+          >
+            {Array.from({ length: def.width * def.height }, (_, i) => {
+              const x = i % def.width
+              const y = Math.floor(i / def.width)
+              const key = `${x},${y}`
+              const tok = cellToken.get(key)
+              const t = def.tiles[i] ?? '.'
+              const glyph = tok ? tok.glyph : t === '.' ? '·' : t
+              const cls = tok
+                ? tok.side === 'party'
+                  ? 'sim-u-party'
+                  : 'sim-u-monster'
+                : t === '#'
+                  ? 'sim-t-wall'
+                  : t === '.'
+                    ? 'sim-t-floor'
+                    : 'sim-t-diff'
+              return (
+                <span
+                  key={i}
+                  className={cls}
+                  draggable={!!tok}
+                  onDragStart={(e) => {
+                    if (!tok) return
+                    e.dataTransfer.setData('text/plain', tok.id)
+                    setDrag(tok.id)
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    const id = e.dataTransfer.getData('text/plain') || drag
+                    if (id) placeToken(id, x, y)
+                    setDrag(null)
+                  }}
+                  onPointerDown={() => {
+                    if (tok) return
+                    painting.current = true
+                    paint(x, y)
+                  }}
+                  onPointerEnter={() => painting.current && paint(x, y)}
+                >
+                  {glyph}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="sim-mapeditor-side">
+          <div
+            className="sim-mapeditor-tray"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              const id = e.dataTransfer.getData('text/plain') || drag
+              if (id) unplace(id)
+              setDrag(null)
+            }}
+          >
+            {unplaced.length === 0 && <span className="sim-muted">all placed — drag one here to pull it back</span>}
+            {unplaced.map((r) => (
+              <button
+                key={r.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', r.id)
+                  setDrag(r.id)
+                }}
+                className={`sim-tray-tok ${r.side}`}
+                title={r.name}
+              >
+                <span className="mono">{r.glyph}</span> {r.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="sim-mapeditor-io">
+            <div className="sim-row" style={{ gap: 6 }}>
+              <input placeholder="map name" value={saveName} onChange={(e) => setSaveName(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+              <button className="sim-linkbtn" onClick={saveMap}>
+                save
+              </button>
+            </div>
+            {Object.keys(savedMaps).length > 0 && (
+              <div className="sim-row" style={{ gap: 6 }}>
+                <select
+                  value=""
+                  style={{ flex: 1 }}
+                  onChange={(e) => {
+                    if (e.target.value) loadMap(e.target.value)
+                  }}
+                >
+                  <option value="">load…</option>
+                  {Object.keys(savedMaps).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) deleteMap(e.target.value)
+                  }}
+                >
+                  <option value="">delete…</option>
+                  {Object.keys(savedMaps).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="sim-row" style={{ gap: 12 }}>
+              <button className="sim-linkbtn" onClick={exportMap}>
+                export JSON
+              </button>
+              <button className="sim-linkbtn" onClick={() => fileRef.current?.click()}>
+                import JSON
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/json,.json"
+                style={{ display: 'none' }}
+                onChange={(e) => e.target.files?.[0] && importMap(e.target.files[0])}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      <p className="sim-muted">
+        Click-drag to paint terrain. Drag a token onto a square to place it; drag it to the tray to remove it. Unplaced
+        tokens get auto-positioned when you run.
+      </p>
     </div>
   )
 }
