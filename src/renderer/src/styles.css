@@ -2740,7 +2740,26 @@ button.active {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--text-normal);
 }
-.sim-c-reach { background: color-mix(in srgb, var(--accent) 15%, transparent); }
-.sim-c-move { background: color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 3px; }
-.sim-c-tgt { background: color-mix(in srgb, var(--danger) 28%, transparent); border-radius: 3px; }
+.sim-c-reach { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.sim-c-move { background: color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 3px; outline: 1px solid var(--accent); }
+.sim-c-tgt { background: color-mix(in srgb, var(--danger) 34%, transparent); border-radius: 3px; }
 .sim-c-origin { background: color-mix(in srgb, var(--warning) 50%, transparent); border-radius: 3px; }
+
+.sim-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+.sim-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.sim-legend .g {
+  font-family: ui-monospace, Menlo, monospace;
+  width: 12px;
+  text-align: center;
+}

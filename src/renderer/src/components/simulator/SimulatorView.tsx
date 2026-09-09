@@ -227,7 +227,9 @@ export function SimulatorView(): React.JSX.Element {
           <Results result={result} showLog={showLog} onToggleLog={() => setShowLog((v) => !v)} />
         )}
         {sweep && !running && mode === 'sweep' && <SweepResults out={sweep} />}
-        {mode === 'battle' && battleStarted && <BattleMap key={battleNonce} setup={setup} />}
+        {mode === 'battle' && battleStarted && (
+          <BattleMap key={`${battleNonce}:${(setup.battleControl ?? []).join(',')}`} setup={setup} />
+        )}
         {mode === 'battle' && !battleStarted && (
           <p className="sim-sub" style={{ fontSize: 12 }}>
             A single fight on a 5-ft grid — watch the AI, or check a party member above to run their turns yourself.
@@ -246,6 +248,27 @@ const TERRAIN_CLASS: Record<string, string> = {
   '~': 'sim-t-diff',
   '!': 'sim-t-haz',
   o: 'sim-t-cover'
+}
+
+const TERRAIN_LEGEND: { g: string; cls: string; label: string }[] = [
+  { g: '·', cls: 'sim-t-floor', label: 'floor' },
+  { g: '#', cls: 'sim-t-wall', label: 'wall — blocks movement & sight' },
+  { g: '~', cls: 'sim-t-diff', label: 'difficult — costs double to enter' },
+  { g: 'o', cls: 'sim-t-cover', label: 'cover — blocks movement, grants +AC' },
+  { g: '!', cls: 'sim-t-haz', label: 'hazard — damages anything standing in it' }
+]
+
+function TerrainLegend(): React.JSX.Element {
+  return (
+    <div className="sim-legend">
+      {TERRAIN_LEGEND.map((t) => (
+        <span key={t.g}>
+          <span className={`g ${t.cls}`}>{t.g}</span>
+          {t.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function ControlPicker({
@@ -391,6 +414,7 @@ function Replay({
   const [idx, setIdx] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(450)
+  const [hoverOrigin, setHoverOrigin] = useState<{ x: number; y: number } | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const last = frames.length - 1
   const atEnd = idx >= last
@@ -437,14 +461,30 @@ function Replay({
 
   const reachSet = useMemo(() => new Set(awaiting?.reachable ?? []), [awaiting])
   const selAction: AwaitAction | undefined = awaiting?.actions.find((a) => a.id === wiz.action)
+  const aimOrigin = wiz.origin ?? hoverOrigin
   const aoePrev = useMemo(() => {
-    if (!awaiting || !selAction?.aoe || !wiz.origin) return new Set<string>()
+    if (!awaiting || !selAction?.aoe || !aimOrigin) return new Set<string>()
     const from = wiz.move ?? awaiting.pos
-    return new Set(aoePreview(selAction.aoe.shape, from, wiz.origin, selAction.aoe.sizeFt, dims))
-  }, [awaiting, selAction, wiz.origin, wiz.move, dims])
+    return new Set(aoePreview(selAction.aoe.shape, from, aimOrigin, selAction.aoe.sizeFt, dims))
+  }, [awaiting, selAction, aimOrigin, wiz.move, dims])
 
   const targetsEnemy = !!selAction && !selAction.friendly && !selAction.aoe
   const needsOrigin = !!selAction?.aoe
+  const roughFt = (mx: number, my: number, b: { x0: number; y0: number; x1: number; y1: number }): number => {
+    const gx = Math.max(0, mx - b.x1, b.x0 - mx)
+    const gy = Math.max(0, my - b.y1, b.y0 - my)
+    const diag = Math.min(gx, gy)
+    return (Math.max(gx, gy) + diag) * 5 + Math.floor(diag / 2) * 5
+  }
+  const meleeGap =
+    awaiting && selAction?.needsMelee && wiz.target
+      ? (() => {
+          const from = wiz.move ?? awaiting.pos
+          const tb = awaiting.units.find((u) => u.id === wiz.target)?.box
+          return tb ? roughFt(from.x, from.y, tb) : 0
+        })()
+      : 0
+  const outOfReach = !!awaiting && !!wiz.target && !!selAction?.needsMelee && meleeGap > awaiting.reachFt + 0.001
   const step: 'move' | 'target' | 'origin' = !awaiting
     ? 'move'
     : targetsEnemy && !wiz.target
@@ -500,7 +540,10 @@ function Replay({
               <button className="sim-linkbtn" onClick={() => setWiz({ ...wiz, move: null })}>reset</button>
             )}
           </div>
-          <div className="sim-row" style={{ gap: 6, fontSize: 12, flexWrap: 'wrap' }}>
+          <div
+            className="sim-row"
+            style={{ gap: 6, fontSize: 12, flexWrap: 'wrap', maxHeight: 112, overflowY: 'auto', alignItems: 'flex-start' }}
+          >
             <span className="sim-muted">Action:</span>
             {awaiting.actions.length === 0 && <span className="sim-muted">— none —</span>}
             {awaiting.actions.map((a) => (
@@ -527,11 +570,16 @@ function Replay({
           {targetsEnemy && (
             <div className="sim-muted" style={{ fontSize: 12 }}>
               Target: {wiz.target ? roster.find((u) => u.id === wiz.target)?.name ?? wiz.target : '—'}
+              {outOfReach && (
+                <span style={{ color: 'var(--warning)', marginLeft: 8 }}>
+                  ⚠ ~{meleeGap} ft away — move closer or the strike whiffs
+                </span>
+              )}
             </div>
           )}
           {needsOrigin && (
             <div className="sim-muted" style={{ fontSize: 12 }}>
-              Aim point: {wiz.origin ? `(${wiz.origin.x}, ${wiz.origin.y})` : '—'}
+              Aim point: {wiz.origin ? `(${wiz.origin.x}, ${wiz.origin.y})` : 'hover the map'}
             </div>
           )}
           <div className="sim-row" style={{ gap: 10, flexWrap: 'wrap', paddingTop: 4 }}>
@@ -616,7 +664,7 @@ function Replay({
               let extra = ''
               if (awaiting) {
                 if (wiz.move && wiz.move.x === x && wiz.move.y === y) extra = ' sim-c-move'
-                else if (wiz.origin && wiz.origin.x === x && wiz.origin.y === y) extra = ' sim-c-origin'
+                else if (aimOrigin && aimOrigin.x === x && aimOrigin.y === y) extra = ' sim-c-origin'
                 else if (aoePrev.has(key)) extra = ' sim-c-aoe'
                 else if (step === 'move' && reachSet.has(key) && !u) extra = ' sim-c-reach'
                 else if (step === 'target' && u?.side === 'monster') extra = ' sim-c-tgt'
@@ -629,6 +677,8 @@ function Replay({
                   key={i}
                   className={cls + extra}
                   onClick={awaiting ? () => clickCell(x, y, u) : undefined}
+                  onMouseEnter={awaiting && step === 'origin' ? () => setHoverOrigin({ x, y }) : undefined}
+                  onMouseLeave={awaiting && step === 'origin' ? () => setHoverOrigin(null) : undefined}
                   title={
                     u
                       ? `${u.name} — ${u.hp}/${u.maxHp}${u.conditions.length ? ' [' + u.conditions.join(',') + ']' : ''}`
@@ -640,6 +690,7 @@ function Replay({
               )
             })}
           </div>
+          <TerrainLegend />
         </div>
 
         <div className="sim-replay-side">
@@ -2095,6 +2146,8 @@ function MapEditor({
           clear terrain
         </button>
       </div>
+
+      <TerrainLegend />
 
       <div className="sim-mapeditor-body">
         <div className="sim-replay-board-wrap">
