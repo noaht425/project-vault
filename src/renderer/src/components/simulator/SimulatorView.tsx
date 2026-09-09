@@ -1,13 +1,16 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { parseNote } from '@common/frontmatter'
 import {
   classToTemplate,
   defaultSetup,
+  exportCustomMonsters,
+  loadCustomMonsters,
   loadoutSummary,
   monsterOptions,
   standardParty,
   SWEEP_DIMS,
   TEMPLATE_IDS,
+  type Combatant,
   type MonsterOption,
   type SimResult,
   type SimSetup,
@@ -27,7 +30,11 @@ function loadSetup(): SimSetup {
     if (!raw) return defaultSetup()
     const parsed = JSON.parse(raw) as SimSetup
     if (!Array.isArray(parsed.party) || !Array.isArray(parsed.enemies)) return defaultSetup()
-    return parsed
+    // re-parse the stored custom pack so a stale / edited entry can't break every run
+    const customMonsters = Array.isArray(parsed.customMonsters)
+      ? loadCustomMonsters(parsed.customMonsters).monsters
+      : []
+    return { ...parsed, customMonsters }
   } catch {
     return defaultSetup()
   }
@@ -44,7 +51,7 @@ export function SimulatorView(): React.JSX.Element {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showLog, setShowLog] = useState(false)
-  const options = useMemo(() => monsterOptions(), [])
+  const options = useMemo(() => monsterOptions(setup.customMonsters), [setup.customMonsters])
 
   const persist = useCallback((next: SimSetup) => {
     setSetup(next)
@@ -93,6 +100,8 @@ export function SimulatorView(): React.JSX.Element {
           options={options}
           enemies={setup.enemies}
           onChange={(enemies) => persist({ ...setup, enemies })}
+          customMonsters={setup.customMonsters}
+          onCustomChange={(customMonsters) => persist({ ...setup, customMonsters })}
         />
 
         <PartyEditor party={setup.party} onChange={(party) => persist({ ...setup, party })} />
@@ -177,13 +186,19 @@ export function SimulatorView(): React.JSX.Element {
 function EnemyEditor({
   options,
   enemies,
-  onChange
+  onChange,
+  customMonsters,
+  onCustomChange
 }: {
   options: MonsterOption[]
   enemies: SimSetup['enemies']
   onChange: (e: SimSetup['enemies']) => void
+  customMonsters: Combatant[]
+  onCustomChange: (c: Combatant[]) => void
 }): React.JSX.Element {
   const [pick, setPick] = useState('')
+  const [customMsg, setCustomMsg] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const byId = useMemo(() => Object.fromEntries(options.map((o) => [o.id, o])), [options])
 
   const add = (): void => {
@@ -192,9 +207,74 @@ function EnemyEditor({
     setPick('')
   }
 
+  const onFile = async (file: File): Promise<void> => {
+    setCustomMsg(null)
+    const text = await file.text()
+    const { monsters, errors } = loadCustomMonsters(text)
+    if (monsters.length) {
+      const merged = [...customMonsters.filter((m) => !monsters.some((n) => n.id === m.id)), ...monsters]
+      onCustomChange(merged)
+    }
+    const parts = [
+      monsters.length ? `Loaded ${monsters.length} stat block${monsters.length === 1 ? '' : 's'}` : 'Nothing loaded',
+      errors.length ? `${errors.length} skipped: ${errors.slice(0, 2).join('; ')}${errors.length > 2 ? ' …' : ''}` : ''
+    ].filter(Boolean)
+    setCustomMsg(parts.join(' · '))
+  }
+
+  const exportPack = (): void => {
+    const blob = new Blob([exportCustomMonsters(customMonsters)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'custom-monsters.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <section className="sim-section">
-      <h2 className="sim-section-title">Enemies</h2>
+      <div className="sim-row">
+        <h2 className="sim-section-title">Enemies</h2>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void onFile(f)
+            e.target.value = ''
+          }}
+        />
+        <button className="sim-linkbtn" onClick={() => fileRef.current?.click()}>
+          load monsters (JSON)
+        </button>
+        {customMonsters.length > 0 && (
+          <>
+            <span className="sim-muted" style={{ fontSize: 12 }}>
+              {customMonsters.length} custom loaded
+            </span>
+            <button className="sim-linkbtn" onClick={exportPack}>
+              export
+            </button>
+            <button
+              className="sim-x"
+              onClick={() => {
+                onCustomChange([])
+                setCustomMsg(null)
+              }}
+            >
+              clear
+            </button>
+          </>
+        )}
+      </div>
+      {customMsg && (
+        <p className="sim-sub" style={{ fontSize: 12 }}>
+          {customMsg}
+        </p>
+      )}
       <div className="sim-row">
         <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ minWidth: 210 }}>
           <option value="">Add a monster…</option>
