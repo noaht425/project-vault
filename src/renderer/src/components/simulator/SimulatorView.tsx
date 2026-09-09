@@ -12,6 +12,8 @@ import {
   loadCustomMonsters,
   loadoutSummary,
   monsterOptions,
+  npcNoteToMonster,
+  parseStatblock,
   SIZES,
   standardParty,
   suggestedPb,
@@ -209,6 +211,11 @@ function EnemyEditor({
   const [pick, setPick] = useState('')
   const [customMsg, setCustomMsg] = useState<string | null>(null)
   const [showBuilder, setShowBuilder] = useState(false)
+  const [seed, setSeed] = useState<{ draft: BuilderDraft; warnings: string[] } | null>(null)
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [pasteErr, setPasteErr] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const byId = useMemo(() => Object.fromEntries(options.map((o) => [o.id, o])), [options])
 
@@ -222,6 +229,67 @@ function EnemyEditor({
     onCustomChange([...customMonsters.filter((m) => m.id !== c.id), c])
     setCustomMsg(`Added “${c.name}” to the custom list.`)
     setShowBuilder(false)
+    setSeed(null)
+  }
+
+  const openBuilder = (s: { draft: BuilderDraft; warnings: string[] } | null): void => {
+    setSeed(s)
+    setShowBuilder(true)
+    setPasteOpen(false)
+  }
+
+  const parsePaste = (): void => {
+    setPasteErr(null)
+    const r = parseStatblock(pasteText)
+    if (r.draft) openBuilder({ draft: r.draft, warnings: r.warnings })
+    else setPasteErr(r.error ?? "couldn't parse that")
+  }
+
+  const importFromNpcNotes = async (): Promise<void> => {
+    setImporting(true)
+    setCustomMsg(null)
+    try {
+      const matches = await window.vaultApi.searchTitles('', 'npc')
+      if (!matches.length) {
+        setCustomMsg('No NPC notes found in this vault.')
+        return
+      }
+      const notes = await Promise.all(
+        matches.slice(0, 40).map((m) =>
+          window.vaultApi
+            .readNote(m.path)
+            .then((n) => {
+              const parsed = parseNote(n.content)
+              return { title: m.title, body: parsed.body ?? '', fm: parsed.frontmatter }
+            })
+            .catch(() => null)
+        )
+      )
+      let fromBlock = 0
+      let fromFm = 0
+      let failed = 0
+      const built: Combatant[] = []
+      for (const n of notes) {
+        if (!n || (n.fm as { type?: string })?.type !== 'npc') continue
+        const res = npcNoteToMonster({ title: n.title, body: n.body, frontmatter: n.fm as Record<string, unknown> })
+        if (res.combatant) {
+          built.push(res.combatant)
+          if (res.warnings.some((w) => /no "## Stat Block"/.test(w))) fromFm++
+          else fromBlock++
+        } else failed++
+      }
+      if (built.length) {
+        const merged = [...customMonsters.filter((m) => !built.some((b) => b.id === m.id)), ...built]
+        onCustomChange(merged)
+      }
+      setCustomMsg(
+        `Imported ${built.length} NPC${built.length === 1 ? '' : 's'} — ${fromBlock} from a stat block, ${fromFm} from frontmatter + a generic attack${failed ? `, ${failed} failed` : ''}.`
+      )
+    } catch {
+      setCustomMsg('No local vault open — open one to import NPCs.')
+    } finally {
+      setImporting(false)
+    }
   }
 
   const onFile = async (file: File): Promise<void> => {
@@ -265,10 +333,19 @@ function EnemyEditor({
           }}
         />
         <button className="sim-linkbtn" onClick={() => fileRef.current?.click()}>
-          load monsters (JSON)
+          load JSON
         </button>
-        <button className="sim-linkbtn" onClick={() => setShowBuilder((v) => !v)}>
+        <button
+          className="sim-linkbtn"
+          onClick={() => (showBuilder ? (setShowBuilder(false), setSeed(null)) : openBuilder(null))}
+        >
           {showBuilder ? 'close builder' : 'make a monster'}
+        </button>
+        <button className="sim-linkbtn" onClick={() => setPasteOpen((v) => !v)}>
+          paste a statblock
+        </button>
+        <button className="sim-linkbtn" onClick={() => void importFromNpcNotes()} disabled={importing}>
+          {importing ? 'importing…' : 'import from NPC notes'}
         </button>
         {customMonsters.length > 0 && (
           <>
@@ -295,7 +372,43 @@ function EnemyEditor({
           {customMsg}
         </p>
       )}
-      {showBuilder && <MonsterBuilder onSave={addCustom} onCancel={() => setShowBuilder(false)} />}
+      {pasteOpen && (
+        <div className="sim-builder" style={{ gap: 6 }}>
+          <span className="sim-muted" style={{ fontSize: 11 }}>
+            Paste a stat block — markdown (5e.tools “Get as Markdown”, D&D Beyond, homebrewery) or 5e.tools bestiary JSON.
+            Only paste content you have the rights to use; nothing is fetched.
+          </span>
+          <textarea
+            style={{ width: '100%', height: 160, fontSize: 12, fontFamily: 'ui-monospace, Menlo, monospace' }}
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+            placeholder={'## Adult Red Dragon\n**Armor Class** 19\n**Hit Points** 256 (19d12 + 133)\n…'}
+          />
+          {pasteErr && (
+            <span className="sim-tone-danger" style={{ fontSize: 12 }}>
+              {pasteErr}
+            </span>
+          )}
+          <div className="sim-row">
+            <button className="sim-primary" onClick={parsePaste} disabled={!pasteText.trim()}>
+              Parse into builder
+            </button>
+            <button onClick={() => setPasteOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {showBuilder && (
+        <MonsterBuilder
+          key={seed ? seed.draft.name + (seed.draft.cr ?? '') : 'blank'}
+          initial={seed?.draft}
+          initialWarnings={seed?.warnings}
+          onSave={addCustom}
+          onCancel={() => {
+            setShowBuilder(false)
+            setSeed(null)
+          }}
+        />
+      )}
       <div className="sim-row">
         <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ minWidth: 210 }}>
           <option value="">Add a monster…</option>
@@ -377,12 +490,16 @@ const DMG_CHIP: Record<DmgDefense, string> = {
 
 function MonsterBuilder({
   onSave,
-  onCancel
+  onCancel,
+  initial,
+  initialWarnings
 }: {
   onSave: (c: Combatant) => void
   onCancel: () => void
+  initial?: BuilderDraft
+  initialWarnings?: string[]
 }): React.JSX.Element {
-  const [draft, setDraft] = useState<BuilderDraft>(emptyDraft)
+  const [draft, setDraft] = useState<BuilderDraft>(() => initial ?? emptyDraft())
   const set = (p: Partial<BuilderDraft>): void => setDraft((d) => ({ ...d, ...p }))
   const result = useMemo(() => draftToCombatant(draft), [draft])
 
@@ -634,6 +751,16 @@ function MonsterBuilder({
           ranged / kites
         </label>
       </div>
+
+      {initialWarnings && initialWarnings.length > 0 && (
+        <ul className="sim-builder-divide" style={{ fontSize: 12, listStyle: 'none', margin: 0, padding: '8px 0 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {initialWarnings.map((w, i) => (
+            <li key={i} className="sim-tone-warning">
+              · {w}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="sim-builder-foot">
         {result.error ? (
