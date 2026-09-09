@@ -2848,3 +2848,13 @@ button.active {
   flex-direction: column;
   gap: 2px;
 }
+
+.sim-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  counter-reset: none;
+}

@@ -32,7 +32,7 @@ import {
   type SweepDim,
   type SweepOut
 } from '@common/sim/ui'
-import { runSimAsync, runSweepAsync, runBattleAsync } from './runner'
+import { runSimAsync, runSweepAsync, runBattleAsync, runDayAsync } from './runner'
 import { aoePreview, autoPlace, rosterForSetup, starterBattleMap } from '@common/sim/ui'
 import type {
   AwaitAction,
@@ -40,6 +40,8 @@ import type {
   BattleDecision,
   BattleMapDef,
   BattleRun,
+  DayRun,
+  RestKind,
   RosterEntry,
   RosterInit,
   UnitSnap
@@ -66,13 +68,14 @@ function loadSetup(): SimSetup {
   }
 }
 
-type Mode = 'single' | 'sweep' | 'battle'
+type Mode = 'single' | 'sweep' | 'battle' | 'day'
 
 export function SimulatorView(): React.JSX.Element {
   const [setup, setSetup] = useState<SimSetup>(() => loadSetup())
   const [mode, setMode] = useState<Mode>('single')
   const [result, setResult] = useState<SimResult | null>(null)
   const [sweep, setSweep] = useState<SweepOut | null>(null)
+  const [day, setDay] = useState<DayRun | null>(null)
   const [battleStarted, setBattleStarted] = useState(false)
   const [battleNonce, setBattleNonce] = useState(0)
   const [editingMap, setEditingMap] = useState(false)
@@ -99,9 +102,15 @@ export function SimulatorView(): React.JSX.Element {
       if (mode === 'single') {
         setResult(await runSimAsync(setup))
         setSweep(null)
+        setDay(null)
       } else if (mode === 'sweep') {
         setSweep(await runSweepAsync(setup, sweepDim))
         setResult(null)
+        setDay(null)
+      } else if (mode === 'day') {
+        setDay(await runDayAsync(setup))
+        setResult(null)
+        setSweep(null)
       } else {
         // Battle mode is interactive — <BattleMap> owns the run loop; a run just remounts it.
         setBattleStarted(true)
@@ -113,12 +122,16 @@ export function SimulatorView(): React.JSX.Element {
       setError(e instanceof Error ? e.message : String(e))
       setResult(null)
       setSweep(null)
+      setDay(null)
     } finally {
       setRunning(false)
     }
   }, [setup, running, mode, sweepDim])
 
-  const busy = running || setup.enemies.length === 0 || setup.party.length === 0
+  const busy =
+    running ||
+    setup.party.length === 0 ||
+    (mode === 'day' ? (setup.day?.encounters.length ?? 0) === 0 : setup.enemies.length === 0)
   const dimInfo = SWEEP_DIMS.find((d) => d.id === sweepDim)!
 
   return (
@@ -131,25 +144,35 @@ export function SimulatorView(): React.JSX.Element {
           </span>
         </header>
 
-        <EnemyEditor
-          options={options}
-          enemies={setup.enemies}
-          onChange={(enemies) => persist({ ...setup, enemies })}
-          customMonsters={setup.customMonsters}
-          onCustomChange={(customMonsters) => persist({ ...setup, customMonsters })}
-        />
+        {mode === 'day' ? (
+          <DayEditor options={options} day={setup.day} onChange={(d) => persist({ ...setup, day: d })} />
+        ) : (
+          <EnemyEditor
+            options={options}
+            enemies={setup.enemies}
+            onChange={(enemies) => persist({ ...setup, enemies })}
+            customMonsters={setup.customMonsters}
+            onCustomChange={(customMonsters) => persist({ ...setup, customMonsters })}
+          />
+        )}
 
         <PartyEditor party={setup.party} onChange={(party) => persist({ ...setup, party })} />
 
         <section className="sim-section">
           <div className="sim-seg">
-            {(['single', 'sweep', 'battle'] as Mode[]).map((m) => (
+            {(['single', 'sweep', 'battle', 'day'] as Mode[]).map((m) => (
               <button
                 key={m}
                 className={mode === m ? 'active' : ''}
                 onClick={() => setMode(m)}
               >
-                {m === 'single' ? 'Single fight' : m === 'sweep' ? 'What-if sweep' : 'Battle map'}
+                {m === 'single'
+                  ? 'Single fight'
+                  : m === 'sweep'
+                    ? 'What-if sweep'
+                    : m === 'battle'
+                      ? 'Battle map'
+                      : 'Adventuring day'}
               </button>
             ))}
           </div>
@@ -197,7 +220,15 @@ export function SimulatorView(): React.JSX.Element {
               />
             </label>
             <button className="sim-primary" onClick={() => void run()} disabled={busy}>
-              {running ? 'Running…' : mode === 'single' ? 'Run simulation' : mode === 'sweep' ? 'Run sweep' : 'Run battle'}
+              {running
+                ? 'Running…'
+                : mode === 'single'
+                  ? 'Run simulation'
+                  : mode === 'sweep'
+                    ? 'Run sweep'
+                    : mode === 'battle'
+                      ? 'Run battle'
+                      : 'Run the day'}
             </button>
           </div>
           {mode === 'sweep' && (
@@ -228,6 +259,13 @@ export function SimulatorView(): React.JSX.Element {
           <Results result={result} showLog={showLog} onToggleLog={() => setShowLog((v) => !v)} />
         )}
         {sweep && !running && mode === 'sweep' && <SweepResults out={sweep} />}
+        {day && !running && mode === 'day' && <DayResults day={day} />}
+        {mode === 'day' && !day && !running && (
+          <p className="sim-sub" style={{ fontSize: 12 }}>
+            Runs your encounter list in sequence with HP, spell slots and 1/day powers carried forward and a short or long
+            rest between each. Single-fight win rates over-value going nova — this shows where the party runs dry.
+          </p>
+        )}
         {mode === 'battle' && battleStarted && (
           <BattleMap key={`${battleNonce}:${(setup.battleControl ?? []).join(',')}`} setup={setup} />
         )}
@@ -1897,6 +1935,156 @@ function DamageList({
 }
 
 // --------------------------------------------------------------- sweep table
+
+// -------------------------------------------------------------- adventuring day
+
+const REST_LABEL: Record<RestKind, string> = { none: 'no rest', short: 'short rest', long: 'long rest' }
+
+function DayEditor({
+  options,
+  day,
+  onChange
+}: {
+  options: MonsterOption[]
+  day: SimSetup['day']
+  onChange: (d: SimSetup['day']) => void
+}): React.JSX.Element {
+  const encounters = day?.encounters ?? []
+  const rests = day?.rests ?? []
+  const addEncounter = (): void =>
+    onChange({ encounters: [...encounters, []], rests: [...rests, encounters.length ? 'short' : 'none'] })
+  const removeEncounter = (i: number): void =>
+    onChange({ encounters: encounters.filter((_, x) => x !== i), rests: rests.filter((_, x) => x !== i) })
+  const addMonster = (i: number, id: string): void => {
+    if (!id) return
+    const next = encounters.map((enc, x) => {
+      if (x !== i) return enc
+      const ex = enc.find((e) => e.id === id)
+      return ex ? enc.map((e) => (e.id === id ? { ...e, count: e.count + 1 } : e)) : [...enc, { id, count: 1 }]
+    })
+    onChange({ encounters: next, rests })
+  }
+  const bump = (i: number, id: string, d: number): void => {
+    const next = encounters.map((enc, x) =>
+      x !== i ? enc : enc.flatMap((e) => (e.id !== id ? [e] : e.count + d <= 0 ? [] : [{ ...e, count: e.count + d }]))
+    )
+    onChange({ encounters: next, rests })
+  }
+  const setRest = (i: number, r: RestKind): void =>
+    onChange({ encounters, rests: rests.map((x, k) => (k === i ? r : x)) })
+
+  return (
+    <section className="sim-section">
+      <div className="sim-row">
+        <h2 className="sim-section-title">The day</h2>
+        <button className="sim-linkbtn" onClick={addEncounter}>+ encounter</button>
+      </div>
+      {encounters.length === 0 && (
+        <p className="sim-sub" style={{ fontSize: 12 }}>Add a few encounters to run in sequence.</p>
+      )}
+      <ol className="sim-day-list">
+        {encounters.map((enc, i) => (
+          <li key={i} className="sim-card" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <span className="sim-sub" style={{ fontSize: 12, width: 52 }}>Fight {i + 1}</span>
+              <select
+                value=""
+                style={{ minWidth: 160, fontSize: 12 }}
+                onChange={(e) => addMonster(i, e.target.value)}
+              >
+                <option value="">add a monster…</option>
+                {options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name} — CR {o.cr}
+                  </option>
+                ))}
+              </select>
+              <button className="sim-linkbtn danger" style={{ marginLeft: 'auto' }} onClick={() => removeEncounter(i)}>
+                remove
+              </button>
+            </div>
+            <div className="sim-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {enc.length === 0 && <span className="sim-sub" style={{ fontSize: 12 }}>empty</span>}
+              {enc.map((e) => (
+                <span key={e.id} className="sim-chip on" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                  {options.find((o) => o.id === e.id)?.name ?? e.id}
+                  <button onClick={() => bump(i, e.id, -1)}>−</button>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{e.count}</span>
+                  <button onClick={() => bump(i, e.id, 1)}>+</button>
+                </span>
+              ))}
+            </div>
+            {i < encounters.length - 1 && (
+              <div className="sim-row" style={{ gap: 6, fontSize: 12 }} title="rest before the next fight">
+                <span className="sim-sub">then</span>
+                <select value={rests[i] ?? 'short'} onChange={(e) => setRest(i, e.target.value as RestKind)}>
+                  {(['none', 'short', 'long'] as RestKind[]).map((r) => (
+                    <option key={r} value={r}>
+                      {REST_LABEL[r]}
+                    </option>
+                  ))}
+                </select>
+                <span className="sim-sub">before the next fight</span>
+              </div>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+function DayResults({ day }: { day: DayRun }): React.JSX.Element {
+  const { mc } = day
+  const win = mc.dayWinRate
+  const tone = win >= 0.75 ? 'sim-tone-positive' : win >= 0.4 ? 'sim-tone-warning' : 'sim-tone-danger'
+  return (
+    <>
+      <section className="sim-panel">
+        <div className="sim-verdict-line">
+          <span className={`sim-verdict ${tone}`}>Party survives the full day {pct(win)} of the time</span>
+          <span className="sim-sub" style={{ fontSize: 12 }}>{mc.trials} days</span>
+        </div>
+        <div className="sim-stats">
+          <Stat label="Encounters cleared" value={mc.encountersClearedAvg.toFixed(1)} sub={`of ${mc.perEncounter.length}`} big />
+          <Stat label="Resources left" value={pct(mc.resourcesLeftPctAvg)} sub="slots & 1/day" big />
+          <Stat
+            label="The wall"
+            value={mc.wallEncounter ? `Fight ${mc.wallEncounter}` : '—'}
+            sub={mc.wallEncounter ? 'first to slip' : 'clears the day'}
+            big
+            tone={mc.wallEncounter ? 'sim-tone-warning' : undefined}
+          />
+          <Stat label="Day win" value={pct(win)} big tone={win < 0.4 ? 'sim-tone-danger' : undefined} />
+        </div>
+      </section>
+      <section className="sim-panel">
+        <table className="sim-sweep-table">
+          <thead>
+            <tr>
+              <th>Fight</th>
+              <th className="num">Win</th>
+              <th className="num">HP after</th>
+              <th className="num">Rounds</th>
+              <th className="num">Reached</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mc.perEncounter.map((e, i) => (
+              <tr key={i}>
+                <td>{i + 1}</td>
+                <td className="num">{pct(e.winRate)}</td>
+                <td className="num">{pct(e.hpPctAfterAvg)}</td>
+                <td className="num">{e.roundsAvg.toFixed(1)}</td>
+                <td className="num" style={{ color: 'var(--text-muted)' }}>{pct(e.foughtRate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </>
+  )
+}
 
 function SweepResults({ out }: { out: SweepOut }): React.JSX.Element {
   const label = SWEEP_DIMS.find((d) => d.id === out.dimension)!.label
