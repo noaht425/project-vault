@@ -2304,6 +2304,28 @@ button.active {
   color: var(--text-muted);
 }
 
+.sim-picks {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 20px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.sim-picklist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 26rem;
+}
+
+.sim-picklist > .sim-muted {
+  color: var(--text-muted);
+}
+
 .sim-sweep-table {
   width: 100%;
   font-size: 13px;

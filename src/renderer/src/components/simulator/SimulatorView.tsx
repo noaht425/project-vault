@@ -8,12 +8,15 @@ import {
   draftToCombatant,
   emptyDraft,
   exportCustomMonsters,
+  FEAT_OPTIONS,
+  ITEM_OPTIONS,
   loadCustomMonsters,
   loadoutSummary,
   monsterOptions,
   npcNoteToMonster,
   parseStatblock,
   pcNoteToCombatant,
+  RACE_OPTIONS,
   SIZES,
   standardParty,
   suggestedPb,
@@ -895,6 +898,11 @@ function PartyEditor({
     for (const k of Object.keys(next) as (keyof LoadoutT)[]) if (!next[k]) delete next[k]
     patch(i, { loadout: Object.keys(next).length ? next : undefined })
   }
+  const togglePick = (i: number, key: 'feats' | 'items', val: string): void => {
+    const cur = party[i][key] ?? []
+    const next = cur.includes(val) ? cur.filter((x) => x !== val) : [...cur, val]
+    patch(i, { [key]: next.length ? next : undefined })
+  }
 
   return (
     <section className="sim-section">
@@ -964,10 +972,18 @@ function PartyEditor({
                   })
                 }
                 aria-label="Loadout"
-                title="feats & magic items"
+                title="race, feats & magic items"
               >
                 ⚙
-                {loadoutSummary(p.loadout) && <span className="chip">{loadoutSummary(p.loadout)}</span>}
+                {(() => {
+                  const picks = (p.feats?.length ?? 0) + (p.items?.length ?? 0)
+                  const bits = [
+                    loadoutSummary(p.loadout),
+                    p.race,
+                    picks > 0 ? `${picks} pick${picks === 1 ? '' : 's'}` : ''
+                  ].filter(Boolean)
+                  return bits.length ? <span className="chip">{bits.join(' · ')}</span> : null
+                })()}
               </button>
               <button
                 className="sim-x"
@@ -1017,6 +1033,31 @@ function PartyEditor({
                   />
                   Tough (+2 HP/lvl)
                 </label>
+                <div className="sim-picks">
+                  <label>
+                    <span className="sim-muted">Race</span>
+                    <select value={p.race ?? ''} onChange={(e) => patch(i, { race: e.target.value || undefined })}>
+                      <option value="">—</option>
+                      {RACE_OPTIONS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <PickList
+                    label="Feats"
+                    options={FEAT_OPTIONS}
+                    chosen={p.feats ?? []}
+                    onToggle={(v) => togglePick(i, 'feats', v)}
+                  />
+                  <PickList
+                    label="Items"
+                    options={ITEM_OPTIONS}
+                    chosen={p.items ?? []}
+                    onToggle={(v) => togglePick(i, 'items', v)}
+                  />
+                </div>
               </div>
             )}
           </li>
@@ -1269,6 +1310,45 @@ function LoadoutStepper({
       <span>{label}</span>
       <Stepper value={value} min={0} max={3} onChange={onChange} />
     </span>
+  )
+}
+
+function PickList({
+  label,
+  options,
+  chosen,
+  onToggle
+}: {
+  label: string
+  options: string[]
+  chosen: string[]
+  onToggle: (v: string) => void
+}): React.JSX.Element {
+  const available = options.filter((o) => !chosen.includes(o))
+  return (
+    <div className="sim-picklist">
+      <span className="sim-muted">{label}</span>
+      {chosen.map((c) => (
+        <button key={c} className="sim-chip on" onClick={() => onToggle(c)} title="remove">
+          {c} <span style={{ opacity: 0.6 }}>✕</span>
+        </button>
+      ))}
+      {available.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => {
+            if (e.target.value) onToggle(e.target.value)
+          }}
+        >
+          <option value="">+ add</option>
+          {available.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   )
 }
 
