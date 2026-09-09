@@ -1,16 +1,26 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { parseNote } from '@common/frontmatter'
 import {
+  ABILITIES,
+  BUILDER_CONDITIONS,
   classToTemplate,
+  DAMAGE_TYPES,
   defaultSetup,
+  draftToCombatant,
+  emptyDraft,
   exportCustomMonsters,
   loadCustomMonsters,
   loadoutSummary,
   monsterOptions,
+  SIZES,
   standardParty,
+  suggestedPb,
   SWEEP_DIMS,
   TEMPLATE_IDS,
+  type BuilderDraft,
   type Combatant,
+  type DamageType,
+  type DmgDefense,
   type MonsterOption,
   type SimResult,
   type SimSetup,
@@ -198,6 +208,7 @@ function EnemyEditor({
 }): React.JSX.Element {
   const [pick, setPick] = useState('')
   const [customMsg, setCustomMsg] = useState<string | null>(null)
+  const [showBuilder, setShowBuilder] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const byId = useMemo(() => Object.fromEntries(options.map((o) => [o.id, o])), [options])
 
@@ -205,6 +216,12 @@ function EnemyEditor({
     if (!pick) return
     onChange([...enemies, { id: pick, count: 1 }])
     setPick('')
+  }
+
+  const addCustom = (c: Combatant): void => {
+    onCustomChange([...customMonsters.filter((m) => m.id !== c.id), c])
+    setCustomMsg(`Added “${c.name}” to the custom list.`)
+    setShowBuilder(false)
   }
 
   const onFile = async (file: File): Promise<void> => {
@@ -250,6 +267,9 @@ function EnemyEditor({
         <button className="sim-linkbtn" onClick={() => fileRef.current?.click()}>
           load monsters (JSON)
         </button>
+        <button className="sim-linkbtn" onClick={() => setShowBuilder((v) => !v)}>
+          {showBuilder ? 'close builder' : 'make a monster'}
+        </button>
         {customMonsters.length > 0 && (
           <>
             <span className="sim-muted" style={{ fontSize: 12 }}>
@@ -275,6 +295,7 @@ function EnemyEditor({
           {customMsg}
         </p>
       )}
+      {showBuilder && <MonsterBuilder onSave={addCustom} onCancel={() => setShowBuilder(false)} />}
       <div className="sim-row">
         <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ minWidth: 210 }}>
           <option value="">Add a monster…</option>
@@ -342,6 +363,303 @@ function EnemyEditor({
         </ul>
       )}
     </section>
+  )
+}
+
+// ---------------------------------------------------------- make a monster
+
+const DMG_CHIP: Record<DmgDefense, string> = {
+  none: 'sim-chip',
+  resist: 'sim-chip resist',
+  immune: 'sim-chip immune',
+  vuln: 'sim-chip vuln'
+}
+
+function MonsterBuilder({
+  onSave,
+  onCancel
+}: {
+  onSave: (c: Combatant) => void
+  onCancel: () => void
+}): React.JSX.Element {
+  const [draft, setDraft] = useState<BuilderDraft>(emptyDraft)
+  const set = (p: Partial<BuilderDraft>): void => setDraft((d) => ({ ...d, ...p }))
+  const result = useMemo(() => draftToCombatant(draft), [draft])
+
+  const patchAttack = (i: number, p: Partial<BuilderDraft['attacks'][number]>): void =>
+    set({ attacks: draft.attacks.map((x, xi) => (xi === i ? { ...x, ...p } : x)) })
+  const cycleDmg = (t: DamageType): void => {
+    const order: DmgDefense[] = ['none', 'resist', 'immune', 'vuln']
+    set({ damage: { ...draft.damage, [t]: order[(order.indexOf(draft.damage[t]) + 1) % 4] } })
+  }
+  function toggle<T>(arr: T[], v: T): T[] {
+    return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]
+  }
+
+  return (
+    <div className="sim-builder">
+      <div className="sim-builder-head">
+        <span style={{ fontWeight: 500 }}>Make a monster</span>
+        <span className="sim-muted" style={{ fontSize: 11 }}>
+          attacks + one breath + defenses — the fight-math essentials
+        </span>
+      </div>
+
+      <div className="sim-builder-grid">
+        <label className="lbl">
+          <span>Name</span>
+          <input style={{ width: 176 }} value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="Homebrew Horror" />
+        </label>
+        <label className="lbl">
+          <span>CR</span>
+          <input style={{ width: 56 }} value={draft.cr} onChange={(e) => set({ cr: e.target.value, pb: suggestedPb(e.target.value) })} />
+        </label>
+        <label className="lbl">
+          <span>Size</span>
+          <select value={draft.size} onChange={(e) => set({ size: e.target.value as BuilderDraft['size'] })}>
+            {SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="lbl">
+          <span>AC</span>
+          <input type="number" style={{ width: 56 }} value={draft.ac} onChange={(e) => set({ ac: Number(e.target.value) || 0 })} />
+        </label>
+        <label className="lbl">
+          <span>HP (dice or number)</span>
+          <input style={{ width: 128 }} value={draft.hp} onChange={(e) => set({ hp: e.target.value })} placeholder="18d12+108" />
+        </label>
+        <label className="lbl">
+          <span>PB</span>
+          <input type="number" style={{ width: 48 }} value={draft.pb} onChange={(e) => set({ pb: Number(e.target.value) || 1 })} />
+        </label>
+      </div>
+
+      <div className="sim-abilities">
+        {ABILITIES.map((ab) => (
+          <label key={ab} className="sim-ability">
+            <span>{ab}</span>
+            <input
+              type="number"
+              value={draft.abilities[ab]}
+              onChange={(e) => set({ abilities: { ...draft.abilities, [ab]: Number(e.target.value) || 0 } })}
+            />
+            <button
+              type="button"
+              className={`sim-chip${draft.proficientSaves.includes(ab) ? ' on' : ''}`}
+              onClick={() => set({ proficientSaves: toggle(draft.proficientSaves, ab) })}
+            >
+              save
+            </button>
+          </label>
+        ))}
+      </div>
+
+      <div className="sim-builder-section">
+        <span className="hd">Damage (click: resist / immune / vuln)</span>
+        <div className="sim-chip-row">
+          {DAMAGE_TYPES.map((t) => (
+            <button key={t} type="button" className={DMG_CHIP[draft.damage[t]]} onClick={() => cycleDmg(t)}>
+              {t}
+              {draft.damage[t] !== 'none' && ` ·${draft.damage[t][0]}`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="sim-builder-section">
+        <span className="hd">Condition immunities</span>
+        <div className="sim-chip-row">
+          {BUILDER_CONDITIONS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`sim-chip${draft.conditionImmunities.includes(c) ? ' immune' : ''}`}
+              onClick={() => set({ conditionImmunities: toggle(draft.conditionImmunities, c) })}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="sim-builder-section">
+        <span className="hd">Attacks (a Multiattack is generated automatically)</span>
+        {draft.attacks.map((a, i) => (
+          <div key={i} className="sim-attack-row">
+            <input style={{ width: 112 }} value={a.name} onChange={(e) => patchAttack(i, { name: e.target.value })} placeholder="Claw" />
+            <span className="sim-muted" style={{ fontSize: 12 }}>
+              +
+            </span>
+            <input type="number" style={{ width: 48 }} value={a.toHit} onChange={(e) => patchAttack(i, { toHit: Number(e.target.value) || 0 })} />
+            <input style={{ width: 96 }} value={a.dice} onChange={(e) => patchAttack(i, { dice: e.target.value })} placeholder="2d6+4" />
+            <select value={a.type} onChange={(e) => patchAttack(i, { type: e.target.value as DamageType })}>
+              {DAMAGE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <Stepper value={a.count} min={1} max={5} onChange={(count) => patchAttack(i, { count })} suffix="×" />
+            <button className="sim-x" onClick={() => set({ attacks: draft.attacks.filter((_, xi) => xi !== i) })} aria-label="Remove attack">
+              ✕
+            </button>
+          </div>
+        ))}
+        {draft.attacks.length < 6 && (
+          <button
+            className="sim-linkbtn"
+            style={{ alignSelf: 'flex-start' }}
+            onClick={() =>
+              set({ attacks: [...draft.attacks, { name: '', toHit: draft.pb + 3, dice: '1d8+3', type: 'bludgeoning', count: 1 }] })
+            }
+          >
+            + add attack
+          </button>
+        )}
+      </div>
+
+      {draft.aoe ? (
+        <div className="sim-builder-section sim-builder-divide">
+          <div className="sim-row" style={{ justifyContent: 'space-between' }}>
+            <span className="hd">Breath / area effect</span>
+            <button className="sim-x" onClick={() => set({ aoe: null })}>
+              remove
+            </button>
+          </div>
+          <div className="sim-attack-row">
+            <input style={{ width: 112 }} value={draft.aoe.name} onChange={(e) => set({ aoe: { ...draft.aoe!, name: e.target.value } })} placeholder="Fire Breath" />
+            <select value={draft.aoe.shape} onChange={(e) => set({ aoe: { ...draft.aoe!, shape: e.target.value as 'cone' } })}>
+              {['cone', 'line', 'sphere', 'emanation'].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <input type="number" style={{ width: 56 }} value={draft.aoe.size} onChange={(e) => set({ aoe: { ...draft.aoe!, size: Number(e.target.value) || 0 } })} />
+            <span className="sim-muted" style={{ fontSize: 12 }}>
+              ft ·
+            </span>
+            <select value={draft.aoe.ability} onChange={(e) => set({ aoe: { ...draft.aoe!, ability: e.target.value as 'dex' } })}>
+              {ABILITIES.map((ab) => (
+                <option key={ab} value={ab}>
+                  {ab}
+                </option>
+              ))}
+            </select>
+            <span className="sim-muted" style={{ fontSize: 12 }}>
+              DC
+            </span>
+            <input type="number" style={{ width: 48 }} value={draft.aoe.dc} onChange={(e) => set({ aoe: { ...draft.aoe!, dc: Number(e.target.value) || 0 } })} />
+            <input style={{ width: 96 }} value={draft.aoe.dice} onChange={(e) => set({ aoe: { ...draft.aoe!, dice: e.target.value } })} placeholder="12d6" />
+            <select value={draft.aoe.type} onChange={(e) => set({ aoe: { ...draft.aoe!, type: e.target.value as DamageType } })}>
+              {DAMAGE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <select value={draft.aoe.recharge} onChange={(e) => set({ aoe: { ...draft.aoe!, recharge: e.target.value as 'none' } })}>
+              <option value="none">at will</option>
+              <option value="roll:5-6">Recharge 5–6</option>
+              <option value="roll:4-6">Recharge 4–6</option>
+            </select>
+          </div>
+        </div>
+      ) : (
+        <button
+          className="sim-linkbtn"
+          style={{ alignSelf: 'flex-start' }}
+          onClick={() =>
+            set({
+              aoe: {
+                name: 'Breath',
+                shape: 'cone',
+                size: 30,
+                ability: 'dex',
+                dc: 10 + draft.pb + Math.floor((draft.abilities.con - 10) / 2),
+                dice: '10d6',
+                type: 'fire',
+                recharge: 'roll:5-6'
+              }
+            })
+          }
+        >
+          + breath / area effect
+        </button>
+      )}
+
+      <div className="sim-builder-foot" style={{ fontSize: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={draft.legendary} onChange={(e) => set({ legendary: e.target.checked })} />
+          Legendary actions
+        </label>
+        {draft.legendary && (
+          <>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              budget
+              <Stepper value={draft.legendaryBudget} min={1} max={5} onChange={(legendaryBudget) => set({ legendaryBudget })} />
+            </span>
+            {draft.attacks
+              .filter((a) => a.name.trim())
+              .map((a) => (
+                <button
+                  key={a.name}
+                  type="button"
+                  className={`sim-chip${draft.legendaryAttacks.includes(a.name) ? ' on' : ''}`}
+                  onClick={() => set({ legendaryAttacks: toggle(draft.legendaryAttacks, a.name) })}
+                >
+                  {a.name}
+                </button>
+              ))}
+          </>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          targets
+          <select
+            value={draft.ai.targetPriority}
+            onChange={(e) => set({ ai: { ...draft.ai, targetPriority: e.target.value as BuilderDraft['ai']['targetPriority'] } })}
+          >
+            <option value="highestThreat">highest threat</option>
+            <option value="squishiest">squishiest</option>
+            <option value="lowestHp">lowest HP</option>
+            <option value="nearest">nearest</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={draft.ai.keepDistance} onChange={(e) => set({ ai: { ...draft.ai, keepDistance: e.target.checked } })} />
+          ranged / kites
+        </label>
+      </div>
+
+      <div className="sim-builder-foot">
+        {result.error ? (
+          <span className="sim-tone-danger" style={{ fontSize: 12 }}>
+            {result.error}
+          </span>
+        ) : result.warnings.length ? (
+          <span className="sim-tone-warning" style={{ fontSize: 12 }}>
+            saves with warnings: {result.warnings.slice(0, 2).join('; ')}
+          </span>
+        ) : (
+          <span className="sim-tone-positive" style={{ fontSize: 12 }}>
+            ✓ valid stat block
+          </span>
+        )}
+        <span className="grow" />
+        <button onClick={onCancel}>Cancel</button>
+        <button
+          className="sim-primary"
+          disabled={!result.combatant}
+          onClick={() => result.combatant && onSave(result.combatant)}
+        >
+          Save to custom list
+        </button>
+      </div>
+    </div>
   )
 }
 

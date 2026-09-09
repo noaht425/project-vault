@@ -2350,3 +2350,151 @@ button.active {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- make a monster ---- */
+
+.sim-builder {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.sim-builder-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sim-builder-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: flex-end;
+}
+
+.sim-builder input,
+.sim-builder select {
+  background: var(--bg-hover);
+  color: var(--text-normal);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.sim-builder .lbl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sim-builder .lbl > span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sim-abilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sim-ability {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sim-ability > span {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sim-ability input {
+  width: 46px;
+  text-align: center;
+}
+
+.sim-chip {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sim-chip:hover {
+  background: var(--bg-hover);
+}
+
+.sim-chip.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sim-chip.resist {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  color: var(--warning);
+}
+
+.sim-chip.immune {
+  border-color: color-mix(in srgb, var(--positive) 55%, transparent);
+  color: var(--positive);
+}
+
+.sim-chip.vuln {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
+}
+
+.sim-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sim-builder-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sim-builder-section > .hd {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sim-attack-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sim-builder-divide {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.sim-builder-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.sim-builder-foot .grow {
+  flex: 1;
+}
