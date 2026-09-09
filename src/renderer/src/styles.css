@@ -2714,3 +2714,33 @@ button.active {
   gap: 6px;
   color: var(--text-muted);
 }
+
+/* ------------------------------------------------ battle-map: player control */
+.sim-turnpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+}
+.sim-actbtn {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+}
+.sim-actbtn:hover { color: var(--text-normal); }
+.sim-actbtn.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-normal);
+}
+.sim-c-reach { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.sim-c-move { background: color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 3px; }
+.sim-c-tgt { background: color-mix(in srgb, var(--danger) 28%, transparent); border-radius: 3px; }
+.sim-c-origin { background: color-mix(in srgb, var(--warning) 50%, transparent); border-radius: 3px; }

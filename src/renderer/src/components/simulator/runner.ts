@@ -6,6 +6,7 @@ import {
   runSim,
   runSweep,
   runBattleFromSetup,
+  type BattleDecision,
   type BattleRun,
   type SimResult,
   type SimSetup,
@@ -47,7 +48,7 @@ function getWorker(): Worker | null {
 function send<T>(
   kind: 'sim' | 'sweep' | 'battle',
   setup: SimSetup,
-  extra?: { dim?: SweepDim; seed?: number }
+  extra?: { dim?: SweepDim; seed?: number; decisions?: BattleDecision[] }
 ): Promise<T> {
   const w = getWorker()
   if (!w) {
@@ -57,7 +58,7 @@ function send<T>(
         ? runSim(setup)
         : kind === 'sweep'
           ? runSweep(setup, extra!.dim!)
-          : runBattleFromSetup(setup, { seed: extra?.seed })
+          : runBattleFromSetup(setup, { seed: extra?.seed, decisions: extra?.decisions })
     return Promise.resolve(sync as unknown as T)
   }
   const id = nextId++
@@ -68,7 +69,7 @@ function send<T>(
         ? { id, kind, setup }
         : kind === 'sweep'
           ? { id, kind, setup, dim: extra!.dim }
-          : { id, kind, setup, seed: extra?.seed }
+          : { id, kind, setup, seed: extra?.seed, decisions: extra?.decisions }
     w.postMessage(msg)
   })
 }
@@ -81,6 +82,10 @@ export function runSweepAsync(setup: SimSetup, dim: SweepDim): Promise<SweepOut>
   return send<SweepOut>('sweep', setup, { dim })
 }
 
-export function runBattleAsync(setup: SimSetup, seed?: number): Promise<BattleRun> {
-  return send<BattleRun>('battle', setup, { seed })
+export function runBattleAsync(
+  setup: SimSetup,
+  seed?: number,
+  decisions?: BattleDecision[]
+): Promise<BattleRun> {
+  return send<BattleRun>('battle', setup, { seed, decisions })
 }

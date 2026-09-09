@@ -33,8 +33,16 @@ import {
   type SweepOut
 } from '@common/sim/ui'
 import { runSimAsync, runSweepAsync, runBattleAsync } from './runner'
-import { autoPlace, rosterForSetup, starterBattleMap } from '@common/sim/ui'
-import type { BattleMapDef, BattleRun, RosterEntry, UnitSnap } from '@common/sim/ui'
+import { aoePreview, autoPlace, rosterForSetup, starterBattleMap } from '@common/sim/ui'
+import type {
+  AwaitAction,
+  AwaitingInput,
+  BattleDecision,
+  BattleMapDef,
+  BattleRun,
+  RosterEntry,
+  UnitSnap
+} from '@common/sim/ui'
 
 const SETUP_KEY = 'fightSimSetup'
 const TRIAL_CHOICES = [100, 250, 500, 1000]
@@ -64,7 +72,7 @@ export function SimulatorView(): React.JSX.Element {
   const [mode, setMode] = useState<Mode>('single')
   const [result, setResult] = useState<SimResult | null>(null)
   const [sweep, setSweep] = useState<SweepOut | null>(null)
-  const [battle, setBattle] = useState<BattleRun | null>(null)
+  const [battleStarted, setBattleStarted] = useState(false)
   const [battleNonce, setBattleNonce] = useState(0)
   const [editingMap, setEditingMap] = useState(false)
   const [sweepDim, setSweepDim] = useState<SweepDim>('level')
@@ -90,13 +98,12 @@ export function SimulatorView(): React.JSX.Element {
       if (mode === 'single') {
         setResult(await runSimAsync(setup))
         setSweep(null)
-        setBattle(null)
       } else if (mode === 'sweep') {
         setSweep(await runSweepAsync(setup, sweepDim))
         setResult(null)
-        setBattle(null)
       } else {
-        setBattle(await runBattleAsync(setup, setup.seed))
+        // Battle mode is interactive — <BattleMap> owns the run loop; a run just remounts it.
+        setBattleStarted(true)
         setBattleNonce((n) => n + 1)
         setResult(null)
         setSweep(null)
@@ -105,7 +112,6 @@ export function SimulatorView(): React.JSX.Element {
       setError(e instanceof Error ? e.message : String(e))
       setResult(null)
       setSweep(null)
-      setBattle(null)
     } finally {
       setRunning(false)
     }
@@ -199,16 +205,19 @@ export function SimulatorView(): React.JSX.Element {
             </p>
           )}
           {mode === 'battle' && (
-            <MapSetup
-              setup={setup}
-              open={editingMap}
-              onToggle={() => setEditingMap((v) => !v)}
-              onChange={(battleMap) => persist({ ...setup, battleMap })}
-              onReset={() => {
-                persist({ ...setup, battleMap: undefined })
-                setEditingMap(false)
-              }}
-            />
+            <>
+              <ControlPicker setup={setup} onChange={(battleControl) => persist({ ...setup, battleControl })} />
+              <MapSetup
+                setup={setup}
+                open={editingMap}
+                onToggle={() => setEditingMap((v) => !v)}
+                onChange={(battleMap) => persist({ ...setup, battleMap })}
+                onReset={() => {
+                  persist({ ...setup, battleMap: undefined })
+                  setEditingMap(false)
+                }}
+              />
+            </>
           )}
         </section>
 
@@ -218,10 +227,11 @@ export function SimulatorView(): React.JSX.Element {
           <Results result={result} showLog={showLog} onToggleLog={() => setShowLog((v) => !v)} />
         )}
         {sweep && !running && mode === 'sweep' && <SweepResults out={sweep} />}
-        {battle && !running && mode === 'battle' && <BattleMap key={battleNonce} run={battle} />}
-        {mode === 'battle' && !battle && !running && (
+        {mode === 'battle' && battleStarted && <BattleMap key={battleNonce} setup={setup} />}
+        {mode === 'battle' && !battleStarted && (
           <p className="sim-sub" style={{ fontSize: 12 }}>
-            A single fight on a 5-ft grid — watch the AI move, take cover, and trade blows turn by turn. Diagonals use the PHB 5-10-5 rule.
+            A single fight on a 5-ft grid — watch the AI, or check a party member above to run their turns yourself.
+            Diagonals use the PHB 5-10-5 rule.
           </p>
         )}
       </div>
@@ -238,13 +248,153 @@ const TERRAIN_CLASS: Record<string, string> = {
   o: 'sim-t-cover'
 }
 
-function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
+function ControlPicker({
+  setup,
+  onChange
+}: {
+  setup: SimSetup
+  onChange: (ids: string[]) => void
+}): React.JSX.Element {
+  const party = useMemo(() => {
+    try {
+      return rosterForSetup(setup).filter((r) => r.side === 'party')
+    } catch {
+      return [] as RosterEntry[]
+    }
+  }, [setup])
+  const control = new Set(setup.battleControl ?? [])
+  const toggle = (id: string): void => {
+    const next = new Set(control)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange([...next])
+  }
+  return (
+    <div className="sim-row" style={{ fontSize: 12, gap: 12, flexWrap: 'wrap' }}>
+      <span className="sim-muted">Control</span>
+      {party.map((r) => (
+        <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={control.has(r.id)} onChange={() => toggle(r.id)} />
+          <span style={{ color: control.has(r.id) ? 'var(--accent)' : undefined }}>{r.name}</span>
+        </label>
+      ))}
+      {party.length > 0 && (
+        <>
+          <button className="sim-linkbtn" onClick={() => onChange(party.map((r) => r.id))}>all</button>
+          <button className="sim-linkbtn" onClick={() => onChange([])}>none</button>
+        </>
+      )}
+      {control.size > 0 && (
+        <span className="sim-muted" style={{ opacity: 0.7 }}>
+          — you&apos;ll run these turns; the rest play themselves
+        </span>
+      )}
+    </div>
+  )
+}
+
+interface Wizard {
+  move: { x: number; y: number } | null
+  action: string | null
+  target: string | null
+  origin: { x: number; y: number } | null
+}
+const EMPTY_WIZ: Wizard = { move: null, action: null, target: null, origin: null }
+
+function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
+  const [decisions, setDecisions] = useState<BattleDecision[]>([])
+  const [run, setRun] = useState<BattleRun | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [autoAi, setAutoAi] = useState(false)
+  const [wiz, setWiz] = useState<Wizard>(EMPTY_WIZ)
+  const started = useRef(false)
+
+  const fetchRun = useCallback(
+    (ds: BattleDecision[], ai: boolean) => {
+      setLoading(true)
+      setWiz(EMPTY_WIZ)
+      const s = ai ? { ...setup, battleControl: [] as string[] } : setup
+      void runBattleAsync(s, setup.seed, ds).then((r) => {
+        setRun(r)
+        setLoading(false)
+      })
+    },
+    [setup]
+  )
+
+  useEffect(() => {
+    if (started.current) return
+    started.current = true
+    fetchRun([], false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const push = (ds: BattleDecision[]): void => {
+    setDecisions(ds)
+    fetchRun(ds, autoAi)
+  }
+  const commit = (d: BattleDecision): void => push([...decisions, d])
+  const undoTurn = (): void => push(decisions.slice(0, -1))
+  const finishWithAi = (): void => {
+    setAutoAi(true)
+    setDecisions(decisions)
+    fetchRun(decisions, true)
+  }
+
+  if (!run) return <p className="sim-sub" style={{ fontSize: 12 }}>Setting up the battle…</p>
+
+  const aw = run.awaiting
+  return (
+    <Replay
+      key={run.frames.length + (aw ? ':await' : ':done')}
+      run={run}
+      awaiting={aw}
+      loading={loading}
+      wiz={wiz}
+      setWiz={setWiz}
+      canUndo={decisions.length > 0}
+      onCommit={commit}
+      onAi={() => aw && commit({ round: aw.round, unitId: aw.unitId, auto: true })}
+      onUndo={undoTurn}
+      onFinishAi={finishWithAi}
+      onReplay={() => push([])}
+    />
+  )
+}
+
+function Replay({
+  run,
+  awaiting,
+  loading,
+  wiz,
+  setWiz,
+  canUndo,
+  onCommit,
+  onAi,
+  onUndo,
+  onFinishAi,
+  onReplay
+}: {
+  run: BattleRun
+  awaiting?: AwaitingInput
+  loading: boolean
+  wiz: Wizard
+  setWiz: (w: Wizard) => void
+  canUndo: boolean
+  onCommit: (d: BattleDecision) => void
+  onAi: () => void
+  onUndo: () => void
+  onFinishAi: () => void
+  onReplay: () => void
+}): React.JSX.Element {
   const frames = run.frames
   const [idx, setIdx] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(450)
   const logRef = useRef<HTMLDivElement>(null)
-  const atEnd = idx >= frames.length - 1
+  const last = frames.length - 1
+  const atEnd = idx >= last
+  const shownIdx = awaiting ? last : Math.min(idx, last)
 
   useEffect(() => {
     if (!playing || atEnd) return
@@ -252,14 +402,7 @@ function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
     return () => clearTimeout(t)
   }, [playing, idx, speed, atEnd])
 
-  const togglePlay = (): void => {
-    if (atEnd) {
-      setIdx(0)
-      setPlaying(true)
-    } else setPlaying((p) => !p)
-  }
-
-  const frame = frames[Math.min(idx, frames.length - 1)]
+  const frame = frames[shownIdx]
   const dims = frames[0].terrain!
   const terrain = dims.tiles
 
@@ -267,8 +410,7 @@ function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
     const m = new Map<string, UnitSnap>()
     for (const u of frame.units) {
       if (!u.alive) continue
-      for (let dy = 0; dy < u.fp; dy++)
-        for (let dx = 0; dx < u.fp; dx++) m.set(`${u.x + dx},${u.y + dy}`, u)
+      for (let dy = 0; dy < u.fp; dy++) for (let dx = 0; dx < u.fp; dx++) m.set(`${u.x + dx},${u.y + dy}`, u)
     }
     return m
   }, [frame])
@@ -280,10 +422,10 @@ function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
   const logLines = useMemo(
     () =>
       frames
-        .slice(0, idx + 1)
+        .slice(0, shownIdx + 1)
         .filter((f) => f.text)
         .map((f) => ({ seq: f.seq, round: f.round, text: f.text! })),
-    [frames, idx]
+    [frames, shownIdx]
   )
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
@@ -293,45 +435,167 @@ function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
     a.side === b.side ? a.glyph.localeCompare(b.glyph) : a.side === 'party' ? -1 : 1
   )
 
+  const reachSet = useMemo(() => new Set(awaiting?.reachable ?? []), [awaiting])
+  const selAction: AwaitAction | undefined = awaiting?.actions.find((a) => a.id === wiz.action)
+  const aoePrev = useMemo(() => {
+    if (!awaiting || !selAction?.aoe || !wiz.origin) return new Set<string>()
+    const from = wiz.move ?? awaiting.pos
+    return new Set(aoePreview(selAction.aoe.shape, from, wiz.origin, selAction.aoe.sizeFt, dims))
+  }, [awaiting, selAction, wiz.origin, wiz.move, dims])
+
+  const targetsEnemy = !!selAction && !selAction.friendly && !selAction.aoe
+  const needsOrigin = !!selAction?.aoe
+  const step: 'move' | 'target' | 'origin' = !awaiting
+    ? 'move'
+    : targetsEnemy && !wiz.target
+      ? 'target'
+      : needsOrigin && !wiz.origin
+        ? 'origin'
+        : 'move'
+
+  const clickCell = (x: number, y: number, u?: UnitSnap): void => {
+    if (!awaiting) return
+    if (step === 'target') {
+      if (u && u.side === 'monster' && u.alive) setWiz({ ...wiz, target: u.id })
+      return
+    }
+    if (step === 'origin') {
+      setWiz({ ...wiz, origin: { x, y } })
+      return
+    }
+    if (reachSet.has(`${x},${y}`)) setWiz({ ...wiz, move: { x, y } })
+  }
+  const confirm = (): void => {
+    if (!awaiting) return
+    onCommit({
+      round: awaiting.round,
+      unitId: awaiting.unitId,
+      move: wiz.move ?? undefined,
+      actionId: wiz.action ?? undefined,
+      targetId: wiz.target ?? undefined,
+      aoeOrigin: wiz.origin ?? undefined
+    })
+  }
+
   return (
     <section className="sim-section sim-replay">
-      <div className="sim-replay-transport">
-        <div className="sim-seg">
-          <button onClick={() => { setPlaying(false); setIdx(0) }}>⏮</button>
-          <button onClick={() => { setPlaying(false); setIdx((i) => Math.max(0, i - 1)) }}>◀</button>
-          <button onClick={togglePlay}>{playing && !atEnd ? '⏸' : '▶'}</button>
-          <button onClick={() => { setPlaying(false); setIdx((i) => Math.min(frames.length - 1, i + 1)) }}>▶▶</button>
-          <button onClick={() => { setPlaying(false); setIdx(frames.length - 1) }}>⏭</button>
+      {awaiting ? (
+        <div className="sim-turnpanel">
+          <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Your turn — {awaiting.unitName}</span>
+            <span className="sim-muted" style={{ fontSize: 12 }}>
+              round {awaiting.round} · speed {awaiting.speedFt} ft
+            </span>
+            {loading && <span className="sim-muted" style={{ fontSize: 12 }}>resolving…</span>}
+          </div>
+          <p className="sim-muted" style={{ fontSize: 12 }}>
+            {step === 'move' && 'Click a highlighted square to move (or leave it to stay), then pick an action.'}
+            {step === 'target' && 'Click an enemy to target.'}
+            {step === 'origin' && 'Click a square to aim the area effect.'}
+          </p>
+          <div className="sim-row" style={{ gap: 6, fontSize: 12, flexWrap: 'wrap' }}>
+            <span className="sim-muted">Move:</span>
+            <span>{wiz.move ? `(${wiz.move.x}, ${wiz.move.y})` : 'stay'}</span>
+            {wiz.move && (
+              <button className="sim-linkbtn" onClick={() => setWiz({ ...wiz, move: null })}>reset</button>
+            )}
+          </div>
+          <div className="sim-row" style={{ gap: 6, fontSize: 12, flexWrap: 'wrap' }}>
+            <span className="sim-muted">Action:</span>
+            {awaiting.actions.length === 0 && <span className="sim-muted">— none —</span>}
+            {awaiting.actions.map((a) => (
+              <button
+                key={a.id}
+                className={`sim-actbtn${wiz.action === a.id ? ' on' : ''}`}
+                title={a.needsMelee ? 'melee' : a.friendly ? 'self / ally' : a.aoe ? `${a.aoe.shape} ${a.aoe.sizeFt} ft` : 'ranged'}
+                onClick={() =>
+                  setWiz({ ...wiz, action: wiz.action === a.id ? null : a.id, target: null, origin: null })
+                }
+              >
+                {a.name}
+              </button>
+            ))}
+            {wiz.action && (
+              <button
+                className="sim-linkbtn"
+                onClick={() => setWiz({ ...wiz, action: null, target: null, origin: null })}
+              >
+                skip action
+              </button>
+            )}
+          </div>
+          {targetsEnemy && (
+            <div className="sim-muted" style={{ fontSize: 12 }}>
+              Target: {wiz.target ? roster.find((u) => u.id === wiz.target)?.name ?? wiz.target : '—'}
+            </div>
+          )}
+          {needsOrigin && (
+            <div className="sim-muted" style={{ fontSize: 12 }}>
+              Aim point: {wiz.origin ? `(${wiz.origin.x}, ${wiz.origin.y})` : '—'}
+            </div>
+          )}
+          <div className="sim-row" style={{ gap: 10, flexWrap: 'wrap', paddingTop: 4 }}>
+            <button
+              className="sim-primary"
+              onClick={confirm}
+              disabled={loading || (targetsEnemy && !wiz.target) || (needsOrigin && !wiz.origin)}
+            >
+              Confirm turn
+            </button>
+            <button className="sim-linkbtn" onClick={onAi} disabled={loading}>let the AI take this turn</button>
+            {canUndo && (
+              <button className="sim-linkbtn" onClick={onUndo} disabled={loading}>undo last turn</button>
+            )}
+            <button className="sim-linkbtn" onClick={onFinishAi} disabled={loading}>finish with AI</button>
+          </div>
         </div>
-        <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-          <option value={900}>0.5×</option>
-          <option value={450}>1×</option>
-          <option value={220}>2×</option>
-          <option value={110}>4×</option>
-        </select>
-        <input
-          type="range"
-          min={0}
-          max={frames.length - 1}
-          value={idx}
-          onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)) }}
-          style={{ flex: 1, minWidth: 160 }}
-        />
-        <span className="sim-sub" style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-          R{frame.round} · {idx + 1}/{frames.length}
-        </span>
-      </div>
-
-      <p className="sim-sub" style={{ minHeight: 16, fontSize: 12 }}>
-        <span style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>{frame.kind}</span>
-        {frame.text ? ` — ${frame.text}` : ''}
-      </p>
+      ) : (
+        <>
+          <div className="sim-replay-transport">
+            <div className="sim-seg">
+              <button onClick={() => { setPlaying(false); setIdx(0) }}>⏮</button>
+              <button onClick={() => { setPlaying(false); setIdx((i) => Math.max(0, i - 1)) }}>◀</button>
+              <button
+                onClick={() => {
+                  if (atEnd) { setIdx(0); setPlaying(true) } else setPlaying((p) => !p)
+                }}
+              >
+                {playing && !atEnd ? '⏸' : '▶'}
+              </button>
+              <button onClick={() => { setPlaying(false); setIdx((i) => Math.min(last, i + 1)) }}>▶▶</button>
+              <button onClick={() => { setPlaying(false); setIdx(last) }}>⏭</button>
+            </div>
+            <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+              <option value={900}>0.5×</option>
+              <option value={450}>1×</option>
+              <option value={220}>2×</option>
+              <option value={110}>4×</option>
+            </select>
+            <input
+              type="range"
+              min={0}
+              max={last}
+              value={shownIdx}
+              onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)) }}
+              style={{ flex: 1, minWidth: 160 }}
+            />
+            <span className="sim-sub" style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              R{frame.round} · {shownIdx + 1}/{frames.length}
+            </span>
+            <button className="sim-linkbtn" onClick={onReplay}>replay</button>
+          </div>
+          <p className="sim-sub" style={{ minHeight: 16, fontSize: 12 }}>
+            <span style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>{frame.kind}</span>
+            {frame.text ? ` — ${frame.text}` : ''}
+          </p>
+        </>
+      )}
 
       <div className="sim-replay-body">
         <div className="sim-replay-board-wrap">
           <div
             className="sim-replay-board"
-            style={{ gridTemplateColumns: `repeat(${dims.width}, 1ch)` }}
+            style={{ gridTemplateColumns: `repeat(${dims.width}, 1ch)`, cursor: awaiting ? 'pointer' : undefined }}
           >
             {Array.from({ length: dims.width * dims.height }, (_, i) => {
               const x = i % dims.width
@@ -349,11 +613,22 @@ function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
                 ch = '•'
                 cls = 'sim-u-path'
               }
-              const extra = u?.isActor ? ' sim-c-actor' : templateSet.has(key) ? ' sim-c-aoe' : ''
+              let extra = ''
+              if (awaiting) {
+                if (wiz.move && wiz.move.x === x && wiz.move.y === y) extra = ' sim-c-move'
+                else if (wiz.origin && wiz.origin.x === x && wiz.origin.y === y) extra = ' sim-c-origin'
+                else if (aoePrev.has(key)) extra = ' sim-c-aoe'
+                else if (step === 'move' && reachSet.has(key) && !u) extra = ' sim-c-reach'
+                else if (step === 'target' && u?.side === 'monster') extra = ' sim-c-tgt'
+                else if (wiz.target && u?.id === wiz.target) extra = ' sim-c-tgt'
+              }
+              if (!extra && u?.isActor) extra = ' sim-c-actor'
+              else if (!extra && templateSet.has(key)) extra = ' sim-c-aoe'
               return (
                 <span
                   key={i}
                   className={cls + extra}
+                  onClick={awaiting ? () => clickCell(x, y, u) : undefined}
                   title={
                     u
                       ? `${u.name} — ${u.hp}/${u.maxHp}${u.conditions.length ? ' [' + u.conditions.join(',') + ']' : ''}`
@@ -370,14 +645,16 @@ function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
         <div className="sim-replay-side">
           <ul className="sim-replay-roster">
             {roster.map((u) => (
-              <li key={u.id} className={!u.alive ? 'dead' : u.downed ? 'down' : u.isActor ? 'actor' : ''}>
+              <li
+                key={u.id}
+                className={
+                  !u.alive ? 'dead' : u.downed ? 'down' : u.isActor || u.id === awaiting?.unitId ? 'actor' : ''
+                }
+              >
                 <span className={`glyph ${u.side}`}>{u.glyph}</span>
                 <span className="nm">{u.name}</span>
                 <span className="bar">
-                  <span
-                    className={u.side}
-                    style={{ width: `${Math.max(0, Math.min(100, (u.hp / u.maxHp) * 100))}%` }}
-                  />
+                  <span className={u.side} style={{ width: `${Math.max(0, Math.min(100, (u.hp / u.maxHp) * 100))}%` }} />
                 </span>
                 <span className="hp">{u.hp}/{u.maxHp}</span>
                 {u.conditions.length > 0 && <span className="cond">{u.conditions.join(',')}</span>}
