@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseNote } from '@common/frontmatter'
 import {
   ABILITIES,
@@ -32,7 +32,8 @@ import {
   type SweepDim,
   type SweepOut
 } from '@common/sim/ui'
-import { runSimAsync, runSweepAsync } from './runner'
+import { runSimAsync, runSweepAsync, runBattleAsync } from './runner'
+import type { BattleRun, UnitSnap } from '@common/sim/ui'
 
 const SETUP_KEY = 'fightSimSetup'
 const TRIAL_CHOICES = [100, 250, 500, 1000]
@@ -55,13 +56,15 @@ function loadSetup(): SimSetup {
   }
 }
 
-type Mode = 'single' | 'sweep'
+type Mode = 'single' | 'sweep' | 'battle'
 
 export function SimulatorView(): React.JSX.Element {
   const [setup, setSetup] = useState<SimSetup>(() => loadSetup())
   const [mode, setMode] = useState<Mode>('single')
   const [result, setResult] = useState<SimResult | null>(null)
   const [sweep, setSweep] = useState<SweepOut | null>(null)
+  const [battle, setBattle] = useState<BattleRun | null>(null)
+  const [battleNonce, setBattleNonce] = useState(0)
   const [sweepDim, setSweepDim] = useState<SweepDim>('level')
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -85,14 +88,22 @@ export function SimulatorView(): React.JSX.Element {
       if (mode === 'single') {
         setResult(await runSimAsync(setup))
         setSweep(null)
-      } else {
+        setBattle(null)
+      } else if (mode === 'sweep') {
         setSweep(await runSweepAsync(setup, sweepDim))
         setResult(null)
+        setBattle(null)
+      } else {
+        setBattle(await runBattleAsync(setup, setup.seed))
+        setBattleNonce((n) => n + 1)
+        setResult(null)
+        setSweep(null)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setResult(null)
       setSweep(null)
+      setBattle(null)
     } finally {
       setRunning(false)
     }
@@ -123,13 +134,13 @@ export function SimulatorView(): React.JSX.Element {
 
         <section className="sim-section">
           <div className="sim-seg">
-            {(['single', 'sweep'] as Mode[]).map((m) => (
+            {(['single', 'sweep', 'battle'] as Mode[]).map((m) => (
               <button
                 key={m}
                 className={mode === m ? 'active' : ''}
                 onClick={() => setMode(m)}
               >
-                {m === 'single' ? 'Single fight' : 'What-if sweep'}
+                {m === 'single' ? 'Single fight' : m === 'sweep' ? 'What-if sweep' : 'Battle map'}
               </button>
             ))}
           </div>
@@ -151,20 +162,22 @@ export function SimulatorView(): React.JSX.Element {
                 </select>
               </label>
             )}
-            <label className="sim-field">
-              <span>Trials{mode === 'sweep' ? ' / point' : ''}</span>
-              <select
-                style={{ minWidth: 96 }}
-                value={setup.trials}
-                onChange={(e) => persist({ ...setup, trials: Number(e.target.value) })}
-              >
-                {TRIAL_CHOICES.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {mode !== 'battle' && (
+              <label className="sim-field">
+                <span>Trials{mode === 'sweep' ? ' / point' : ''}</span>
+                <select
+                  style={{ minWidth: 96 }}
+                  value={setup.trials}
+                  onChange={(e) => persist({ ...setup, trials: Number(e.target.value) })}
+                >
+                  {TRIAL_CHOICES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="sim-field">
               <span>Seed</span>
               <input
@@ -175,7 +188,7 @@ export function SimulatorView(): React.JSX.Element {
               />
             </label>
             <button className="sim-primary" onClick={() => void run()} disabled={busy}>
-              {running ? 'Running…' : mode === 'single' ? 'Run simulation' : 'Run sweep'}
+              {running ? 'Running…' : mode === 'single' ? 'Run simulation' : mode === 'sweep' ? 'Run sweep' : 'Run battle'}
             </button>
           </div>
           {mode === 'sweep' && (
@@ -191,8 +204,182 @@ export function SimulatorView(): React.JSX.Element {
           <Results result={result} showLog={showLog} onToggleLog={() => setShowLog((v) => !v)} />
         )}
         {sweep && !running && mode === 'sweep' && <SweepResults out={sweep} />}
+        {battle && !running && mode === 'battle' && <BattleMap key={battleNonce} run={battle} />}
+        {mode === 'battle' && !battle && !running && (
+          <p className="sim-sub" style={{ fontSize: 12 }}>
+            A single fight on a 5-ft grid — watch the AI move, take cover, and trade blows turn by turn. Diagonals use the PHB 5-10-5 rule.
+          </p>
+        )}
       </div>
     </div>
+  )
+}
+
+// ------------------------------------------------------------------- battle map
+
+const TERRAIN_CLASS: Record<string, string> = {
+  '#': 'sim-t-wall',
+  '~': 'sim-t-diff',
+  '!': 'sim-t-haz',
+  o: 'sim-t-cover'
+}
+
+function BattleMap({ run }: { run: BattleRun }): React.JSX.Element {
+  const frames = run.frames
+  const [idx, setIdx] = useState(0)
+  const [playing, setPlaying] = useState(true)
+  const [speed, setSpeed] = useState(450)
+  const logRef = useRef<HTMLDivElement>(null)
+  const atEnd = idx >= frames.length - 1
+
+  useEffect(() => {
+    if (!playing || atEnd) return
+    const t = setTimeout(() => setIdx((i) => i + 1), speed)
+    return () => clearTimeout(t)
+  }, [playing, idx, speed, atEnd])
+
+  const togglePlay = (): void => {
+    if (atEnd) {
+      setIdx(0)
+      setPlaying(true)
+    } else setPlaying((p) => !p)
+  }
+
+  const frame = frames[Math.min(idx, frames.length - 1)]
+  const dims = frames[0].terrain!
+  const terrain = dims.tiles
+
+  const unitAt = useMemo(() => {
+    const m = new Map<string, UnitSnap>()
+    for (const u of frame.units) {
+      if (!u.alive) continue
+      for (let dy = 0; dy < u.fp; dy++)
+        for (let dx = 0; dx < u.fp; dx++) m.set(`${u.x + dx},${u.y + dy}`, u)
+    }
+    return m
+  }, [frame])
+  const templateSet = useMemo(() => new Set(frame.templateCells ?? []), [frame])
+  const pathSet = useMemo(
+    () => new Set((frame.path ?? []).slice(0, -1).map(([x, y]) => `${x},${y}`)),
+    [frame]
+  )
+  const logLines = useMemo(
+    () =>
+      frames
+        .slice(0, idx + 1)
+        .filter((f) => f.text)
+        .map((f) => ({ seq: f.seq, round: f.round, text: f.text! })),
+    [frames, idx]
+  )
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
+  }, [logLines.length])
+
+  const roster = [...frame.units].sort((a, b) =>
+    a.side === b.side ? a.glyph.localeCompare(b.glyph) : a.side === 'party' ? -1 : 1
+  )
+
+  return (
+    <section className="sim-section sim-replay">
+      <div className="sim-replay-transport">
+        <div className="sim-seg">
+          <button onClick={() => { setPlaying(false); setIdx(0) }}>⏮</button>
+          <button onClick={() => { setPlaying(false); setIdx((i) => Math.max(0, i - 1)) }}>◀</button>
+          <button onClick={togglePlay}>{playing && !atEnd ? '⏸' : '▶'}</button>
+          <button onClick={() => { setPlaying(false); setIdx((i) => Math.min(frames.length - 1, i + 1)) }}>▶▶</button>
+          <button onClick={() => { setPlaying(false); setIdx(frames.length - 1) }}>⏭</button>
+        </div>
+        <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+          <option value={900}>0.5×</option>
+          <option value={450}>1×</option>
+          <option value={220}>2×</option>
+          <option value={110}>4×</option>
+        </select>
+        <input
+          type="range"
+          min={0}
+          max={frames.length - 1}
+          value={idx}
+          onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)) }}
+          style={{ flex: 1, minWidth: 160 }}
+        />
+        <span className="sim-sub" style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          R{frame.round} · {idx + 1}/{frames.length}
+        </span>
+      </div>
+
+      <p className="sim-sub" style={{ minHeight: 16, fontSize: 12 }}>
+        <span style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>{frame.kind}</span>
+        {frame.text ? ` — ${frame.text}` : ''}
+      </p>
+
+      <div className="sim-replay-body">
+        <div className="sim-replay-board-wrap">
+          <div
+            className="sim-replay-board"
+            style={{ gridTemplateColumns: `repeat(${dims.width}, 1ch)` }}
+          >
+            {Array.from({ length: dims.width * dims.height }, (_, i) => {
+              const x = i % dims.width
+              const y = Math.floor(i / dims.width)
+              const key = `${x},${y}`
+              const u = unitAt.get(key)
+              const t = terrain[i] ?? '.'
+              let ch = t === '.' ? '·' : t
+              let cls = TERRAIN_CLASS[t] ?? 'sim-t-floor'
+              if (u) {
+                ch = u.glyph
+                cls = u.side === 'party' ? 'sim-u-party' : 'sim-u-monster'
+                if (u.downed) cls = 'sim-u-down'
+              } else if (pathSet.has(key)) {
+                ch = '•'
+                cls = 'sim-u-path'
+              }
+              const extra = u?.isActor ? ' sim-c-actor' : templateSet.has(key) ? ' sim-c-aoe' : ''
+              return (
+                <span
+                  key={i}
+                  className={cls + extra}
+                  title={
+                    u
+                      ? `${u.name} — ${u.hp}/${u.maxHp}${u.conditions.length ? ' [' + u.conditions.join(',') + ']' : ''}`
+                      : undefined
+                  }
+                >
+                  {ch}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="sim-replay-side">
+          <ul className="sim-replay-roster">
+            {roster.map((u) => (
+              <li key={u.id} className={!u.alive ? 'dead' : u.downed ? 'down' : u.isActor ? 'actor' : ''}>
+                <span className={`glyph ${u.side}`}>{u.glyph}</span>
+                <span className="nm">{u.name}</span>
+                <span className="bar">
+                  <span
+                    className={u.side}
+                    style={{ width: `${Math.max(0, Math.min(100, (u.hp / u.maxHp) * 100))}%` }}
+                  />
+                </span>
+                <span className="hp">{u.hp}/{u.maxHp}</span>
+                {u.conditions.length > 0 && <span className="cond">{u.conditions.join(',')}</span>}
+              </li>
+            ))}
+          </ul>
+          <div ref={logRef} className="sim-replay-log">
+            {logLines.map((l) => (
+              <div key={l.seq}>
+                <span className="r">R{l.round}</span> {l.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 

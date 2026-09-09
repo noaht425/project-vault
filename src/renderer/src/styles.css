@@ -2520,3 +2520,126 @@ button.active {
 .sim-builder-foot .grow {
   flex: 1;
 }
+
+/* ------------------------------------------------ battle-map replay */
+.sim-replay {
+  gap: 10px;
+}
+.sim-replay-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.sim-replay-transport .sim-seg button {
+  padding: 4px 8px;
+}
+.sim-replay-body {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.sim-replay-board-wrap {
+  overflow-x: auto;
+}
+.sim-replay-board {
+  display: inline-grid;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.sim-replay-board > span {
+  text-align: center;
+  height: 1.15em;
+}
+.sim-t-floor { color: rgba(153, 153, 153, 0.22); }
+.sim-t-wall { color: rgba(153, 153, 153, 0.7); }
+.sim-t-diff { color: rgba(107, 171, 111, 0.55); }
+.sim-t-haz { color: rgba(217, 83, 79, 0.6); }
+.sim-t-cover { color: rgba(224, 166, 60, 0.55); }
+.sim-u-party { color: var(--accent); font-weight: 600; }
+.sim-u-monster { color: var(--danger); font-weight: 600; }
+.sim-u-down { color: rgba(153, 153, 153, 0.5); }
+.sim-u-path { color: rgba(124, 140, 255, 0.4); }
+.sim-c-actor { background: rgba(124, 140, 255, 0.22); border-radius: 3px; }
+.sim-c-aoe { background: rgba(224, 166, 60, 0.22); }
+
+.sim-replay-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 220px;
+  flex: 1;
+}
+.sim-replay-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.sim-replay-roster li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sim-replay-roster li.dead { opacity: 0.4; text-decoration: line-through; }
+.sim-replay-roster li.down { opacity: 0.6; }
+.sim-replay-roster li.actor { font-weight: 600; }
+.sim-replay-roster .glyph {
+  width: 16px;
+  text-align: center;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.sim-replay-roster .glyph.party { color: var(--accent); }
+.sim-replay-roster .glyph.monster { color: var(--danger); }
+.sim-replay-roster .nm {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sim-replay-roster .bar {
+  width: 56px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  overflow: hidden;
+  flex: none;
+}
+.sim-replay-roster .bar > span {
+  display: block;
+  height: 100%;
+}
+.sim-replay-roster .bar > span.party { background: var(--accent); }
+.sim-replay-roster .bar > span.monster { background: var(--danger); }
+.sim-replay-roster .hp {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  width: 56px;
+  text-align: right;
+}
+.sim-replay-roster .cond { color: var(--warning); }
+.sim-replay-log {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sim-replay-log .r { opacity: 0.5; }
