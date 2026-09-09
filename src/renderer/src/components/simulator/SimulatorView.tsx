@@ -321,8 +321,10 @@ interface Wizard {
   action: string | null
   target: string | null
   origin: { x: number; y: number } | null
+  bonusAction: string | null
+  bonusTarget: string | null
 }
-const EMPTY_WIZ: Wizard = { move: null, action: null, target: null, origin: null }
+const EMPTY_WIZ: Wizard = { move: null, action: null, target: null, origin: null, bonusAction: null, bonusTarget: null }
 
 function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
   const [decisions, setDecisions] = useState<BattleDecision[]>([])
@@ -485,18 +487,26 @@ function Replay({
         })()
       : 0
   const outOfReach = !!awaiting && !!wiz.target && !!selAction?.needsMelee && meleeGap > awaiting.reachFt + 0.001
-  const step: 'move' | 'target' | 'origin' = !awaiting
+  const bonusSel: AwaitAction | undefined = awaiting?.bonusActions.find((a) => a.id === wiz.bonusAction)
+  const bonusNeedsTarget = !!bonusSel && !bonusSel.friendly && !bonusSel.aoe
+  const step: 'move' | 'target' | 'origin' | 'bonusTarget' = !awaiting
     ? 'move'
     : targetsEnemy && !wiz.target
       ? 'target'
       : needsOrigin && !wiz.origin
         ? 'origin'
-        : 'move'
+        : bonusNeedsTarget && !wiz.bonusTarget
+          ? 'bonusTarget'
+          : 'move'
 
   const clickCell = (x: number, y: number, u?: UnitSnap): void => {
     if (!awaiting) return
     if (step === 'target') {
       if (u && u.side === 'monster' && u.alive) setWiz({ ...wiz, target: u.id })
+      return
+    }
+    if (step === 'bonusTarget') {
+      if (u && u.side === 'monster' && u.alive) setWiz({ ...wiz, bonusTarget: u.id })
       return
     }
     if (step === 'origin') {
@@ -513,7 +523,9 @@ function Replay({
       move: wiz.move ?? undefined,
       actionId: wiz.action ?? undefined,
       targetId: wiz.target ?? undefined,
-      aoeOrigin: wiz.origin ?? undefined
+      aoeOrigin: wiz.origin ?? undefined,
+      bonusActionId: wiz.bonusAction ?? undefined,
+      bonusTargetId: wiz.bonusTarget ?? undefined
     })
   }
 
@@ -531,6 +543,7 @@ function Replay({
           <p className="sim-muted" style={{ fontSize: 12 }}>
             {step === 'move' && 'Click a highlighted square to move (or leave it to stay), then pick an action.'}
             {step === 'target' && 'Click an enemy to target.'}
+            {step === 'bonusTarget' && 'Click an enemy for the bonus action.'}
             {step === 'origin' && 'Click a square to aim the area effect.'}
           </p>
           <div className="sim-row" style={{ gap: 6, fontSize: 12, flexWrap: 'wrap' }}>
@@ -582,11 +595,46 @@ function Replay({
               Aim point: {wiz.origin ? `(${wiz.origin.x}, ${wiz.origin.y})` : 'hover the map'}
             </div>
           )}
+          {awaiting.bonusActions.length > 0 && (
+            <div
+              className="sim-row"
+              style={{ gap: 6, fontSize: 12, flexWrap: 'wrap', maxHeight: 80, overflowY: 'auto', alignItems: 'flex-start' }}
+            >
+              <span className="sim-muted">Bonus:</span>
+              {awaiting.bonusActions.map((a) => (
+                <button
+                  key={a.id}
+                  className={`sim-actbtn${wiz.bonusAction === a.id ? ' on' : ''}`}
+                  title={a.needsMelee ? 'melee' : a.friendly ? 'self / ally' : 'ranged'}
+                  onClick={() =>
+                    setWiz({ ...wiz, bonusAction: wiz.bonusAction === a.id ? null : a.id, bonusTarget: null })
+                  }
+                >
+                  {a.name}
+                </button>
+              ))}
+              {wiz.bonusAction && (
+                <button className="sim-linkbtn" onClick={() => setWiz({ ...wiz, bonusAction: null, bonusTarget: null })}>
+                  none
+                </button>
+              )}
+              {bonusNeedsTarget && (
+                <span style={{ fontSize: 12 }}>
+                  → {wiz.bonusTarget ? roster.find((u) => u.id === wiz.bonusTarget)?.name ?? '' : 'pick an enemy'}
+                </span>
+              )}
+            </div>
+          )}
           <div className="sim-row" style={{ gap: 10, flexWrap: 'wrap', paddingTop: 4 }}>
             <button
               className="sim-primary"
               onClick={confirm}
-              disabled={loading || (targetsEnemy && !wiz.target) || (needsOrigin && !wiz.origin)}
+              disabled={
+                loading ||
+                (targetsEnemy && !wiz.target) ||
+                (needsOrigin && !wiz.origin) ||
+                (bonusNeedsTarget && !wiz.bonusTarget)
+              }
             >
               Confirm turn
             </button>
@@ -667,11 +715,15 @@ function Replay({
                 else if (aimOrigin && aimOrigin.x === x && aimOrigin.y === y) extra = ' sim-c-origin'
                 else if (aoePrev.has(key)) extra = ' sim-c-aoe'
                 else if (step === 'move' && reachSet.has(key) && !u) extra = ' sim-c-reach'
-                else if (step === 'target' && u?.side === 'monster') extra = ' sim-c-tgt'
-                else if (wiz.target && u?.id === wiz.target) extra = ' sim-c-tgt'
+                else if ((step === 'target' || step === 'bonusTarget') && u?.side === 'monster') extra = ' sim-c-tgt'
+                else if ((wiz.target === u?.id || wiz.bonusTarget === u?.id) && u) extra = ' sim-c-tgt'
               }
               if (!extra && u?.isActor) extra = ' sim-c-actor'
               else if (!extra && templateSet.has(key)) extra = ' sim-c-aoe'
+              const distTip =
+                awaiting && step === 'move' && !u
+                  ? `${roughFt(awaiting.pos.x, awaiting.pos.y, { x0: x, y0: y, x1: x, y1: y })} ft`
+                  : undefined
               return (
                 <span
                   key={i}
@@ -682,7 +734,7 @@ function Replay({
                   title={
                     u
                       ? `${u.name} — ${u.hp}/${u.maxHp}${u.conditions.length ? ' [' + u.conditions.join(',') + ']' : ''}`
-                      : undefined
+                      : distTip
                   }
                 >
                   {ch}
