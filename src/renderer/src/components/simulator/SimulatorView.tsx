@@ -3,7 +3,6 @@ import { parseNote } from '@common/frontmatter'
 import {
   ABILITIES,
   BUILDER_CONDITIONS,
-  classToTemplate,
   DAMAGE_TYPES,
   defaultSetup,
   draftToCombatant,
@@ -14,6 +13,7 @@ import {
   monsterOptions,
   npcNoteToMonster,
   parseStatblock,
+  pcNoteToCombatant,
   SIZES,
   standardParty,
   suggestedPb,
@@ -819,32 +819,64 @@ function PartyEditor({
         setImportMsg('No PC notes found in this vault.')
         return
       }
-      const notes = await Promise.all(
-        matches.slice(0, 8).map((m) =>
-          window.vaultApi
-            .readNote(m.path)
-            .then((n) => ({ title: m.title, fm: parseNote(n.content).frontmatter }))
-            .catch(() => null)
+      const notes = (
+        await Promise.all(
+          matches.slice(0, 8).map((m) =>
+            window.vaultApi
+              .readNote(m.path)
+              .then((n) => {
+                const parsed = parseNote(n.content)
+                return { title: m.title, body: parsed.body ?? '', fm: parsed.frontmatter }
+              })
+              .catch(() => null)
+          )
         )
       )
-      const specs = notes
-        .filter((n): n is { title: string; fm: Record<string, unknown> } => !!n && (n.fm as { type?: string })?.type === 'pc')
+        .filter((n): n is { title: string; body: string; fm: Record<string, unknown> } => !!n && (n.fm as { type?: string })?.type === 'pc')
         .slice(0, 6)
-        .map((n) => {
-          const fm = n.fm as { class?: string; level?: number | string }
-          return {
-            template: classToTemplate(fm.class ?? ''),
-            name: n.title,
-            level: Math.max(1, Math.min(20, Math.round(Number(fm.level) || 1)))
+
+      // resolve the linked class-reference note bodies (frontmatter.classRef is a title)
+      const refTitles = new Set(notes.map((n) => String(n.fm.classRef ?? '').trim()).filter(Boolean))
+      const refBodies = new Map<string, string>()
+      for (const title of refTitles) {
+        const hit = (await window.vaultApi.searchTitles(title, 'class-reference')).find(
+          (m) => m.title.toLowerCase() === title.toLowerCase()
+        )
+        if (hit) {
+          try {
+            refBodies.set(title, parseNote((await window.vaultApi.readNote(hit.path)).content).body ?? '')
+          } catch {
+            /* skip */
           }
+        }
+      }
+
+      const specs: SimSetup['party'] = []
+      let usedRef = 0
+      let fellBack = 0
+      for (const n of notes) {
+        const classRefBody = refBodies.get(String(n.fm.classRef ?? '').trim())
+        const r = pcNoteToCombatant({ title: n.title, frontmatter: n.fm, classRefBody })
+        if (!r.spec) continue
+        specs.push({
+          template: r.spec.combatant.templateId ?? 'gwm-fighter',
+          name: r.spec.name,
+          level: r.spec.level,
+          combatant: r.spec.combatant
         })
+        if (classRefBody && r.warnings.some((w) => w.startsWith('class reference:'))) usedRef++
+        if (r.warnings.some((w) => /unrecognised class/.test(w))) fellBack++
+      }
       if (!specs.length) {
-        setImportMsg('PC notes found but none had a usable class/level.')
+        setImportMsg('PC notes found but none could be built.')
         return
       }
       onChange(specs)
       setImportMsg(
-        `Imported ${specs.length} PC${specs.length === 1 ? '' : 's'} — mapped to the nearest template.`
+        `Imported ${specs.length} PC${specs.length === 1 ? '' : 's'} from their notes` +
+          (usedRef ? `, ${usedRef} read features from a class reference` : '') +
+          (fellBack ? `, ${fellBack} fell back to a template` : '') +
+          '.'
       )
     } catch {
       setImportMsg('No local vault open — open one to import PCs.')
@@ -889,21 +921,35 @@ function PartyEditor({
                 placeholder="name"
                 onChange={(e) => patch(i, { name: e.target.value })}
               />
-              <select
-                className="sim-template-select"
-                value={p.template}
-                onChange={(e) => patch(i, { template: e.target.value })}
-              >
-                {TEMPLATE_IDS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              {p.combatant ? (
+                <span className="sim-template-select sim-muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="sim-normal" style={{ color: 'var(--text-normal)' }}>{p.combatant.templateId ?? 'pc'}</span>
+                  <span style={{ opacity: 0.7 }}>· built from note</span>
+                  <button className="sim-linkbtn" onClick={() => patch(i, { combatant: undefined })} title="switch to an editable template">
+                    detach
+                  </button>
+                </span>
+              ) : (
+                <select
+                  className="sim-template-select"
+                  value={p.template}
+                  onChange={(e) => patch(i, { template: e.target.value })}
+                >
+                  {TEMPLATE_IDS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              )}
               <span className="sim-muted" style={{ fontSize: 12 }}>
                 lvl
               </span>
-              <Stepper value={p.level} min={1} max={20} onChange={(level) => patch(i, { level })} />
+              {p.combatant ? (
+                <span style={{ width: 32, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{p.level}</span>
+              ) : (
+                <Stepper value={p.level} min={1} max={20} onChange={(level) => patch(i, { level })} />
+              )}
               <button
                 className={`sim-gearbtn${open.has(i) ? ' open' : ''}`}
                 onClick={() =>
