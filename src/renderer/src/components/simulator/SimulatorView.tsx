@@ -854,9 +854,10 @@ function PartyEditor({
       const specs: SimSetup['party'] = []
       let usedRef = 0
       let fellBack = 0
+      let usedExtras = 0
       for (const n of notes) {
         const classRefBody = refBodies.get(String(n.fm.classRef ?? '').trim())
-        const r = pcNoteToCombatant({ title: n.title, frontmatter: n.fm, classRefBody })
+        const r = pcNoteToCombatant({ title: n.title, frontmatter: n.fm, body: n.body, classRefBody })
         if (!r.spec) continue
         specs.push({
           template: r.spec.combatant.templateId ?? 'gwm-fighter',
@@ -866,6 +867,7 @@ function PartyEditor({
         })
         if (classRefBody && r.warnings.some((w) => w.startsWith('class reference:'))) usedRef++
         if (r.warnings.some((w) => /unrecognised class/.test(w))) fellBack++
+        if (r.warnings.some((w) => /^(race|feat|item):/.test(w))) usedExtras++
       }
       if (!specs.length) {
         setImportMsg('PC notes found but none could be built.')
@@ -875,6 +877,7 @@ function PartyEditor({
       setImportMsg(
         `Imported ${specs.length} PC${specs.length === 1 ? '' : 's'} from their notes` +
           (usedRef ? `, ${usedRef} read features from a class reference` : '') +
+          (usedExtras ? `, ${usedExtras} picked up a race / feat / item` : '') +
           (fellBack ? `, ${fellBack} fell back to a template` : '') +
           '.'
       )
