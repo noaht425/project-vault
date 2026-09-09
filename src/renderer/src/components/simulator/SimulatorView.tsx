@@ -41,6 +41,7 @@ import type {
   BattleMapDef,
   BattleRun,
   RosterEntry,
+  RosterInit,
   UnitSnap
 } from '@common/sim/ui'
 
@@ -271,6 +272,35 @@ function TerrainLegend(): React.JSX.Element {
   )
 }
 
+function hpBlocks(hp: number, max: number): { fill: string; empty: string } {
+  const frac = max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0
+  let n = Math.round(frac * 10)
+  if (hp > 0 && n === 0) n = 1
+  return { fill: '█'.repeat(n), empty: '░'.repeat(10 - n) }
+}
+const SPARK = '▁▂▃▄▅▆▇█'
+function sparkline(values: number[], max: number): string {
+  if (!values.length) return ''
+  return values.map((v) => SPARK[Math.max(0, Math.min(7, Math.round((v / max) * 7)))]).join('')
+}
+
+function RosterRow({ u, actor }: { u: UnitSnap; actor: boolean }): React.JSX.Element {
+  const b = hpBlocks(u.hp, u.maxHp)
+  return (
+    <div className={`sim-rrow${!u.alive ? ' dead' : u.downed ? ' down' : ''}${actor ? ' actor' : ''}`}>
+      <span className="mk">{actor ? '▸' : ''}</span>
+      <span className={`glyph ${u.side}`}>{u.glyph}</span>
+      <span className="nm">{u.name}</span>
+      <span className="bar">
+        <span className={u.side}>{b.fill}</span>
+        <span className="e">{b.empty}</span>
+      </span>
+      <span className="hp">{u.downed ? 'DOWN' : `${u.hp}/${u.maxHp}`}</span>
+      {u.conditions.length > 0 && <span className="cond">[{u.conditions.join(',')}]</span>}
+    </div>
+  )
+}
+
 function ControlPicker({
   setup,
   onChange
@@ -457,9 +487,66 @@ function Replay({
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
   }, [logLines.length])
 
-  const roster = [...frame.units].sort((a, b) =>
-    a.side === b.side ? a.glyph.localeCompare(b.glyph) : a.side === 'party' ? -1 : 1
-  )
+  const roster = frame.units // flat list for the turn panel's name lookups
+  const byId = useMemo(() => new Map(frame.units.map((u) => [u.id, u])), [frame])
+  const initOrder: RosterInit[] = run.initiative.length
+    ? run.initiative
+    : frame.units.map((u) => ({ id: u.id, name: u.name, glyph: u.glyph, side: u.side }))
+  const rosterParty = initOrder
+    .filter((i) => i.side === 'party')
+    .map((i) => byId.get(i.id))
+    .filter((u): u is UnitSnap => !!u)
+  const rosterMon = initOrder
+    .filter((i) => i.side === 'monster')
+    .map((i) => byId.get(i.id))
+    .filter((u): u is UnitSnap => !!u)
+
+  const hpCurve = useMemo(() => {
+    const rounds = new Map<number, { p: number; m: number }>()
+    for (const f of frames) {
+      let p = 0
+      let m = 0
+      for (const u of f.units) {
+        if (u.side === 'party') p += Math.max(0, u.hp)
+        else m += Math.max(0, u.hp)
+      }
+      rounds.set(f.round, { p, m })
+    }
+    const rows = [...rounds.entries()].sort((a, b) => a[0] - b[0])
+    return { rows, pMax: Math.max(1, ...rows.map((r) => r[1].p)), mMax: Math.max(1, ...rows.map((r) => r[1].m)) }
+  }, [frames])
+
+  useEffect(() => {
+    if (awaiting) return
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === ' ') {
+        e.preventDefault()
+        setPlaying((p) => {
+          if (atEnd) {
+            setIdx(0)
+            return true
+          }
+          return !p
+        })
+      } else if (e.key === 'ArrowRight') {
+        setPlaying(false)
+        setIdx((i) => Math.min(last, i + 1))
+      } else if (e.key === 'ArrowLeft') {
+        setPlaying(false)
+        setIdx((i) => Math.max(0, i - 1))
+      } else if (e.key === 'Home') {
+        setPlaying(false)
+        setIdx(0)
+      } else if (e.key === 'End') {
+        setPlaying(false)
+        setIdx(last)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [awaiting, atEnd, last])
 
   const reachSet = useMemo(() => new Set(awaiting?.reachable ?? []), [awaiting])
   const selAction: AwaitAction | undefined = awaiting?.actions.find((a) => a.id === wiz.action)
@@ -679,66 +766,93 @@ function Replay({
               R{frame.round} · {shownIdx + 1}/{frames.length}
             </span>
             <button className="sim-linkbtn" onClick={onReplay}>replay</button>
+            <span className="sim-sub" style={{ fontSize: 11, opacity: 0.6 }}>space · ← → · home/end</span>
           </div>
-          <p className="sim-sub" style={{ minHeight: 16, fontSize: 12 }}>
-            <span style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>{frame.kind}</span>
-            {frame.text ? ` — ${frame.text}` : ''}
-          </p>
         </>
       )}
+
+      <div className="sim-replay-head">
+        <span className="rnd">ROUND {frame.round}</span>
+        <span className="init">init: {initOrder.map((i) => i.name).join(' › ')}</span>
+      </div>
+      <p className="sim-replay-event">
+        <span className="r">R{frame.round}:</span>{' '}
+        {frame.text ?? (frame.kind === 'start' ? 'the battle begins' : frame.kind === 'end' ? '' : '…')}
+      </p>
 
       <div className="sim-replay-body">
         <div className="sim-replay-board-wrap">
           <div
-            className="sim-replay-board"
-            style={{ gridTemplateColumns: `repeat(${dims.width}, 1ch)`, cursor: awaiting ? 'pointer' : undefined }}
+            className="sim-replay-board sim-framed"
+            style={{
+              gridTemplateColumns: `2.5ch 1ch repeat(${dims.width}, 1ch) 1ch`,
+              cursor: awaiting ? 'pointer' : undefined
+            }}
           >
-            {Array.from({ length: dims.width * dims.height }, (_, i) => {
-              const x = i % dims.width
-              const y = Math.floor(i / dims.width)
-              const key = `${x},${y}`
-              const u = unitAt.get(key)
-              const t = terrain[i] ?? '.'
-              let ch = t === '.' ? '·' : t
-              let cls = TERRAIN_CLASS[t] ?? 'sim-t-floor'
-              if (u) {
-                ch = u.glyph
-                cls = u.side === 'party' ? 'sim-u-party' : 'sim-u-monster'
-                if (u.downed) cls = 'sim-u-down'
-              } else if (pathSet.has(key)) {
-                ch = '•'
-                cls = 'sim-u-path'
+            {Array.from({ length: dims.height + 2 }, (_, ry) => {
+              const y = ry - 1
+              if (y < 0 || y >= dims.height) {
+                return (
+                  <div key={ry} style={{ display: 'contents' }}>
+                    <span />
+                    <span className="brd">{y < 0 ? '┌' : '└'}</span>
+                    <span className="brd" style={{ gridColumn: `span ${dims.width}` }}>{'─'.repeat(dims.width)}</span>
+                    <span className="brd">{y < 0 ? '┐' : '┘'}</span>
+                  </div>
+                )
               }
-              let extra = ''
-              if (awaiting) {
-                if (wiz.move && wiz.move.x === x && wiz.move.y === y) extra = ' sim-c-move'
-                else if (aimOrigin && aimOrigin.x === x && aimOrigin.y === y) extra = ' sim-c-origin'
-                else if (aoePrev.has(key)) extra = ' sim-c-aoe'
-                else if (step === 'move' && reachSet.has(key) && !u) extra = ' sim-c-reach'
-                else if ((step === 'target' || step === 'bonusTarget') && u?.side === 'monster') extra = ' sim-c-tgt'
-                else if ((wiz.target === u?.id || wiz.bonusTarget === u?.id) && u) extra = ' sim-c-tgt'
-              }
-              if (!extra && u?.isActor) extra = ' sim-c-actor'
-              else if (!extra && templateSet.has(key)) extra = ' sim-c-aoe'
-              const distTip =
-                awaiting && step === 'move' && !u
-                  ? `${roughFt(awaiting.pos.x, awaiting.pos.y, { x0: x, y0: y, x1: x, y1: y })} ft`
-                  : undefined
               return (
-                <span
-                  key={i}
-                  className={cls + extra}
-                  onClick={awaiting ? () => clickCell(x, y, u) : undefined}
-                  onMouseEnter={awaiting && step === 'origin' ? () => setHoverOrigin({ x, y }) : undefined}
-                  onMouseLeave={awaiting && step === 'origin' ? () => setHoverOrigin(null) : undefined}
-                  title={
-                    u
-                      ? `${u.name} — ${u.hp}/${u.maxHp}${u.conditions.length ? ' [' + u.conditions.join(',') + ']' : ''}`
-                      : distTip
-                  }
-                >
-                  {ch}
-                </span>
+                <div key={ry} style={{ display: 'contents' }}>
+                  <span className="gut">{y + 1}</span>
+                  <span className="brd">│</span>
+                  {Array.from({ length: dims.width }, (_, x) => {
+                    const key = `${x},${y}`
+                    const u = unitAt.get(key)
+                    const t = terrain[y * dims.width + x] ?? '.'
+                    let ch = t === '.' ? '·' : t
+                    let cls = TERRAIN_CLASS[t] ?? 'sim-t-floor'
+                    if (u) {
+                      ch = u.glyph
+                      cls = u.side === 'party' ? 'sim-u-party' : 'sim-u-monster'
+                      if (u.downed) cls = 'sim-u-down'
+                    } else if (pathSet.has(key)) {
+                      ch = '•'
+                      cls = 'sim-u-path'
+                    }
+                    let extra = ''
+                    if (awaiting) {
+                      if (wiz.move && wiz.move.x === x && wiz.move.y === y) extra = ' sim-c-move'
+                      else if (aimOrigin && aimOrigin.x === x && aimOrigin.y === y) extra = ' sim-c-origin'
+                      else if (aoePrev.has(key)) extra = ' sim-c-aoe'
+                      else if (step === 'move' && reachSet.has(key) && !u) extra = ' sim-c-reach'
+                      else if ((step === 'target' || step === 'bonusTarget') && u?.side === 'monster') extra = ' sim-c-tgt'
+                      else if ((wiz.target === u?.id || wiz.bonusTarget === u?.id) && u) extra = ' sim-c-tgt'
+                    }
+                    if (!extra && u?.isActor) extra = ' sim-c-actor'
+                    else if (!extra && templateSet.has(key)) extra = ' sim-c-aoe'
+                    const distTip =
+                      awaiting && step === 'move' && !u
+                        ? `${roughFt(awaiting.pos.x, awaiting.pos.y, { x0: x, y0: y, x1: x, y1: y })} ft`
+                        : undefined
+                    return (
+                      <span
+                        key={x}
+                        className={cls + extra}
+                        onClick={awaiting ? () => clickCell(x, y, u) : undefined}
+                        onMouseEnter={awaiting && step === 'origin' ? () => setHoverOrigin({ x, y }) : undefined}
+                        onMouseLeave={awaiting && step === 'origin' ? () => setHoverOrigin(null) : undefined}
+                        title={
+                          u
+                            ? `${u.name} — ${u.hp}/${u.maxHp}${u.conditions.length ? ' [' + u.conditions.join(',') + ']' : ''}`
+                            : distTip
+                        }
+                      >
+                        {ch}
+                      </span>
+                    )
+                  })}
+                  <span className="brd">│</span>
+                </div>
               )
             })}
           </div>
@@ -746,24 +860,30 @@ function Replay({
         </div>
 
         <div className="sim-replay-side">
-          <ul className="sim-replay-roster">
-            {roster.map((u) => (
-              <li
-                key={u.id}
-                className={
-                  !u.alive ? 'dead' : u.downed ? 'down' : u.isActor || u.id === awaiting?.unitId ? 'actor' : ''
-                }
-              >
-                <span className={`glyph ${u.side}`}>{u.glyph}</span>
-                <span className="nm">{u.name}</span>
-                <span className="bar">
-                  <span className={u.side} style={{ width: `${Math.max(0, Math.min(100, (u.hp / u.maxHp) * 100))}%` }} />
-                </span>
-                <span className="hp">{u.hp}/{u.maxHp}</span>
-                {u.conditions.length > 0 && <span className="cond">{u.conditions.join(',')}</span>}
-              </li>
+          <div className="sim-replay-roster2">
+            {rosterParty.map((u) => (
+              <RosterRow key={u.id} u={u} actor={u.isActor || u.id === awaiting?.unitId} />
             ))}
-          </ul>
+            {rosterMon.length > 0 && <div className="sim-rdiv">──────────────</div>}
+            {rosterMon.map((u) => (
+              <RosterRow key={u.id} u={u} actor={u.isActor || u.id === awaiting?.unitId} />
+            ))}
+          </div>
+
+          {hpCurve.rows.length > 1 && (
+            <div className="sim-spark">
+              <div>
+                <span style={{ color: 'var(--accent)' }}>party </span>
+                {sparkline(hpCurve.rows.map((r) => r[1].p), hpCurve.pMax)}
+              </div>
+              <div>
+                <span style={{ color: 'var(--danger)' }}>foes&nbsp;&nbsp;</span>
+                {sparkline(hpCurve.rows.map((r) => r[1].m), hpCurve.mMax)}
+              </div>
+              <div style={{ opacity: 0.5 }}>rounds 1–{hpCurve.rows[hpCurve.rows.length - 1][0]}</div>
+            </div>
+          )}
+
           <div ref={logRef} className="sim-replay-log">
             {logLines.map((l) => (
               <div key={l.seq}>
