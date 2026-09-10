@@ -2568,6 +2568,8 @@ button.active {
 .sim-u-monster { color: var(--danger); font-weight: 600; }
 .sim-u-down { color: rgba(153, 153, 153, 0.5); }
 .sim-u-path { color: rgba(124, 140, 255, 0.4); }
+.sim-fog-dark { color: rgba(153, 153, 153, 0.08); }
+.sim-fog-dim { color: rgba(153, 153, 153, 0.2); }
 .sim-c-actor { background: rgba(124, 140, 255, 0.22); border-radius: 3px; }
 .sim-c-aoe { background: rgba(224, 166, 60, 0.22); }
 

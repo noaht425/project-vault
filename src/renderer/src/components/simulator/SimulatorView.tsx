@@ -33,7 +33,7 @@ import {
   type SweepOut
 } from '@common/sim/ui'
 import { runSimAsync, runSweepAsync, runBattleAsync, runDayAsync } from './runner'
-import { aoePreview, autoPlace, rosterForSetup, starterBattleMap } from '@common/sim/ui'
+import { aoePreview, autoPlace, rosterForSetup, starterBattleMap, visibleCells } from '@common/sim/ui'
 import type {
   AwaitAction,
   AwaitingInput,
@@ -458,6 +458,7 @@ function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
       run={run}
       awaiting={aw}
       reaction={rx}
+      hasControl={(setup.battleControl ?? []).length > 0}
       loading={loading}
       wiz={wiz}
       setWiz={setWiz}
@@ -483,6 +484,7 @@ function Replay({
   run,
   awaiting,
   reaction,
+  hasControl,
   loading,
   wiz,
   setWiz,
@@ -498,6 +500,7 @@ function Replay({
   run: BattleRun
   awaiting?: AwaitingInput
   reaction?: AwaitingReaction
+  hasControl: boolean
   loading: boolean
   wiz: Wizard
   setWiz: (w: Wizard) => void
@@ -544,12 +547,55 @@ function Replay({
     () => new Set((frame.path ?? []).slice(0, -1).map(([x, y]) => `${x},${y}`)),
     [frame]
   )
+
+  // ---- fog of war: what the party can see, per frame ----
+  const [fog, setFog] = useState(hasControl)
+  const visByFrame = useMemo(() => {
+    if (!fog) return null
+    const m = new Map<number, Set<string>>()
+    for (const f of frames) {
+      const eyes = f.units
+        .filter((u) => u.side === 'party' && u.alive && !u.downed)
+        .map((u) => ({ x: u.x, y: u.y, fp: u.fp }))
+      m.set(f.seq, new Set(eyes.length ? visibleCells(dims, eyes, 60) : []))
+    }
+    return m
+  }, [fog, frames, dims])
+  const visibleSet = fog ? visByFrame!.get(frame.seq) ?? new Set<string>() : null
+  const exploredSet = useMemo(() => {
+    if (!fog || !visByFrame) return null
+    const s = new Set<string>()
+    for (let i = 0; i <= shownIdx; i++) visByFrame.get(frames[i].seq)?.forEach((k) => s.add(k))
+    return s
+  }, [fog, visByFrame, frames, shownIdx])
+  const seenEnemyIds = useMemo(() => {
+    const s = new Set<string>()
+    if (!fog || !visByFrame) return s
+    for (let i = 0; i <= shownIdx; i++) {
+      const vis = visByFrame.get(frames[i].seq)
+      if (!vis) continue
+      for (const u of frames[i].units) {
+        if (u.side !== 'monster') continue
+        for (let dy = 0; dy < u.fp && !s.has(u.id); dy++)
+          for (let dx = 0; dx < u.fp; dx++) if (vis.has(`${u.x + dx},${u.y + dy}`)) s.add(u.id)
+      }
+    }
+    return s
+  }, [fog, visByFrame, frames, shownIdx])
+  const enemyVisibleNow = (u: UnitSnap): boolean => {
+    if (!fog || !visibleSet) return true
+    for (let dy = 0; dy < u.fp; dy++)
+      for (let dx = 0; dx < u.fp; dx++) if (visibleSet.has(`${u.x + dx},${u.y + dy}`)) return true
+    return false
+  }
+  const frameBySeq = useMemo(() => new Map(frames.map((f) => [f.seq, f])), [frames])
+
   const logLines = useMemo(
     () =>
       frames
         .slice(0, shownIdx + 1)
         .filter((f) => f.text)
-        .map((f) => ({ seq: f.seq, round: f.round, text: f.text! })),
+        .map((f) => ({ seq: f.seq, round: f.round, text: f.text!, actorId: f.actorId })),
     [frames, shownIdx]
   )
   useEffect(() => {
@@ -568,7 +614,7 @@ function Replay({
   const rosterMon = initOrder
     .filter((i) => i.side === 'monster')
     .map((i) => byId.get(i.id))
-    .filter((u): u is UnitSnap => !!u)
+    .filter((u): u is UnitSnap => !!u && (!fog || seenEnemyIds.has(u.id)))
 
   const hpCurve = useMemo(() => {
     const rounds = new Map<number, { p: number; m: number }>()
@@ -858,6 +904,14 @@ function Replay({
               R{frame.round} · {shownIdx + 1}/{frames.length}
             </span>
             <button className="sim-linkbtn" onClick={onReplay}>replay</button>
+            <label
+              className="sim-sub"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              title="only show what the party can see"
+            >
+              <input type="checkbox" checked={fog} onChange={(e) => setFog(e.target.checked)} />
+              🌫 fog
+            </label>
             <span className="sim-sub" style={{ fontSize: 11, opacity: 0.6 }}>space · ← → · home/end</span>
           </div>
         </>
@@ -899,15 +953,24 @@ function Replay({
                   <span className="brd">│</span>
                   {Array.from({ length: dims.width }, (_, x) => {
                     const key = `${x},${y}`
-                    const u = unitAt.get(key)
+                    const uRaw = unitAt.get(key)
+                    const cellVis = !fog || visibleSet!.has(key)
+                    const cellExplored = !fog || exploredSet!.has(key)
+                    const u = uRaw && (uRaw.side === 'party' || cellVis) ? uRaw : undefined
                     const t = terrain[y * dims.width + x] ?? '.'
                     let ch = t === '.' ? '·' : t
                     let cls = TERRAIN_CLASS[t] ?? 'sim-t-floor'
+                    if (!cellExplored) {
+                      ch = '·'
+                      cls = 'sim-fog-dark'
+                    } else if (!cellVis) {
+                      cls = 'sim-fog-dim'
+                    }
                     if (u) {
                       ch = u.glyph
                       cls = u.side === 'party' ? 'sim-u-party' : 'sim-u-monster'
                       if (u.downed) cls = 'sim-u-down'
-                    } else if (pathSet.has(key)) {
+                    } else if (cellVis && pathSet.has(key)) {
                       ch = '•'
                       cls = 'sim-u-path'
                     }
@@ -958,8 +1021,11 @@ function Replay({
             ))}
             {rosterMon.length > 0 && <div className="sim-rdiv">──────────────</div>}
             {rosterMon.map((u) => (
-              <RosterRow key={u.id} u={u} actor={u.isActor || u.id === awaiting?.unitId} />
+              <div key={u.id} style={fog && !enemyVisibleNow(u) ? { opacity: 0.4 } : undefined}>
+                <RosterRow u={u} actor={u.isActor || u.id === awaiting?.unitId} />
+              </div>
             ))}
+            {fog && rosterMon.length === 0 && <div className="sim-rdiv">── no enemy in sight ──</div>}
           </div>
 
           {hpCurve.rows.length > 1 && (
@@ -968,20 +1034,31 @@ function Replay({
                 <span style={{ color: 'var(--accent)' }}>party </span>
                 {sparkline(hpCurve.rows.map((r) => r[1].p), hpCurve.pMax)}
               </div>
-              <div>
-                <span style={{ color: 'var(--danger)' }}>foes&nbsp;&nbsp;</span>
-                {sparkline(hpCurve.rows.map((r) => r[1].m), hpCurve.mMax)}
-              </div>
+              {!fog && (
+                <div>
+                  <span style={{ color: 'var(--danger)' }}>foes&nbsp;&nbsp;</span>
+                  {sparkline(hpCurve.rows.map((r) => r[1].m), hpCurve.mMax)}
+                </div>
+              )}
               <div style={{ opacity: 0.5 }}>rounds 1–{hpCurve.rows[hpCurve.rows.length - 1][0]}</div>
             </div>
           )}
 
           <div ref={logRef} className="sim-replay-log">
-            {logLines.map((l) => (
-              <div key={l.seq}>
-                <span className="r">R{l.round}</span> {l.text}
-              </div>
-            ))}
+            {logLines.map((l) => {
+              const lf = frameBySeq.get(l.seq)
+              const hidden =
+                fog &&
+                !!lf?.actorId &&
+                lf.units.some((x) => x.id === lf.actorId && x.side === 'monster') &&
+                !lf.units.some((x) => x.id === lf.actorId && visByFrame?.get(l.seq)?.has(`${x.x},${x.y}`))
+              return (
+                <div key={l.seq} style={hidden ? { opacity: 0.4, fontStyle: 'italic' } : undefined}>
+                  <span className="r">R{l.round}</span>{' '}
+                  {hidden ? 'something moves in the fog' : l.text}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
