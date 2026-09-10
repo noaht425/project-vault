@@ -17,6 +17,7 @@ import {
   parseStatblock,
   pcNoteToCombatant,
   RACE_OPTIONS,
+  WEAPON_OPTIONS,
   SIZES,
   standardParty,
   suggestedPb,
@@ -1909,6 +1910,7 @@ function PartyEditor({
                   const bits = [
                     loadoutSummary(p.loadout),
                     p.race,
+                    p.weapon,
                     picks > 0 ? `${picks} pick${picks === 1 ? '' : 's'}` : ''
                   ].filter(Boolean)
                   return bits.length ? <span className="chip">{bits.join(' · ')}</span> : null
@@ -1970,6 +1972,17 @@ function PartyEditor({
                       {RACE_OPTIONS.map((r) => (
                         <option key={r} value={r}>
                           {r}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="sim-muted">Weapon</span>
+                    <select value={p.weapon ?? ''} onChange={(e) => patch(i, { weapon: e.target.value || undefined })}>
+                      <option value="">auto (by class + STR/DEX)</option>
+                      {WEAPON_OPTIONS.map((w) => (
+                        <option key={w} value={w}>
+                          {w}
                         </option>
                       ))}
                     </select>
