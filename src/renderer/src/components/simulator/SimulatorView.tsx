@@ -37,10 +37,12 @@ import { aoePreview, autoPlace, rosterForSetup, starterBattleMap } from '@common
 import type {
   AwaitAction,
   AwaitingInput,
+  AwaitingReaction,
   BattleDecision,
   BattleMapDef,
   BattleRun,
   DayRun,
+  ReactionChoice,
   RestKind,
   RosterEntry,
   RosterInit,
@@ -399,8 +401,12 @@ interface Wizard {
 }
 const EMPTY_WIZ: Wizard = { move: null, action: null, target: null, origin: null, bonusAction: null, bonusTarget: null }
 
+// the player's recorded choices, in fight order: a turn plan or a reaction answer
+type Step = { kind: 'turn'; d: BattleDecision } | { kind: 'react'; r: ReactionChoice }
+
 function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
-  const [decisions, setDecisions] = useState<BattleDecision[]>([])
+  const [steps, setSteps] = useState<Step[]>([])
+  const [reactAuto, setReactAuto] = useState<string[]>([])
   const [run, setRun] = useState<BattleRun | null>(null)
   const [loading, setLoading] = useState(true)
   const [autoAi, setAutoAi] = useState(false)
@@ -408,11 +414,13 @@ function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
   const started = useRef(false)
 
   const fetchRun = useCallback(
-    (ds: BattleDecision[], ai: boolean) => {
+    (st: Step[], ra: string[], ai: boolean) => {
       setLoading(true)
       setWiz(EMPTY_WIZ)
       const s = ai ? { ...setup, battleControl: [] as string[] } : setup
-      void runBattleAsync(s, setup.seed, ds).then((r) => {
+      const ds = st.filter((x): x is Extract<Step, { kind: 'turn' }> => x.kind === 'turn').map((x) => x.d)
+      const rc = st.filter((x): x is Extract<Step, { kind: 'react' }> => x.kind === 'react').map((x) => x.r)
+      void runBattleAsync(s, setup.seed, ds, rc, ra).then((r) => {
         setRun(r)
         setLoading(false)
       })
@@ -423,39 +431,50 @@ function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
   useEffect(() => {
     if (started.current) return
     started.current = true
-    fetchRun([], false)
+    fetchRun([], [], false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const push = (ds: BattleDecision[]): void => {
-    setDecisions(ds)
-    fetchRun(ds, autoAi)
+  const push = (st: Step[], ra: string[] = reactAuto): void => {
+    setSteps(st)
+    setReactAuto(ra)
+    fetchRun(st, ra, autoAi)
   }
-  const commit = (d: BattleDecision): void => push([...decisions, d])
-  const undoTurn = (): void => push(decisions.slice(0, -1))
+  const commit = (d: BattleDecision): void => push([...steps, { kind: 'turn', d }])
+  const commitReaction = (r: ReactionChoice): void => push([...steps, { kind: 'react', r }])
+  const undoStep = (): void => push(steps.slice(0, -1))
   const finishWithAi = (): void => {
     setAutoAi(true)
-    setDecisions(decisions)
-    fetchRun(decisions, true)
+    fetchRun(steps, reactAuto, true)
   }
 
   if (!run) return <p className="sim-sub" style={{ fontSize: 12 }}>Setting up the battle…</p>
 
   const aw = run.awaiting
+  const rx = run.awaitingReaction
   return (
     <Replay
-      key={run.frames.length + (aw ? ':await' : ':done')}
+      key={run.frames.length + (rx ? ':react' : aw ? ':await' : ':done')}
       run={run}
       awaiting={aw}
+      reaction={rx}
       loading={loading}
       wiz={wiz}
       setWiz={setWiz}
-      canUndo={decisions.length > 0}
+      canUndo={steps.length > 0}
       onCommit={commit}
+      onReact={(take) => rx && commitReaction({ round: rx.round, unitId: rx.unitId, seq: rx.seq, take })}
+      onReactAuto={() => {
+        if (!rx) return
+        push(
+          [...steps, { kind: 'react', r: { round: rx.round, unitId: rx.unitId, seq: rx.seq, take: false } }],
+          reactAuto.includes(rx.unitId) ? reactAuto : [...reactAuto, rx.unitId]
+        )
+      }}
       onAi={() => aw && commit({ round: aw.round, unitId: aw.unitId, auto: true })}
-      onUndo={undoTurn}
+      onUndo={undoStep}
       onFinishAi={finishWithAi}
-      onReplay={() => push([])}
+      onReplay={() => push([], [])}
     />
   )
 }
@@ -463,11 +482,14 @@ function BattleMap({ setup }: { setup: SimSetup }): React.JSX.Element {
 function Replay({
   run,
   awaiting,
+  reaction,
   loading,
   wiz,
   setWiz,
   canUndo,
   onCommit,
+  onReact,
+  onReactAuto,
   onAi,
   onUndo,
   onFinishAi,
@@ -475,11 +497,14 @@ function Replay({
 }: {
   run: BattleRun
   awaiting?: AwaitingInput
+  reaction?: AwaitingReaction
   loading: boolean
   wiz: Wizard
   setWiz: (w: Wizard) => void
   canUndo: boolean
   onCommit: (d: BattleDecision) => void
+  onReact: (take: boolean) => void
+  onReactAuto: () => void
   onAi: () => void
   onUndo: () => void
   onFinishAi: () => void
@@ -493,13 +518,14 @@ function Replay({
   const logRef = useRef<HTMLDivElement>(null)
   const last = frames.length - 1
   const atEnd = idx >= last
-  const shownIdx = awaiting ? last : Math.min(idx, last)
+  const paused = !!awaiting || !!reaction
+  const shownIdx = paused ? last : Math.min(idx, last)
 
   useEffect(() => {
-    if (!playing || atEnd) return
+    if (!playing || atEnd || paused) return
     const t = setTimeout(() => setIdx((i) => i + 1), speed)
     return () => clearTimeout(t)
-  }, [playing, idx, speed, atEnd])
+  }, [playing, idx, speed, atEnd, paused])
 
   const frame = frames[shownIdx]
   const dims = frames[0].terrain!
@@ -560,7 +586,7 @@ function Replay({
   }, [frames])
 
   useEffect(() => {
-    if (awaiting) return
+    if (paused) return
     const onKey = (e: KeyboardEvent): void => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
@@ -589,7 +615,7 @@ function Replay({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [awaiting, atEnd, last])
+  }, [paused, atEnd, last])
 
   const reachSet = useMemo(() => new Set(awaiting?.reachable ?? []), [awaiting])
   const selAction: AwaitAction | undefined = awaiting?.actions.find((a) => a.id === wiz.action)
@@ -661,7 +687,30 @@ function Replay({
 
   return (
     <section className="sim-section sim-replay">
-      {awaiting ? (
+      {reaction ? (
+        <div className="sim-turnpanel sim-reactpanel">
+          <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <span style={{ color: 'var(--warning)', fontWeight: 500 }}>⚡ Reaction — {reaction.unitName}</span>
+            <span className="sim-muted" style={{ fontSize: 12 }}>round {reaction.round}</span>
+            {loading && <span className="sim-muted" style={{ fontSize: 12 }}>resolving…</span>}
+          </div>
+          <p style={{ fontSize: 12 }}>{reaction.prompt}</p>
+          <div className="sim-row" style={{ gap: 10, flexWrap: 'wrap', paddingTop: 4 }}>
+            <button className="sim-primary" onClick={() => onReact(true)} disabled={loading}>
+              {reaction.takeLabel}
+            </button>
+            <button className="sim-actbtn" onClick={() => onReact(false)} disabled={loading}>
+              {reaction.declineLabel}
+            </button>
+            <button className="sim-linkbtn" onClick={onReactAuto} disabled={loading}>
+              stop asking — let the AI run {reaction.unitName}&rsquo;s reactions
+            </button>
+            {canUndo && (
+              <button className="sim-linkbtn" onClick={onUndo} disabled={loading}>undo</button>
+            )}
+          </div>
+        </div>
+      ) : awaiting ? (
         <div className="sim-turnpanel">
           <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
             <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Your turn — {awaiting.unitName}</span>

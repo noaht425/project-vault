@@ -2726,6 +2726,10 @@ button.active {
   padding: 12px;
   font-size: 13px;
 }
+.sim-turnpanel.sim-reactpanel {
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+}
 .sim-actbtn {
   font-size: 12px;
   padding: 4px 8px;
