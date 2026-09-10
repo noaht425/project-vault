@@ -33,7 +33,15 @@ import {
   type SweepOut
 } from '@common/sim/ui'
 import { runSimAsync, runSweepAsync, runBattleAsync, runDayAsync } from './runner'
-import { aoePreview, autoPlace, rosterForSetup, starterBattleMap, visibleCells } from '@common/sim/ui'
+import {
+  aoePreview,
+  autoPlace,
+  cellDistanceFt,
+  rosterForSetup,
+  rulerLine,
+  starterBattleMap,
+  visibleCells
+} from '@common/sim/ui'
 import type {
   AwaitAction,
   AwaitingInput,
@@ -674,11 +682,11 @@ function Replay({
 
   const targetsEnemy = !!selAction && !selAction.friendly && !selAction.aoe
   const needsOrigin = !!selAction?.aoe
+  // PHB 5-10-5 feet from a 1x1 square to a footprint box (matches feetBetweenBoxes)
   const roughFt = (mx: number, my: number, b: { x0: number; y0: number; x1: number; y1: number }): number => {
     const gx = Math.max(0, mx - b.x1, b.x0 - mx)
     const gy = Math.max(0, my - b.y1, b.y0 - my)
-    const diag = Math.min(gx, gy)
-    return (Math.max(gx, gy) + diag) * 5 + Math.floor(diag / 2) * 5
+    return Math.max(gx, gy) * 5 + Math.floor(Math.min(gx, gy) / 2) * 5
   }
   const meleeGap =
     awaiting && selAction?.needsMelee && wiz.target
@@ -701,7 +709,25 @@ function Replay({
           ? 'bonusTarget'
           : 'move'
 
+  // ---- measurement ruler (click two cells) ----
+  const [measure, setMeasure] = useState(false)
+  const [mA, setMA] = useState<{ x: number; y: number } | null>(null)
+  const [mB, setMB] = useState<{ x: number; y: number } | null>(null)
+  const [mHover, setMHover] = useState<{ x: number; y: number } | null>(null)
+  const measuring = measure && !awaiting && !reaction
+  const rulerCells = useMemo(() => {
+    const end = mB ?? mHover
+    return mA && end ? new Set(rulerLine(mA, end)) : new Set<string>()
+  }, [mA, mB, mHover])
+  const rulerFt = mA && (mB ?? mHover) ? cellDistanceFt(mA, (mB ?? mHover)!) : null
+  const stopMeasure = (): void => { setMeasure(false); setMA(null); setMB(null); setMHover(null) }
+
   const clickCell = (x: number, y: number, u?: UnitSnap): void => {
+    if (measuring) {
+      if (!mA || mB) { setMA({ x, y }); setMB(null) }
+      else setMB({ x, y })
+      return
+    }
     if (!awaiting) return
     if (step === 'target') {
       if (u && u.side === 'monster' && u.alive) setWiz({ ...wiz, target: u.id })
@@ -912,6 +938,14 @@ function Replay({
               <input type="checkbox" checked={fog} onChange={(e) => setFog(e.target.checked)} />
               🌫 fog
             </label>
+            <button
+              className="sim-linkbtn"
+              style={{ color: measure ? 'var(--positive)' : undefined, whiteSpace: 'nowrap' }}
+              onClick={() => (measure ? stopMeasure() : setMeasure(true))}
+              title="click two cells to measure the distance"
+            >
+              📏 measure
+            </button>
             <span className="sim-sub" style={{ fontSize: 11, opacity: 0.6 }}>space · ← → · home/end</span>
           </div>
         </>
@@ -922,8 +956,18 @@ function Replay({
         <span className="init">init: {initOrder.map((i) => i.name).join(' › ')}</span>
       </div>
       <p className="sim-replay-event">
-        <span className="r">R{frame.round}:</span>{' '}
-        {frame.text ?? (frame.kind === 'start' ? 'the battle begins' : frame.kind === 'end' ? '' : '…')}
+        {measuring ? (
+          <span style={{ color: 'var(--positive)' }}>
+            📏 {mA ? `A (${mA.x + 1},${mA.y + 1})` : 'click a start cell'}
+            {rulerFt != null && ` → ${mB ? `B (${mB.x + 1},${mB.y + 1})` : '…'}  =  ${rulerFt} ft (${rulerFt / 5} sq)`}
+            {mB && '  ·  click again to restart'}
+          </span>
+        ) : (
+          <>
+            <span className="r">R{frame.round}:</span>{' '}
+            {frame.text ?? (frame.kind === 'start' ? 'the battle begins' : frame.kind === 'end' ? '' : '…')}
+          </>
+        )}
       </p>
 
       <div className="sim-replay-body">
@@ -932,7 +976,7 @@ function Replay({
             className="sim-replay-board sim-framed"
             style={{
               gridTemplateColumns: `2.5ch 1ch repeat(${dims.width}, 1ch) 1ch`,
-              cursor: awaiting ? 'pointer' : undefined
+              cursor: awaiting || measuring ? 'pointer' : undefined
             }}
           >
             {Array.from({ length: dims.height + 2 }, (_, ry) => {
@@ -985,16 +1029,28 @@ function Replay({
                     }
                     if (!extra && u?.isActor) extra = ' sim-c-actor'
                     else if (!extra && templateSet.has(key)) extra = ' sim-c-aoe'
+                    if (measuring) {
+                      if ((mA && mA.x === x && mA.y === y) || (mB && mB.x === x && mB.y === y)) extra = ' sim-c-ruler-end'
+                      else if (rulerCells.has(key)) extra = ' sim-c-ruler'
+                    }
                     const distTip =
-                      awaiting && step === 'move' && !u
-                        ? `${roughFt(awaiting.pos.x, awaiting.pos.y, { x0: x, y0: y, x1: x, y1: y })} ft`
-                        : undefined
+                      measuring && mA
+                        ? `${cellDistanceFt(mA, { x, y })} ft from A`
+                        : awaiting && step === 'move' && !u
+                          ? `${roughFt(awaiting.pos.x, awaiting.pos.y, { x0: x, y0: y, x1: x, y1: y })} ft`
+                          : undefined
                     return (
                       <span
                         key={x}
                         className={cls + extra}
-                        onClick={awaiting ? () => clickCell(x, y, u) : undefined}
-                        onMouseEnter={awaiting && step === 'origin' ? () => setHoverOrigin({ x, y }) : undefined}
+                        onClick={awaiting || measuring ? () => clickCell(x, y, u) : undefined}
+                        onMouseEnter={
+                          measuring && mA && !mB
+                            ? () => setMHover({ x, y })
+                            : awaiting && step === 'origin'
+                              ? () => setHoverOrigin({ x, y })
+                              : undefined
+                        }
                         onMouseLeave={awaiting && step === 'origin' ? () => setHoverOrigin(null) : undefined}
                         title={
                           u

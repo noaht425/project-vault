@@ -2570,6 +2570,12 @@ button.active {
 .sim-u-path { color: rgba(124, 140, 255, 0.4); }
 .sim-fog-dark { color: rgba(153, 153, 153, 0.08); }
 .sim-fog-dim { color: rgba(153, 153, 153, 0.2); }
+.sim-c-ruler { background: color-mix(in srgb, var(--positive) 20%, transparent); }
+.sim-c-ruler-end {
+  background: color-mix(in srgb, var(--positive) 45%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--positive) inset;
+}
 .sim-c-actor { background: rgba(124, 140, 255, 0.22); border-radius: 3px; }
 .sim-c-aoe { background: rgba(224, 166, 60, 0.22); }
 
