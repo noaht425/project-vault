@@ -1,23 +1,30 @@
 import { useState } from 'react'
-import { runContradictionCheck } from '../../lib/contradictionCheckRunner'
-import { useLocalNoteRefApi } from '../../lib/noteRefApi'
+import { runContradictionCheck, type FactSource } from '../../lib/contradictionCheckRunner'
+import { useLocalNoteRefApi, useCloudNoteRefApi } from '../../lib/noteRefApi'
 
-// Local-vault-only for v1 — same rollout precedent as Initiative Tracker
-// and Map×Timeline (see docs/plans/2026-07-27-initiative-timeline-settlement.md,
-// 2026-07-27's Map×Timeline commit): no Cloud Workspace parity yet, add it
-// later if wanted rather than blocking this on it now. The actual check
-// logic (src/common/contradictionCheck.ts) and its runner
-// (lib/contradictionCheckRunner.ts) are already backend-agnostic, so
-// wiring Cloud in later is just this component's own IPC call and note-
-// opening, not a rewrite.
-export function ContradictionsView(): React.JSX.Element {
-  const noteRefApi = useLocalNoteRefApi()
+// The check logic (src/common/contradictionCheck.ts) and its runner
+// (lib/contradictionCheckRunner.ts) are backend-agnostic; this component just
+// picks the local-vault or Cloud-Workspace note API + event list.
+export function ContradictionsView({
+  source
+}: {
+  source: 'local' | 'cloud'
+}): React.JSX.Element {
+  const localRef = useLocalNoteRefApi()
+  const cloudRef = useCloudNoteRefApi()
+  const noteRefApi = source === 'cloud' ? cloudRef : localRef
+  const listFacts: () => Promise<FactSource[]> =
+    source === 'cloud'
+      ? async () =>
+          (await window.cloudApi.listEvents()).map((e) => ({ title: e.name, date: e.date, summary: e.summary }))
+      : () => window.vaultApi.listEvents()
+
   const [status, setStatus] = useState<'idle' | 'checking' | 'done'>('idle')
   const [contradictions, setContradictions] = useState<Awaited<ReturnType<typeof runContradictionCheck>>>([])
 
   const runCheck = (): void => {
     setStatus('checking')
-    void runContradictionCheck(() => window.vaultApi.listEvents(), noteRefApi).then((result) => {
+    void runContradictionCheck(listFacts, noteRefApi).then((result) => {
       setContradictions(result)
       setStatus('done')
     })

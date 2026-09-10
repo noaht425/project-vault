@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parseEncounter, defaultEncounter, type Encounter } from '../../common/initiative'
+import type { InitiativeBackend } from './components/initiative/InitiativeView'
 import { useVaultStore } from './state/vaultStore'
 import { useEditorStore } from './state/editorStore'
 import { useCloudStore } from './state/cloudStore'
@@ -58,6 +60,45 @@ export default function App(): React.JSX.Element {
   const [mainView, setMainView] = useState<'editor' | 'sessions' | 'events' | 'graph' | 'initiative' | 'simulator' | 'contradictions'>('editor')
   const [searchQuery, setSearchQuery] = useState('')
   const effectiveView = searchQuery.trim() ? 'search' : mainView
+
+  // Initiative Tracker data path: local vault (file in userData) or Cloud
+  // Workspace (encounter in browser localStorage, like the web app).
+  const initiativeBackend = useMemo<InitiativeBackend>(() => {
+    if (workspaceSource === 'cloud') {
+      const KEY = 'currentEncounter'
+      return {
+        isCloud: true,
+        searchTitles: (q, t) =>
+          window.cloudApi.searchTitles(q, t).then((ms) => ms.map((m) => ({ ref: m.id, title: m.name }))),
+        loadEncounter: async (): Promise<Encounter> => {
+          try {
+            const raw = localStorage.getItem(KEY)
+            return raw ? parseEncounter(JSON.parse(raw)) : defaultEncounter()
+          } catch {
+            return defaultEncounter()
+          }
+        },
+        saveEncounter: async (e): Promise<void> => {
+          localStorage.setItem(KEY, JSON.stringify(e))
+        },
+        openNote: (id) => {
+          void cloudOpenNote(id)
+          setMainView('editor')
+        }
+      }
+    }
+    return {
+      isCloud: false,
+      searchTitles: (q, t) =>
+        window.vaultApi.searchTitles(q, t).then((ms) => ms.map((m) => ({ ref: m.path, title: m.title }))),
+      loadEncounter: () => window.vaultApi.getCurrentEncounter(),
+      saveEncounter: (e) => window.vaultApi.saveCurrentEncounter(e),
+      openNote: (path) => {
+        void openNote(path)
+        setMainView('editor')
+      }
+    }
+  }, [workspaceSource, cloudOpenNote, openNote])
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
   // Lets onMouseUp read the latest width without the effect depending on
@@ -242,8 +283,7 @@ export default function App(): React.JSX.Element {
           <button
             className={mainView === 'initiative' ? 'active' : ''}
             onClick={() => setMainView((v) => (v === 'initiative' ? 'editor' : 'initiative'))}
-            disabled={workspaceSource === 'cloud' || !vaultPath}
-            title={workspaceSource === 'cloud' ? 'Initiative Tracker is local-vault only for now' : undefined}
+            disabled={workspaceSource === 'local' && !vaultPath}
           >
             Initiative
           </button>
@@ -257,8 +297,7 @@ export default function App(): React.JSX.Element {
           <button
             className={mainView === 'contradictions' ? 'active' : ''}
             onClick={() => setMainView((v) => (v === 'contradictions' ? 'editor' : 'contradictions'))}
-            disabled={workspaceSource === 'cloud' || !vaultPath}
-            title={workspaceSource === 'cloud' ? 'Contradiction Check is local-vault only for now' : undefined}
+            disabled={workspaceSource === 'local' && !vaultPath}
           >
             Contradictions
           </button>
@@ -358,14 +397,9 @@ export default function App(): React.JSX.Element {
             }}
           />
         ) : effectiveView === 'initiative' ? (
-          <InitiativeView
-            onOpenSourceNote={(path) => {
-              void openNote(path)
-              setMainView('editor')
-            }}
-          />
+          <InitiativeView backend={initiativeBackend} />
         ) : effectiveView === 'contradictions' ? (
-          <ContradictionsView />
+          <ContradictionsView source={workspaceSource} />
         ) : (
           <>
             <div className="editor-column">

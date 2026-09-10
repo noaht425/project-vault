@@ -17,39 +17,34 @@ import { AddCombatantPanel } from './AddCombatantPanel'
 import { CombatantRow } from './CombatantRow'
 
 /**
- * Resolves a combatant's sourceNoteTitle to a real note path the same way
- * noteRefApi.openByTitle does (exact, case-insensitive match against
- * searchTitles), duplicated locally rather than reusing noteRefApi because
- * that hook's public interface intentionally doesn't expose a path/ref for
- * its own callers (PcSheet etc. never need one — they navigate directly).
- * This view needs the path so it can also switch mainView back to 'editor',
- * which is App.tsx's job via the onOpenSourceNote callback.
+ * The four IO operations the tracker needs, so it works against either the
+ * local vault (window.vaultApi + an encounter file in userData) or a Cloud
+ * Workspace (window.cloudApi + the encounter in browser localStorage, the
+ * same choice the web app made). `openNote` takes a path for local, an id
+ * for cloud — App.tsx wires the right one.
  */
-async function resolveNotePath(title: string, kind: 'pc' | 'npc'): Promise<string | null> {
-  const matches = await window.vaultApi.searchTitles(title, kind)
-  const exact = matches.find((m) => m.title.toLowerCase() === title.toLowerCase())
-  return exact?.path ?? null
+export interface InitiativeBackend {
+  isCloud: boolean
+  searchTitles(query: string, type: string): Promise<{ ref: string; title: string }[]>
+  loadEncounter(): Promise<Encounter>
+  saveEncounter(e: Encounter): Promise<void>
+  openNote(ref: string): void
 }
 
-export function InitiativeView({
-  onOpenSourceNote
-}: {
-  onOpenSourceNote: (path: string) => void
-}): React.JSX.Element {
+export function InitiativeView({ backend }: { backend: InitiativeBackend }): React.JSX.Element {
   const [encounter, setEncounter] = useState<Encounter | null>(null)
 
   useEffect(() => {
-    // Without a .catch, a rejected IPC call left encounter stuck at null
-    // forever — "Loading…" with no way out.
-    window.vaultApi
-      .getCurrentEncounter()
+    backend
+      .loadEncounter()
       .then(setEncounter)
       .catch((err) => console.error('Failed to load encounter:', err))
-  }, [])
+    // re-load when the backend switches (local <-> cloud)
+  }, [backend])
 
   const persist = (next: Encounter): void => {
     setEncounter(next)
-    window.vaultApi.saveCurrentEncounter(next).catch((err) => console.error('Failed to save encounter:', err))
+    backend.saveEncounter(next).catch((err) => console.error('Failed to save encounter:', err))
   }
 
   if (encounter === null) {
@@ -72,9 +67,12 @@ export function InitiativeView({
 
   const openSource = (combatant: Combatant): void => {
     if (!combatant.sourceNoteTitle) return
-    resolveNotePath(combatant.sourceNoteTitle, combatant.isPc ? 'pc' : 'npc')
-      .then((path) => {
-        if (path) onOpenSourceNote(path)
+    const kind = combatant.isPc ? 'pc' : 'npc'
+    backend
+      .searchTitles(combatant.sourceNoteTitle, kind)
+      .then((matches) => {
+        const exact = matches.find((m) => m.title.toLowerCase() === combatant.sourceNoteTitle!.toLowerCase())
+        if (exact) backend.openNote(exact.ref)
         else window.alert(`No note titled "${combatant.sourceNoteTitle}" yet.`)
       })
       .catch((err) => console.error('Failed to resolve source note:', err))
