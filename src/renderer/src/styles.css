@@ -2566,12 +2566,16 @@ button.active {
 }
 .sim-replay-board {
   display: grid;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
   color: rgba(153, 153, 153, 0.4);
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
-.sim-replay-board > div > span {
+.sim-replay-board span {
   text-align: center;
   height: 1.15em;
 }
@@ -2700,6 +2704,9 @@ button.active {
   gap: 16px;
   flex-wrap: wrap;
   align-items: flex-start;
+}
+.sim-mapeditor-grid {
+  padding: 6px;
 }
 .sim-mapeditor-grid > span {
   cursor: crosshair;

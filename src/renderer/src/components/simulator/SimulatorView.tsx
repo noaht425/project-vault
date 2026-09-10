@@ -2786,7 +2786,7 @@ function MapEditor({
         <div className="sim-replay-board-wrap">
           <div
             className="sim-replay-board sim-mapeditor-grid"
-            style={{ gridTemplateColumns: `repeat(${def.width}, 1ch)` }}
+            style={{ gridTemplateColumns: `repeat(${def.width}, 1.15em)` }}
           >
             {Array.from({ length: def.width * def.height }, (_, i) => {
               const x = i % def.width
