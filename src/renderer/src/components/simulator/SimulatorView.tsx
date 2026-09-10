@@ -791,6 +791,13 @@ function Replay({
             </span>
             {loading && <span className="sim-muted" style={{ fontSize: 12 }}>resolving…</span>}
           </div>
+          {awaiting.openerId && (
+            <p style={{ fontSize: 12, color: 'var(--warning)' }}>
+              ★ opener:{' '}
+              {[...awaiting.actions, ...awaiting.bonusActions].find((a) => a.id === awaiting.openerId)?.name} — pick it
+              and it fires before the main action
+            </p>
+          )}
           <p className="sim-muted" style={{ fontSize: 12 }}>
             {step === 'move' && 'Click a highlighted square to move (or leave it to stay), then pick an action.'}
             {step === 'target' && 'Click an enemy to target.'}
@@ -819,7 +826,7 @@ function Replay({
                   setWiz({ ...wiz, action: wiz.action === a.id ? null : a.id, target: null, origin: null })
                 }
               >
-                {a.name}
+                {awaiting.openerId === a.id ? '★ ' : ''}{a.name}
               </button>
             ))}
             {wiz.action && (
@@ -861,7 +868,7 @@ function Replay({
                     setWiz({ ...wiz, bonusAction: wiz.bonusAction === a.id ? null : a.id, bonusTarget: null })
                   }
                 >
-                  {a.name}
+                  {awaiting.openerId === a.id ? '★ ' : ''}{a.name}
                 </button>
               ))}
               {wiz.bonusAction && (
