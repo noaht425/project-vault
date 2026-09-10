@@ -249,6 +249,11 @@ export function SimulatorView(): React.JSX.Element {
                   setEditingMap(false)
                 }}
               />
+              <WaveEditor
+                options={options}
+                waves={setup.battleWaves ?? []}
+                onChange={(w) => persist({ ...setup, battleWaves: w.length ? w : undefined })}
+              />
             </>
           )}
         </section>
@@ -1935,6 +1940,94 @@ function DamageList({
 }
 
 // --------------------------------------------------------------- sweep table
+
+// -------------------------------------------------------------- reinforcement waves
+
+type Wave = NonNullable<SimSetup['battleWaves']>[number]
+const EDGES = ['top', 'bottom', 'left', 'right'] as const
+
+function WaveEditor({
+  options,
+  waves,
+  onChange
+}: {
+  options: MonsterOption[]
+  waves: Wave[]
+  onChange: (w: Wave[]) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const patch = (i: number, m: Partial<Wave>): void => onChange(waves.map((w, x) => (x === i ? { ...w, ...m } : w)))
+  const addMon = (i: number, id: string): void => {
+    if (!id) return
+    const enc = waves[i].enemies
+    const ex = enc.find((e) => e.id === id)
+    patch(i, {
+      enemies: ex ? enc.map((e) => (e.id === id ? { ...e, count: e.count + 1 } : e)) : [...enc, { id, count: 1 }]
+    })
+  }
+  const bump = (i: number, id: string, d: number): void =>
+    patch(i, {
+      enemies: waves[i].enemies.flatMap((e) => (e.id !== id ? [e] : e.count + d <= 0 ? [] : [{ ...e, count: e.count + d }]))
+    })
+
+  return (
+    <div className="sim-mapsetup">
+      <div className="sim-row" style={{ fontSize: 12, gap: 12 }}>
+        <button className="sim-linkbtn" onClick={() => setOpen((v) => !v)}>
+          {open ? '▾ hide reinforcements' : '▸ reinforcements'}
+        </button>
+        <span className="sim-muted">{waves.length ? `${waves.length} wave${waves.length === 1 ? '' : 's'}` : 'none'}</span>
+      </div>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+          {waves.map((w, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, border: '1px solid var(--border)', borderRadius: 6, padding: 8 }}>
+              <div className="sim-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                <span className="sim-muted">arrives round</span>
+                <Stepper value={w.round} min={1} max={30} onChange={(round) => patch(i, { round })} />
+                <span className="sim-muted">from</span>
+                <select value={w.edge} onChange={(e) => patch(i, { edge: e.target.value as Wave['edge'] })}>
+                  {EDGES.map((ed) => (
+                    <option key={ed} value={ed}>{ed}</option>
+                  ))}
+                </select>
+                <select value="" style={{ minWidth: 140 }} onChange={(e) => addMon(i, e.target.value)}>
+                  <option value="">add a monster…</option>
+                  {options.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name} — CR {o.cr}</option>
+                  ))}
+                </select>
+                <button className="sim-linkbtn danger" style={{ marginLeft: 'auto' }} onClick={() => onChange(waves.filter((_, x) => x !== i))}>
+                  remove
+                </button>
+              </div>
+              <div className="sim-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {w.enemies.length === 0 && <span className="sim-muted">empty</span>}
+                {w.enemies.map((e) => (
+                  <span key={e.id} className="sim-chip on" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                    {options.find((o) => o.id === e.id)?.name ?? e.id}
+                    <button onClick={() => bump(i, e.id, -1)}>−</button>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{e.count}</span>
+                    <button onClick={() => bump(i, e.id, 1)}>+</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button
+            className="sim-linkbtn"
+            style={{ alignSelf: 'flex-start' }}
+            onClick={() =>
+              onChange([...waves, { round: waves.length ? waves[waves.length - 1].round + 1 : 3, enemies: [], edge: 'top' }])
+            }
+          >
+            + wave
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // -------------------------------------------------------------- adventuring day
 
