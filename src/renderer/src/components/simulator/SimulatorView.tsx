@@ -37,8 +37,11 @@ import {
   aoePreview,
   autoPlace,
   cellDistanceFt,
+  classSpellIds,
+  pcSpellClass,
   rosterForSetup,
   rulerLine,
+  spellCatalog,
   starterBattleMap,
   visibleCells
 } from '@common/sim/ui'
@@ -54,6 +57,8 @@ import type {
   RestKind,
   RosterEntry,
   RosterInit,
+  SpellClass,
+  SpellPick,
   UnitSnap
 } from '@common/sim/ui'
 
@@ -1982,6 +1987,12 @@ function PartyEditor({
                     onToggle={(v) => togglePick(i, 'items', v)}
                   />
                 </div>
+                <SpellPicker
+                  cls={pcSpellClass(p)}
+                  level={p.level}
+                  chosen={p.spells ?? []}
+                  onChange={(spells) => patch(i, { spells: spells.length ? spells : undefined })}
+                />
               </div>
             )}
           </li>
@@ -3006,6 +3017,130 @@ function PickList({
             </option>
           ))}
         </select>
+      )}
+    </div>
+  )
+}
+
+// ---- per-PC spell selection ----
+
+const ALL_SPELLS: SpellPick[] = spellCatalog()
+const SPELL_LEVEL_LABEL = (n: number): string => (n === 0 ? 'Cantrips' : `Level ${n}`)
+
+function SpellPicker({
+  cls,
+  level,
+  chosen,
+  onChange
+}: {
+  cls: SpellClass | null
+  level: number
+  chosen: string[]
+  onChange: (ids: string[]) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [showAll, setShowAll] = useState(false)
+  const [q, setQ] = useState('')
+  const chosenSet = useMemo(() => new Set(chosen), [chosen])
+  const onList = useMemo(() => (cls ? new Set(classSpellIds(cls)) : new Set<string>()), [cls])
+  const maxLvl = showAll ? 9 : Math.min(9, Math.max(1, Math.ceil(level / 2)))
+
+  const rows = useMemo(() => {
+    const query = q.trim().toLowerCase()
+    return ALL_SPELLS.filter((s) => {
+      if (chosenSet.has(s.id)) return !query || s.name.toLowerCase().includes(query)
+      if (!showAll && !onList.has(s.id)) return false
+      if (s.level > maxLvl) return false
+      if (query && !s.name.toLowerCase().includes(query)) return false
+      return true
+    })
+  }, [showAll, onList, chosenSet, q, maxLvl])
+
+  const byLevel = useMemo(() => {
+    const m = new Map<number, SpellPick[]>()
+    for (const s of rows) (m.get(s.level) ?? m.set(s.level, []).get(s.level)!).push(s)
+    return [...m.entries()].sort((a, b) => a[0] - b[0])
+  }, [rows])
+
+  const toggle = (id: string): void =>
+    onChange(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id])
+
+  if (!cls) {
+    return (
+      <div className="sim-spellpick sim-muted">
+        Spells: <span style={{ opacity: 0.7 }}>not a spellcaster</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="sim-spellpick">
+      <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+        <button className="sim-linkbtn" onClick={() => setOpen((v) => !v)}>
+          {open ? '▾ spells' : '▸ spells'}
+        </button>
+        <span className="sim-muted">
+          {chosen.length
+            ? `${chosen.length} chosen — the sim casts only these`
+            : `auto (a level-appropriate ${cls} list)`}
+        </span>
+        {chosen.length > 0 && (
+          <button className="sim-linkbtn" onClick={() => onChange([])}>
+            reset to auto
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: '30rem', fontSize: 12 }}>
+          <div className="sim-row" style={{ gap: 12, flexWrap: 'wrap' }}>
+            <label className="sim-row" style={{ gap: 6 }}>
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+              show off-list spells
+            </label>
+            <input
+              style={{ flex: 1, minWidth: 128 }}
+              placeholder="filter by name…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <div style={{ maxHeight: 256, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, paddingRight: 4 }}>
+            {byLevel.map(([lvl, list]) => (
+              <div key={lvl}>
+                <div className="sim-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 10, marginTop: 4 }}>
+                  {SPELL_LEVEL_LABEL(lvl)}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12, rowGap: 2 }}>
+                  {list.map((s) => (
+                    <label
+                      key={s.id}
+                      className="sim-row"
+                      style={{ gap: 6, opacity: s.simulated ? 1 : 0.5 }}
+                      title={
+                        (s.simulated ? '' : 'not simulated — utility / no combat effect. ') +
+                        (s.concentration ? 'concentration. ' : '') +
+                        (!onList.has(s.id) ? 'off your class list' : '')
+                      }
+                    >
+                      <input type="checkbox" checked={chosenSet.has(s.id)} onChange={() => toggle(s.id)} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.name}
+                        {s.reaction ? ' ⚡' : ''}
+                        {s.concentration ? ' ◎' : ''}
+                        {!s.simulated ? ' ·' : ''}
+                        {!onList.has(s.id) ? <span style={{ color: 'var(--warning)', opacity: 0.7 }}> ▸off-list</span> : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {byLevel.length === 0 && <span className="sim-muted">no spells match</span>}
+          </div>
+          <span className="sim-muted" style={{ fontSize: 10, opacity: 0.6 }}>
+            ⚡ reaction · ◎ concentration · · not simulated
+          </span>
+        </div>
       )}
     </div>
   )
