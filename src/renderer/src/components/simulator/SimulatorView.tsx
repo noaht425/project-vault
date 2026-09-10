@@ -979,29 +979,21 @@ function Replay({
 
       <div className="sim-replay-body">
         <div className="sim-replay-board-wrap">
-          <div
-            className="sim-replay-board sim-framed"
-            style={{
-              gridTemplateColumns: `2.5ch 1ch repeat(${dims.width}, 1ch) 1ch`,
-              cursor: awaiting || measuring ? 'pointer' : undefined
-            }}
-          >
-            {Array.from({ length: dims.height + 2 }, (_, ry) => {
-              const y = ry - 1
-              if (y < 0 || y >= dims.height) {
-                return (
-                  <div key={ry} style={{ display: 'contents' }}>
-                    <span />
-                    <span className="brd">{y < 0 ? '┌' : '└'}</span>
-                    <span className="brd" style={{ gridColumn: `span ${dims.width}` }}>{'─'.repeat(dims.width)}</span>
-                    <span className="brd">{y < 0 ? '┐' : '┘'}</span>
-                  </div>
-                )
-              }
-              return (
-                <div key={ry} style={{ display: 'contents' }}>
-                  <span className="gut">{y + 1}</span>
-                  <span className="brd">│</span>
+          <div className="sim-board-frame">
+            <div className="sim-board-gutter">
+              {Array.from({ length: dims.height }, (_, y) => (
+                <span key={y}>{y + 1}</span>
+              ))}
+            </div>
+            <div
+              className="sim-replay-board"
+              style={{
+                gridTemplateColumns: `repeat(${dims.width}, 1.15em)`,
+                cursor: awaiting || measuring ? 'pointer' : undefined
+              }}
+            >
+              {Array.from({ length: dims.height }, (_, y) => (
+                <div key={y} style={{ display: 'contents' }}>
                   {Array.from({ length: dims.width }, (_, x) => {
                     const key = `${x},${y}`
                     const uRaw = unitAt.get(key)
@@ -1069,10 +1061,9 @@ function Replay({
                       </span>
                     )
                   })}
-                  <span className="brd">│</span>
                 </div>
-              )
-            })}
+              ))}
+            </div>
           </div>
           <TerrainLegend />
         </div>

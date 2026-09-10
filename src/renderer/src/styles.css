@@ -2544,18 +2544,34 @@ button.active {
 .sim-replay-board-wrap {
   overflow-x: auto;
 }
-.sim-replay-board {
-  display: inline-grid;
+.sim-board-frame {
+  display: flex;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   line-height: 1;
   user-select: none;
+}
+.sim-board-gutter {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  padding-right: 4px;
+  color: rgba(153, 153, 153, 0.5);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.sim-board-gutter > span {
+  height: 1.15em;
+  min-width: 2.2ch;
+}
+.sim-replay-board {
+  display: grid;
+  color: rgba(153, 153, 153, 0.4);
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: 4px;
 }
-.sim-replay-board > span {
+.sim-replay-board > div > span {
   text-align: center;
   height: 1.15em;
 }
@@ -2805,19 +2821,6 @@ button.active {
 }
 .sim-replay-event .r {
   color: var(--text-muted);
-}
-.sim-framed {
-  color: rgba(153, 153, 153, 0.4);
-}
-.sim-framed .brd {
-  text-align: center;
-  color: rgba(153, 153, 153, 0.4);
-}
-.sim-framed .gut {
-  text-align: right;
-  padding-right: 4px;
-  font-variant-numeric: tabular-nums;
-  height: 1.15em;
 }
 .sim-replay-roster2 {
   display: flex;
